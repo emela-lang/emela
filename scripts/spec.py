@@ -6,10 +6,14 @@ Sections are found by their stable names, the `` `[effect.handler]` `` at the en
     scripts/spec.py index [PREFIX]     list stable names, numbers and titles
     scripts/spec.py show NAME...       print sections (up to the next heading of the same or higher level)
     scripts/spec.py refs NAME          where a name is referred to (spec, proposals, NOTES.md, code)
-    scripts/spec.py proposals [NAME]   list decided proposals and local drafts, or those touching NAME
+    scripts/spec.py proposals [NAME]   list proposals (adopted, rejected and local drafts), or those touching NAME
     scripts/spec.py check              check stable names and proposals for consistency
-    scripts/spec.py accept SLUG FILE [DATE]
-                                       record the adoption of a proposal, with the decision in FILE
+    scripts/spec.py ready SLUG         check that proposals/SLUG.md can be adopted as it stands
+    scripts/spec.py accept SLUG FILE DATE PR
+                                       record the adoption of a merged proposal, with the reasons in FILE
+    scripts/spec.py reject PROPOSAL FILE DATE PR
+                                       record the rejection of the proposal in the file PROPOSAL
+                                       (as it stood when its pull request was closed) in proposals/rejected/
 """
 
 import os
@@ -22,6 +26,7 @@ SPEC = os.path.join(ROOT, "spec")
 PROPOSALS = os.path.join(ROOT, "proposals")
 HEADING = re.compile(r"^(#{1,4}) (.*?)\s*`\[([a-z0-9.\-]+)\]`\s*$")
 STATUSES = {"draft", "accepted", "implemented"}
+JAPANESE = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")
 
 
 def spec_files():
@@ -101,14 +106,16 @@ def read_proposal(path):
 
 
 def proposals():
-    """Yield (file, meta, text, is_local) for proposals in proposals/ and local drafts."""
-    for folder, is_local in ((PROPOSALS, False), (os.path.join(PROPOSALS, "drafts"), True)):
+    """Yield (file, meta, text, is_local) for the proposals in proposals/, the rejected ones in
+    proposals/rejected/ and the local drafts in proposals/drafts/."""
+    for sub, is_local in (("", False), ("rejected/", False), ("drafts/", True)):
+        folder = os.path.join(PROPOSALS, sub)
         if not os.path.isdir(folder):
             continue
         for f in sorted(os.listdir(folder)):
             if f.endswith(".md") and f not in ("README.md", "TEMPLATE.md"):
                 meta, text = read_proposal(os.path.join(folder, f))
-                yield ("drafts/" + f if is_local else f), meta, text, is_local
+                yield sub + f, meta, text, is_local
 
 
 def touched(meta):
@@ -135,11 +142,17 @@ def cmd_check():
     for f, meta, text, is_local in proposals():
         slugs[os.path.basename(f)[:-3]] = meta
         status = meta.get("status")
-        if status not in STATUSES:
+        rejected = f.startswith("rejected/")
+        if rejected:
+            if status != "rejected":
+                problems.append(f"{f}: a proposal in rejected/ has `status: rejected`, not {status!r}")
+        elif status not in STATUSES:
             problems.append(f"{f}: unknown status {status!r}")
+        # A proposal is merged with `status: draft`; the record of its adoption fills in `pr`.
         if not is_local and status != "draft" and not re.fullmatch(r"\d+", str(meta.get("pr", ""))):
             problems.append(f"{f}: an {status} proposal needs the number of its pull request in `pr`")
-        for t in meta.get("touches", []) or []:
+        # A rejected proposal is kept as it was; the sections it named may never have existed.
+        for t in [] if rejected else meta.get("touches", []) or []:
             if "(new)" not in t and t not in names:
                 problems.append(f"{f}: touches [{t}], which is not in spec/ (mark a new section with `(new)`)")
         if status in ("accepted", "implemented"):
@@ -157,12 +170,11 @@ def cmd_check():
                     where = "a proposal" if is_local else "a proposal in proposals/ (local drafts are not committed)"
                     problems.append(f"{f}: {key} {r!r} is not the slug of {where}")
     # The specification is in English; only the glossary carries the Japanese terms used in discussions.
-    japanese = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")
     for path in spec_files():
         if os.path.basename(path) == "glossary.md":
             continue
         for i, line in enumerate(open(path, encoding="utf-8").read().split("\n"), 1):
-            if japanese.search(line):
+            if JAPANESE.search(line):
                 problems.append(f"{rel(path)}:{i}: Japanese text in the specification")
     heads = {n for n in names if "." not in n}
     for path in spec_files():
@@ -185,57 +197,109 @@ def section_body(text, heading):
     return (m.start(1), m.end(1)) if m else None
 
 
-def cmd_accept(slug, decision_file, date=None):
-    """Record the author's adoption of a proposal: the front matter, "Decision" and `spec/history.md`.
+def set_field(text, key, value):
+    """Set `key: value` in the front matter, adding the line before its end when it is missing."""
+    line = f"{key}: {value}" if value != "" else f"{key}:"
+    if re.search(rf"^{key}:.*$", text, re.M):
+        return re.sub(rf"^{key}:.*$", lambda _: line, text, count=1, flags=re.M)
+    end = text.index("\n---\n", 4)
+    return text[:end] + "\n" + line + text[end:]
 
-    Applying "Specification changes" to `spec/` is left to a person or an LLM, because it needs judgment."""
-    import datetime
 
+def set_section(text, heading, body):
+    span = section_body(text, heading)
+    if span:
+        tail = "\n" if span[1] < len(text) else ""
+        inner = "\n" + body + "\n" if body else ""
+        return text[:span[0]] + inner + tail + text[span[1]:]
+    return text.rstrip("\n") + f"\n\n## {heading}\n\n" + body + "\n"
+
+
+def ready_problems(path):
+    """Why the proposal in `path` cannot be adopted as it stands (proposals/README.md, "Decision")."""
+    meta, text = read_proposal(path)
+    problems = []
+    if meta.get("status") != "draft":
+        problems.append(f"it is {meta.get('status')!r}, not draft")
+    span = section_body(text, "Open questions")
+    if span and re.search(r"^- \S", text[span[0]:span[1]], re.M):
+        problems.append("it still has open questions; settle them, or move them out of the proposal")
+    lines = [i for i, line in enumerate(text.split("\n"), 1) if JAPANESE.search(line)]
+    if lines:
+        problems.append(f"it has Japanese text on lines {', '.join(map(str, lines))}; "
+                        "an adopted proposal is in English")
+    return problems
+
+
+def cmd_ready(slug):
     path = os.path.join(PROPOSALS, slug + ".md")
     if not os.path.isfile(path):
         sys.exit(f"no proposal proposals/{slug}.md")
-    meta, text = read_proposal(path)
-    if meta.get("status") != "draft":
-        sys.exit(f"proposals/{slug}.md is {meta.get('status')!r}, not draft")
-    if not re.fullmatch(r"\d+", str(meta.get("pr", ""))):
-        sys.exit(f"proposals/{slug}.md has no pull request number in `pr`")
+    problems = ready_problems(path)
+    for p in problems:
+        print(f"proposals/{slug}.md: {p}")
+    sys.exit(1 if problems else 0)
+
+
+def read_decision(decision_file):
     decision = open(decision_file, encoding="utf-8").read().strip()
     if not decision:
-        sys.exit("the decision is empty: write the reasons for adopting the proposal")
-    span = section_body(text, "Open questions")
-    if span and re.search(r"^- \S", text[span[0]:span[1]], re.M):
-        sys.exit(f"proposals/{slug}.md still has open questions; settle them before adopting it")
-    date = date or datetime.date.today().isoformat()
+        sys.exit("the decision is empty: write the reasons")
+    return decision
 
-    text = re.sub(r"^status:.*$", "status: accepted", text, count=1, flags=re.M)
-    text = re.sub(r"^decided:.*$", f"decided: {date}", text, count=1, flags=re.M)
-    span = section_body(text, "Open questions")
-    if span:
-        text = text[:span[0]] + "\n" + text[span[1]:]
-    span = section_body(text, "Decision")
-    if span:
-        text = text[:span[0]] + "\n" + decision + "\n" + ("\n" if span[1] < len(text) else "") + text[span[1]:]
-    else:
-        text = text.rstrip("\n") + "\n\n## Decision\n\n" + decision + "\n"
-    # A merged proposal is in English (proposals/README.md, "Language").
-    japanese = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")
-    lines = [i for i, line in enumerate(text.split("\n"), 1) if japanese.search(line)]
-    if lines:
-        sys.exit(f"proposals/{slug}.md has Japanese text on lines {', '.join(map(str, lines))}; "
-                 "an adopted proposal is in English")
+
+def cmd_accept(slug, decision_file, date, pr):
+    """Record the author's adoption of a merged proposal: the front matter, "Decision" and
+    `spec/history.md`. Its pull request already changed `spec/`."""
+    path = os.path.join(PROPOSALS, slug + ".md")
+    if not os.path.isfile(path):
+        sys.exit(f"no proposal proposals/{slug}.md")
+    problems = ready_problems(path)
+    if problems:
+        sys.exit(f"proposals/{slug}.md: " + "; ".join(problems))
+    decision = read_decision(decision_file)
+    meta, text = read_proposal(path)
+
+    text = set_field(text, "status", "accepted")
+    text = set_field(text, "pr", pr)
+    text = set_field(text, "decided", date)
+    text = set_section(text, "Open questions", "")
+    text = set_section(text, "Decision", decision)
     open(path, "w", encoding="utf-8").write(text)
 
     span = section_body(text, "Summary")
     summary = " ".join(text[span[0]:span[1]].split()) if span else ""
     names = ", ".join(f"`[{t}]`" for t in touched(meta))
     entry = (f"## {date} ({meta.get('title', slug)})\n\n"
-             f"- {names}: {summary} Adopted in the proposal `{slug}` (#{meta['pr']}).\n\n")
+             f"- {names}: {summary} Adopted in the proposal `{slug}` (#{pr}).\n\n")
     history = os.path.join(SPEC, "history.md")
     old = open(history, encoding="utf-8").read()
     first = re.search(r"^## ", old, re.M)
     at = first.start() if first else len(old)
     open(history, "w", encoding="utf-8").write(old[:at] + entry + old[at:])
-    print(f"accepted proposals/{slug}.md on {date}; apply its \"Specification changes\" to spec/")
+    print(f"recorded the adoption of proposals/{slug}.md on {date}")
+
+
+def cmd_reject(source, decision_file, date, pr):
+    """Record the author's rejection: the proposal as it stood when its pull request was closed,
+    with the reasons, in proposals/rejected/. The specification does not change."""
+    decision = read_decision(decision_file)
+    text = open(source, encoding="utf-8").read()
+    if not re.match(r"^---\n.*?\n---\n", text, re.S):
+        sys.exit(f"{source} has no front matter")
+    slug = os.path.basename(source)[:-3]
+    folder = os.path.join(PROPOSALS, "rejected")
+    os.makedirs(folder, exist_ok=True)
+    # The same slug may be proposed and rejected again; each rejection keeps its own file.
+    path = os.path.join(folder, slug + ".md")
+    if os.path.exists(path):
+        path = os.path.join(folder, f"{slug}-{pr}.md")
+    text = set_field(text, "status", "rejected")
+    text = set_field(text, "pr", pr)
+    text = set_field(text, "decided", date)
+    text = set_section(text, "Decision", decision)
+    open(path, "w", encoding="utf-8").write(text)
+    print(f"recorded the rejection in {rel(path)}")
 
 
 def main():
@@ -243,7 +307,7 @@ def main():
         sys.exit(__doc__)
     cmd, args = sys.argv[1], sys.argv[2:]
     {"index": cmd_index, "show": cmd_show, "refs": cmd_refs, "proposals": cmd_proposals,
-     "check": cmd_check, "accept": cmd_accept}.get(cmd, lambda *_: sys.exit(__doc__))(*args)
+     "check": cmd_check, "ready": cmd_ready, "accept": cmd_accept, "reject": cmd_reject}.get(cmd, lambda *_: sys.exit(__doc__))(*args)
 
 
 if __name__ == "__main__":

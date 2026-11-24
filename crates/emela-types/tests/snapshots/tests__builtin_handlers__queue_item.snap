@@ -1,0 +1,33 @@
+---
+source: crates/emela-types/tests/builtin_handlers.rs
+expression: "render(r#\"\nimport Std.Queue.{Queue, QueueClosed}\n\ntype Job(id: Int)\n\nfn produce() -> Option[Job] fails QueueClosed uses { Async } {\n  with q = Queue(capacity: 2) {\n    q.offer(Job(id: 1))\n    sent = q.try_offer(Job(id: 2))\n    n = q.size()\n    taken = q.take()\n    q.close()\n    q.poll()\n  }\n}\n\nfn written() -> Int {\n  with q = Queue[Job](capacity: 100) { q.size() }\n}\n\nfn drained() -> () uses { Async } {\n  with q = Queue[Int](capacity: 1) {\n    q.take() escape {\n      QueueClosed -> 0\n    }\n    ()\n  }\n}\n\nfn bad_capacity() -> () {\n  with q = Queue[Int](capacity: \"ten\") { () }\n}\n\"#)"
+---
+produce: fn() -> Option[Job] fails QueueClosed uses { Async }
+  q: use Queue[Job]
+  sent: Bool
+  n: Int
+  taken: Job
+written: fn() -> Int
+  q: use Queue[Job]
+drained: fn() -> () uses { Async }
+  q: use Queue[Int]
+bad_capacity: fn() -> ()
+  q: use Queue[Int]
+item Queue: [Job]
+item Queue: [Job]
+item Queue: [Int]
+item Queue: [Int]
+`"ten"` mismatch: expected `Int`, found `String`
+--- R
+{     q.offer(Job(id: 1))     sent = q.try_offer(Job(id: 2))     n = q.size()     taken = q.take()     q.close()     q.poll()   }: q
+q.offer(Job(id: 1)): q
+q.try_offer(Job(id: 2)): q
+q.size(): q
+q.take(): q
+q.close(): q
+q.poll(): q
+{ q.size() }: q
+q.size(): q
+{     q.take() escape {       QueueClosed -> 0     }     ()   }: q
+q.take() escape {       QueueClosed -> 0     }: q
+q.take(): q

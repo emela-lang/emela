@@ -466,10 +466,16 @@ fn display_uses() {
         "∀ R. fn(fn() -> Int fails {} uses { R }) -> Int uses { Clock, R }"
     );
     // A capability value's type is shown as the expression that creates it.
-    assert_eq!(d(Ty::cap([Tag::new(logger)]), &cons), "use Logger");
+    assert_eq!(
+        d(Ty::cap([Tag::new(logger)], Row::empty()), &cons),
+        "use Logger"
+    );
     // A capability of several effects lists them joined by `+` (`[effect.use]`).
     assert_eq!(
-        d(Ty::cap([Tag::new(logger), Tag::new(clock)]), &cons),
+        d(
+            Ty::cap([Tag::new(logger), Tag::new(clock)], Row::empty()),
+            &cons
+        ),
         if clock < logger {
             "use Clock + Logger"
         } else {

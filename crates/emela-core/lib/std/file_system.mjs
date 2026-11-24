@@ -1,7 +1,7 @@
 // Host functions for SystemFileSystem (file_system.emel) on JS. Uses `node:fs/promises`.
 //
 // The operations return an outcome object instead of throwing, since an external function cannot
-// fail (spec 12.5): `{ error, message, text, names }`. `error` is "" on success, or the name of the
+// fail (`[ext.exception]`): `{ error, message, text, names }`. `error` is "" on success, or the name of the
 // Emela error to fail with. Each operation maps the host's error codes to the errors its `fails`
 // lists, and anything else to "FileSystemFailure" with the host's message.
 //
@@ -94,7 +94,7 @@ export async function isDirectory(path) {
   }
 }
 
-// Compares by code points (spec 10.6), unlike the default sort, which compares UTF-16 code units.
+// Compares by code points (`[trait.builtin]`), unlike the default sort, which compares UTF-16 code units.
 const byCodePoints = (a, b) => {
   const xs = [...a];
   const ys = [...b];

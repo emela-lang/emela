@@ -10,7 +10,7 @@
 //! The tests lower with the optimisations off and run only β (plus the older passes without a
 //! flag), so a binding the test looks for is not removed by ζ first.
 
-mod support;
+use crate::support;
 
 use emela_core::opt::{CoreFns, Options, Rules};
 use emela_core::{dump, opt};
