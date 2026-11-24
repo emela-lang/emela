@@ -1,0 +1,17 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\", \"fn count\"])"
+---
+export fn main() -> Int {
+  @dbg[Int](count[()](1))
+}
+
+export fn count(n%0: Int) -> Int {
+  let xs%1: List[any] = []: List[any]
+  (n%0 +[Int] List.length[any](xs%1))
+}
+
+fn count[()](n%0: Int) -> Int {
+  let xs%1: List[()] = []: List[()]
+  (n%0 +[Int] List.length[()](xs%1))
+}

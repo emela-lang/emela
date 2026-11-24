@@ -1,0 +1,86 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "mine.join(\"\\n\\n\")"
+---
+effect Clock {
+  suspend fn sleep(Int) -> Int
+  fn now() -> Int
+}
+
+export suspend fn main() -> List[Int] {
+  let _%0: List[Int] = with {
+    let h%1: handler Clock = SystemClock()
+    let ev%2: evidence = provide(; Clock = h%1)
+  } {
+    @dbg[List[Int]](naps([1, 2]: List[Int], ev%2)!)
+  }
+  let _%3: Int = with {
+    let h%4: handler Clock = InstantClock()
+  } {
+    @dbg[Int](h%4.Clock#sleep(1)!)
+  }
+  let _%5: Int = with {
+    let h%6: handler Clock = FetchingClock()
+  } {
+    @dbg[Int](h%6.Clock#sleep(1)!)
+  }
+  @dbg[List[Int]](List.map[Int, Int, {}, {}]([1]: List[Int], fn(x%7: Int) -> Int {
+    x%7
+  }, ()))
+}
+
+fn SystemClock() -> handler Clock {
+  handler SystemClock: Clock {
+    sleep: fn(ms%0: Int, resume%1: fn(Int) -> ()) -> () {
+      after[{}, {}](ms%0, fn() -> () {
+        (resume%1)(ms%0)
+      })
+    }
+    now: fn() -> Int {
+      0
+    }
+  }
+}
+
+suspend fn naps(xs%0: List[Int], ev%1: evidence) -> List[Int] {
+  let clock%2: handler Clock = use[Clock](ev%1)
+  List.map$suspend8[Int, Int, {}, {suspends, ev}](xs%0, suspend fn(ms%3: Int, ev%4: evidence) -> Int {
+    (clock%2.Clock#sleep(ms%3)! +[Int] clock%2.Clock#now())
+  }, ev%1)!
+}
+
+fn InstantClock() -> handler Clock {
+  handler InstantClock: Clock {
+    sleep: fn(ms%0: Int, resume%1: fn(Int) -> ()) -> () {
+      (resume%1)(0)
+    }
+    now: fn() -> Int {
+      0
+    }
+  }
+}
+
+fn FetchingClock() -> handler Clock {
+  handler FetchingClock: Clock {
+    sleep: suspend fn(ms%0: Int, resume%1: fn(Int) -> ()) -> () {
+      (resume%1)(@String.length(fetch_text("x")!))
+    }
+    now: fn() -> Int {
+      0
+    }
+  }
+}
+
+fn List.map[A, B, C, D](xs%0: List[A], f%1: fn(A) -> B fails ev (E {C}, R {D}), ev%2: evidence) -> List[B] fails {
+  List.reverse[B](List.fold[A, List[B], {C}, {D}](xs%0, []: List[B], fn(acc%3: List[B], x%4: A, ev%5: evidence) -> List[B] fails {
+    [(f%1)(x%4, ev%5)?, ..acc%3]: List[B]
+  }, ev%2)?)
+}
+
+suspend external fn fetch_text(url%0: String) -> String = js["./ffi.mjs", "fetchText"]
+
+suspend fn List.map$suspend8[A, B, C, D](xs%0: List[A], f%1: fn(A) -> B fails suspends ev (E {C}, R {D}), ev%2: evidence) -> List[B] fails {
+  List.reverse[B](List.fold$suspend8[A, List[B], {C}, {D}](xs%0, []: List[B], suspend fn(acc%3: List[B], x%4: A, ev%5: evidence) -> List[B] fails {
+    [(f%1)(x%4, ev%5)!?, ..acc%3]: List[B]
+  }, ev%2)!?)
+}

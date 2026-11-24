@@ -19,9 +19,9 @@ fn old(xs: List[Int]) {
   multi = fn() {
     x
   }
-  hugged = Fiber.scope(fn() {
-    a = Fiber.fork(fn() { fetch(1) })
-    Fiber.join(a)
+  hugged = Exit.attempt(fn() {
+    a = tasks.start(fn() { fetch(1) })
+    a.join()
   })
   last = fn(x) { x }
 }
