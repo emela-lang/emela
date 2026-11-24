@@ -1,0 +1,6 @@
+---
+source: crates/emela-types/tests/task.rs
+expression: "render(r#\"\nimport Std.Task.{Task, TaskGroup, Spawn}\n\nhandler MyGroup: TaskGroup[{}, {}] {\n  fn start(f) { todo() }\n}\n\nhandler MySpawn: Spawn[{}, {}] {\n  fn start(f) { () }\n}\n\"#)"
+---
+`MyGroup` IntrinsicHandler { handler: "MyGroup", effect: "TaskGroup", provider: "Task.Group" }
+`MySpawn` IntrinsicHandler { handler: "MySpawn", effect: "Spawn", provider: "Task.Background" }

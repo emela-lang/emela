@@ -197,7 +197,7 @@ fn describe(
             (head, ops)
         }
         (ast::Item::Handler(decl), Some(Item::Handler(it))) => (
-            crate::hover::handler_text(program, def).unwrap_or_default(),
+            crate::hover::handler_text(program, def, None).unwrap_or_default(),
             it.ctor
                 .map(|ctor| field_children(program, ctor, decl.field_list()))
                 .unwrap_or_default(),

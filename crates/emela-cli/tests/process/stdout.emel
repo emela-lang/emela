@@ -5,8 +5,8 @@ import Std.Process.{Process, Stderr, Stdout}
 
 ## Not a suspend fn and no Async: the operations are Immediate.
 fn write() -> () uses { Stdout, Stderr } {
-  out = use Stdout
-  err = use Stderr
+  out <- Stdout
+  err <- Stderr
   out.print("Hello, ")
   out.print_line("alice!")
   out.print("")

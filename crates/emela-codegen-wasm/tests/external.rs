@@ -1,7 +1,7 @@
 //! `@external(wasm, ...)` is not available on the WASI 0.3 component target yet: a component
 //! can only import interfaces declared in its WIT world, and custom host WIT is not implemented.
 
-mod common;
+use crate::common;
 
 use common::*;
 use emela_codegen_wasm::WasmErrorKind;

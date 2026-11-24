@@ -2,9 +2,7 @@
 title: Title
 authors: []
 status: draft
-pr:
 issue:
-decided:
 touches: []
 requires: []
 related: []
@@ -23,10 +21,6 @@ related: []
 ### Meaning
 
 ### Typing rules
-
-## Specification changes
-
-### `[section.name]`
 
 ## Diagnostics
 
