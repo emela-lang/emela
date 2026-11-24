@@ -1,0 +1,28 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/generic_handler.emel
+---
+# Handlers with type parameters (`[effect.handler]`), and type arguments on items of `with`, of a
+# layer and on the right of `by`.
+handler InMemoryRepo[K: Eq, V]: Repo[K, V] {
+  fn find(key) { None }
+}
+
+handler Memory[S](value: S): State[S] {
+  init(value: S) { Memory(value:) }
+  fn get() { self.value }
+}
+
+layer AppTest {
+  InMemoryRepo[UserId, User]
+  Memory[Int](value: 0)
+}
+
+fn main() {
+  with repo = InMemoryRepo[UserId, User], Memory[Int](value: 0) { seed(repo) }
+  with Hits by Memory[Int](value: 0), Counter by State[Int] { c() }
+  with VeryLongHandlerName[SomeVeryLongTypeName, AnotherVeryLongTypeName](initial_value: 1234567) {
+    run()
+  }
+}

@@ -2,7 +2,7 @@
 # fused expression is paired with its hand-written form here, so the two must agree; the tests run
 # this on JS and C (with the leak check) and on WASM.
 import Std.Array.{Array}
-import Std.Fiber.{Fiber}
+import Std.Task.{Task}
 import Std.State.{State}
 
 enum Shade {
@@ -75,7 +75,9 @@ fn or_failing(a: Array[Int], i: Int) -> Int fails Missing {
 
 # `d` suspends.
 fn or_suspending(a: Array[Int], i: Int) -> Int {
-  Fiber.scope(|| Array.get(a, i) |> Option.or(Fiber.join(Fiber.fork(|| 7))))
+  with tasks = Task.Group {
+    Array.get(a, i) |> Option.or(tasks.start(|| 7).join())
+  }
 }
 
 # `d` reads an effect; it is evaluated even when the element is found.

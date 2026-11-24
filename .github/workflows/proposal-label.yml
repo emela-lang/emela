@@ -1,0 +1,35 @@
+name: Proposal label
+
+# Adds the label `proposal` to a pull request that adds a proposal (`proposals/<slug>.md`), so that
+# the author of a pull request from a fork, who cannot set labels, gets the same handling: the
+# `/accept` and `/reject` commands and the record of the decision (proposals/README.md, "Pull
+# request").
+
+on:
+  # `pull_request_target` so that a pull request from a fork can be labeled. The job checks out
+  # nothing and reads only the list of the pull request's files.
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Label a pull request that adds a proposal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          added="$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | select(.status == "added") | .filename' \
+            | grep -E '^proposals/[^/]+\.md$' | grep -vE '^proposals/(README|TEMPLATE)\.md$' || true)"
+          if [ -z "$added" ]; then
+            echo "no new proposal"
+            exit 0
+          fi
+          gh label create proposal --repo "$REPO" --color 5319E7 \
+            --description "Adds a proposal (proposals/)" 2>/dev/null || true
+          gh pr edit "$PR" --repo "$REPO" --add-label proposal

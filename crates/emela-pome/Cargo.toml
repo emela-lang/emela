@@ -4,6 +4,7 @@ description = "Pome (spec 4.7): source paths, versions, Pome.toml and Pome.lock,
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autotests = false
 
 [dependencies]
 serde.workspace = true
@@ -25,3 +26,7 @@ net = ["dep:ureq"]
 
 [dev-dependencies]
 flate2.workspace = true
+
+[[test]]
+name = "tests"
+path = "tests/main.rs"

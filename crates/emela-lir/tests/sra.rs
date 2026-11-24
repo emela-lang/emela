@@ -1,8 +1,7 @@
 //! Tests for the scalar replacement of tuples on lowered programs: a non-escaping tuple of
 //! scalars loses its allocation, while a tuple that leaves the function stays.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::{Roots, monomorphize_from, verify_monomorphic};
 use emela_lir::{FnId, Module, convert_closures, dump_function, from_core, opt, verify};

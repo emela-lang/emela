@@ -1,7 +1,7 @@
 //! A `Show` that itself raises a defect ([test.command], [dyn.error]): the test result protocol
 //! and the end of `main`.
 
-mod common;
+use crate::common;
 
 use common::*;
 

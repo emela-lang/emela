@@ -1,0 +1,20 @@
+exit: 0
+--- stdout
+poll None
+joined 41 42
+again False Some(40)
+list ["x", "y"]
+unit Some(())
+fetched 2
+fetched 1
+all [10, 20]
+fetched 4
+race 40
+fetched 5
+both 50 x
+fetched 2
+fetched 1
+fetched 3
+map [10, 20, 30]
+race failed -1
+--- stderr

@@ -2,10 +2,8 @@
 
 // ---- Args ----
 
-// The launcher of `emela run` puts the arguments after the entry module here before it imports
-// the entry. How many leading elements of `process.argv` are the host and the script depends on
-// the host and on how it was started, so the launcher, which knows, slices them. Nothing sets it
-// under `emela test` or in the server of an HTTP service, where the list is empty.
+// The launcher (`$launchMain` of the runtime) puts the arguments after `main.mjs` here. Nothing
+// sets it under `emela test` or in the server of an HTTP service, where the list is empty.
 const ARGS = Symbol.for("emela.args");
 
 let args;
