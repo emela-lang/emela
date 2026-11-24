@@ -11,6 +11,7 @@ mod algebra;
 mod backends;
 mod borrow_opt;
 mod c;
+mod closure_sra;
 mod dependencies;
 mod diagnostics;
 mod doc;
