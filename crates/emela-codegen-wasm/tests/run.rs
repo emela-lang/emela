@@ -1012,7 +1012,7 @@ fn list_fold_and_map_over_a_range() {
     let Some(out) = stderr(
         "range-fold-map",
         r#"
-import Std.Fiber.{Fiber}
+import Std.Task.{Task}
 import Std.State.{State}
 
 error Missing
@@ -1036,7 +1036,9 @@ fn main() {
   dbg(List.fold(List.range(0, 4), 0, |acc, x| {
     if x == 2 { fail Missing } else { acc + x }
   }) escape { Missing -> -1 })
-  dbg(Fiber.scope(|| List.fold(List.range(0, 3), 0, |acc, x| Fiber.join(Fiber.fork(|| acc + x)))))
+  dbg(with tasks = Task.Group {
+    List.fold(List.range(0, 3), 0, |acc, x| tasks.start(|| acc + x).join())
+  })
   (value, updates) = State.run(0, || {
     st = use State[Int]
     List.fold(List.range(0, 3), 0, |acc, x| {
