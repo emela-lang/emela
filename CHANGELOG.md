@@ -7,6 +7,20 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.28.2](https://github.com/emela-lang/emela/compare/v0.28.1...v0.28.2) - 2026-11-22
+
+### Fixed
+
+- *(core)* suspend handler の member を持つ effect を，型検査と同じく Immediate でないとする ([#713](https://github.com/emela-lang/emela/pull/713)) (by @somnicattus)
+- *(types)* with の項目で引数のある handler member の括弧を省いたら E0434 にする ([#706](https://github.com/emela-lang/emela/pull/706)) (by @somnicattus)
+- *(core)* effect のキーに capability の型の effect を入れ，State[use A] と State[use B] を別の effect にする ([#708](https://github.com/emela-lang/emela/pull/708)) (by @somnicattus)
+
+### Other
+
+- *(spec)* Instant.to_string の形式を一意に書き，RFC 3339 との関係を書く ([#729](https://github.com/emela-lang/emela/pull/729)) (by @somnicattus)
+- *(lir)* 空の evidence の表を WASM と C で null にし，確保しない ([#721](https://github.com/emela-lang/emela/pull/721)) (by @Allianaab2m)
+- Rust のテストを速くする（コーパスの分割と Bun の shard 化） ([#716](https://github.com/emela-lang/emela/pull/716)) (by @Allianaab2m)
+
 ## [0.28.1](https://github.com/emela-lang/emela/compare/v0.28.0...v0.28.1) - 2026-11-19
 
 ### Fixed

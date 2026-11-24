@@ -242,6 +242,7 @@ impl Dumper<'_> {
             Item::Handler(h) => {
                 let effects = self.effect_sum(&h.effects);
                 self.line(0, format!("handler {name}{flags}: {effects}"));
+                self.type_params(1, &h.type_params);
                 for field in &h.fields {
                     let ty = self.ty(field.ty);
                     self.line(1, format!("field {}: {ty}", field.name));
@@ -290,7 +291,8 @@ impl Dumper<'_> {
                     .iter()
                     .map(|m| {
                         let parens = if m.args.is_some() { "(..)" } else { "" };
-                        format!("{}{parens}", self.res(m.res))
+                        let ty_args = self.ty_args(&m.ty_args);
+                        format!("{}{ty_args}{parens}", self.res(m.res))
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -658,7 +660,8 @@ impl Dumper<'_> {
                             Some(local) => format!("{} = ", self.local(local)),
                             None => String::new(),
                         };
-                        let label = format!("{bind}{target}{}", parens(&item.args));
+                        let ty_args = self.ty_args(&item.ty_args);
+                        let label = format!("{bind}{target}{ty_args}{}", parens(&item.args));
                         match item.by {
                             Some((by, _)) => {
                                 let by = self.res(by);

@@ -599,10 +599,10 @@ fn system_stdout_under_test_on_every_target() {
         "import Std.Process.{Process, Stdout}\n\
          \n\
          @test\n\
-         fn first() {\n  with Process { (use Stdout).print(\"no newline\") }\n}\n\
+         fn first() {\n  with Process {\n    stdout <- Stdout\n    stdout.print(\"no newline\")\n  }\n}\n\
          \n\
          @test\n\
-         fn second() {\n  with Process { (use Stdout).print_line(\"a line\") }\n}\n",
+         fn second() {\n  with Process {\n    stdout <- Stdout\n    stdout.print_line(\"a line\")\n  }\n}\n",
     );
     for target in every_target() {
         let out = project.run(&["test", "--target", target, "--reporter", "plain"], b"");
