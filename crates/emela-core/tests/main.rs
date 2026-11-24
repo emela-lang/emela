@@ -7,6 +7,7 @@ mod support;
 
 mod algebra;
 mod beta;
+mod delta;
 mod dump;
 mod eta;
 mod fold;
@@ -17,6 +18,7 @@ mod iota;
 mod lower;
 mod mono;
 mod opt;
+mod post_mono_delta;
 mod reduce_skeleton;
 mod zeta;
 

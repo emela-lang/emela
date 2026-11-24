@@ -9,7 +9,7 @@
 //! indirect call, a compiler-generated `$` helper and a trait or derived impl stay calls, and a
 //! site over the expansion budget is left whole rather than copied in part.
 
-mod support;
+use crate::support;
 
 use emela_core::opt::CoreFns;
 use emela_core::{BinOp, Callee, Expr, FnId, Lit, Module, OpTy, TypeId, dump, opt, verify};
