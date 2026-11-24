@@ -5,6 +5,7 @@
 
 mod support;
 
+mod beta;
 mod dump;
 mod fold;
 mod fusion_laws;
