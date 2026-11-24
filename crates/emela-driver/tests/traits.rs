@@ -15,9 +15,11 @@ fn checked(files: &[(&str, &str)]) -> Analysis {
 /// The errors and warnings of `main.emel` as `code message @ source text`.
 fn diagnostics(main: &str) -> Vec<String> {
     let analysis = checked(&[("/app/src/main.emel", main)]);
+    // W0403: the programs still write `use E` as an expression (deprecated).
     analysis
         .diagnostics
         .iter()
+        .filter(|d| d.code != Some(emela_driver::code::DEPRECATED_USE))
         .map(|d| {
             let at = match d.location {
                 Some(Location::Span(span)) => &main[span.range],
@@ -602,4 +604,108 @@ fn operators_and_interpolation_need_the_traits() {
 fn constraints_and_derives_give_the_operators() {
     let main = "type Pt(x: Int)\n  derive Eq, Ord, Show\nfn big[A: Ord](x: A, y: A) -> Bool { x < y && x == y }\nfn say[A: Show](x: A) -> String { \"#{x}\" }\nfn main() {\n  p = Pt(x: 1)\n  a = \"#{p} #{[p]} #{(1, Some(p))}\"\n  b = p == p && [p] < [p] && big(p, p)\n}\n";
     assert_clean(&[("/app/src/main.emel", main)]);
+}
+
+const CAPABILITY_EFFECTS: &str = "effect Db {\n  fn query(q: String) -> Int\n}\n\neffect Replica of Db\n\neffect State[S] {\n  fn get() -> S\n}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n";
+
+/// `[trait.builtin]`, `[effect.use]`: Capability is satisfied only by capability types, with
+/// their type arguments and labels. A type that contains one, a function type and other types do
+/// not satisfy it (E0326).
+#[test]
+fn capability_is_satisfied_only_by_capability_types() {
+    let main = format!(
+        "{CAPABILITY_EFFECTS}
+fn keep[C: Capability](c: C) -> C {{ c }}
+
+fn effects(db: use Db, r: use Replica, s: use State[Int], both: use Db + Logger) -> () {{
+  keep(db)
+  keep(r)
+  keep(s)
+  keep(both)
+  ()
+}}
+
+fn others(db: use Db) -> () {{
+  keep(42)
+  keep([db])
+  keep((db, 1))
+  keep(|x: Int| x)
+  ()
+}}
+"
+    );
+    assert_eq!(
+        errors(&main),
+        [
+            "E0326 type `Int` does not implement `Capability` @ keep",
+            "E0326 type `List[use Db]` does not implement `Capability` @ keep",
+            "E0326 type `(use Db, Int)` does not implement `Capability` @ keep",
+            "E0326 type `fn(Int) -> Int` does not implement `Capability` @ keep",
+        ]
+    );
+}
+
+/// `[trait.builtin]`: a value of a type parameter with `[C: Capability]` is used as the value of
+/// any other type parameter: passed, stored and returned. An ordinary type parameter without the
+/// constraint does not satisfy Capability (E0326, `[trait.call]`).
+#[test]
+fn capability_type_parameters_pass_store_and_return_their_values() {
+    let main = format!(
+        "{CAPABILITY_EFFECTS}
+fn keep[C: Capability](c: C) -> C {{ c }}
+
+fn forward[C: Capability](c: C) -> C {{ keep(c) }}
+
+fn stored[C: Capability](c: C) -> (C, List[C]) {{ (c, [c]) }}
+
+fn any[A](a: A) -> A {{ keep(a) }}
+
+fn uses_them(db: use Db) -> Int {{
+  forward(db).query(\"x\")
+  (kept, _) = stored(db)
+  kept.query(\"y\")
+}}
+"
+    );
+    assert_eq!(
+        errors(&main),
+        ["E0326 type `A` does not implement `Capability` @ keep"]
+    );
+}
+
+/// `[trait.builtin]`: Capability can be put only on an ordinary type parameter. On an error set
+/// or an effect set type parameter it is a compile error (E0340).
+#[test]
+fn capability_constrains_only_ordinary_type_parameters() {
+    let main = "fn effects[R: Capability](f: fn() -> Int uses { R }) -> Int uses { R } { f() }
+
+fn failures[E: Capability](f: fn() -> Int fails E) -> Int fails E { f() }
+";
+    assert_eq!(
+        errors(main),
+        [
+            "E0340 `Capability` can only constrain ordinary type parameters, but `R` is used in `uses` @ Capability",
+            "E0340 `Capability` can only constrain ordinary type parameters, but `E` is used in `fails` @ Capability",
+        ]
+    );
+    assert!(
+        errors(&format!(
+            "{CAPABILITY_EFFECTS}fn keep[C: Capability](c: C) -> C {{ c }}\n"
+        ))
+        .is_empty()
+    );
+}
+
+/// `[trait.builtin]`: Capability and Immediate are determined automatically, and an impl of
+/// either is a compile error (E0341).
+#[test]
+fn capability_and_immediate_cannot_be_implemented() {
+    let main = format!("{POINT}impl Point: Capability {{}}\n\nimpl Point: Immediate {{}}\n");
+    assert_eq!(
+        errors(&main),
+        [
+            "E0341 `Capability` is determined automatically and cannot be implemented @ Point",
+            "E0341 `Immediate` is determined automatically and cannot be implemented @ Point",
+        ]
+    );
 }

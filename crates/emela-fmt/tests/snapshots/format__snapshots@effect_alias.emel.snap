@@ -1,0 +1,14 @@
+---
+source: crates/emela-fmt/tests/format.rs
+expression: "check(&name, &src, 100)"
+input_file: crates/emela-fmt/test_data/effect_alias.emel
+---
+fn greet(id: Int) {
+  log <- Logger
+  st <- State[Int]
+  db <- App.Db
+  log.info("hello")
+  f = log.info
+  a < -1
+  a < -1
+}

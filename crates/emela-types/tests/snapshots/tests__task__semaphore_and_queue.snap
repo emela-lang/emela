@@ -1,0 +1,43 @@
+---
+source: crates/emela-types/tests/task.rs
+expression: "render(r#\"\nimport Std.Task.{Task}\nimport Std.Semaphore.{Semaphore}\nimport Std.Queue.{Queue, QueueClosed}\n\nerror NotFound(id: Int)\n\ntype User(id: Int)\ntype Job(id: Int)\n\neffect Users {\n  fn find(id: Int) -> User fails NotFound\n}\n\nfn load(id: Int) -> User fails NotFound uses { Users } {\n  (use Users).find(id)\n}\n\nfn load_all(ids: List[Int]) {\n  with db = Semaphore(permits: 10) {\n    Task.map(ids, |id| Semaphore.with_permit(db, || load(id)))\n  }\n}\n\nfn weighted(s: use Semaphore, n: Int) {\n  Semaphore.with_permits(s, n, || load(n))\n}\n\nfn tried(s: use Semaphore) {\n  Semaphore.try_with_permit(s, || load(1))\n}\n\nfn tried_n(s: use Semaphore) {\n  Semaphore.try_with_permits(s, 2, || 1)\n}\n\nfn counted(s: use Semaphore) {\n  s.available()\n}\n\nfn run(jobs: List[Job]) {\n  with q = Queue(capacity: 100), tasks = Task.Group {\n    tasks.start(|| {\n      jobs.each(|job| q.offer(job))\n      q.close()\n    })\n    work(q)\n  }\n}\n\nfn work(q: use Queue[Job]) {\n  next = Some(q.take()) escape {\n    QueueClosed -> None\n  }\n  next match {\n    Some(job) -> work(q)\n    None -> ()\n  }\n}\n\nfn taken(q: use Queue[Job]) {\n  q.take()\n}\n\nfn others(q: use Queue[Job]) {\n  (q.try_offer(Job(id: 1)), q.poll(), q.size())\n}\n\nfn query(sql: String) -> List[String] {\n  [sql]\n}\n\nfn spec_semaphore(sql: String) {\n  with db = Semaphore(permits: 10) {\n    rows = Semaphore.with_permit(db, || query(sql))\n    rows\n  }\n}\n\nfn spec_queue(job: Job) {\n  with jobs = Queue(capacity: 100), tasks = Task.Group {\n    tasks.start(|| jobs.offer(job))\n    next = jobs.take()\n    next\n  }\n}\n\"#)"
+---
+load: fn(Int) -> User fails NotFound uses { Users }
+  id: Int
+load_all: fn(List[Int]) -> List[User] fails NotFound uses { Async, Users }
+  ids: List[Int]
+  db: use Semaphore
+  id: Int
+weighted: fn(use Semaphore, Int) -> User fails NotFound uses { Async, Users, s }
+  s: use Semaphore
+  n: Int
+tried: fn(use Semaphore) -> Option[User] fails NotFound uses { Users, s }
+  s: use Semaphore
+tried_n: fn(use Semaphore) -> Option[Int] uses { s }
+  s: use Semaphore
+counted: fn(use Semaphore) -> Int uses { s }
+  s: use Semaphore
+run: fn(List[Job]) -> () fails QueueClosed uses { Async }
+  jobs: List[Job]
+  q: use Queue[Job]
+  tasks: use TaskGroup[QueueClosed, q]
+  job: Job
+work: fn(use Queue[Job]) -> () uses { q }
+  q: use Queue[Job]
+  next: Option[Job]
+  job: Job
+taken: fn(use Queue[Job]) -> Job fails QueueClosed uses { q }
+  q: use Queue[Job]
+others: fn(use Queue[Job]) -> (Bool, Option[Job], Int) uses { q }
+  q: use Queue[Job]
+query: fn(String) -> List[String]
+  sql: String
+spec_semaphore: fn(String) -> List[String] uses { Async }
+  sql: String
+  db: use Semaphore
+  rows: List[String]
+spec_queue: fn(Job) -> Job fails QueueClosed uses { Async }
+  job: Job
+  jobs: use Queue[Job]
+  tasks: use TaskGroup[QueueClosed, jobs]
+  next: Job

@@ -1,4 +1,4 @@
-//! Semaphores and Queues (`[fiber.semaphore]`, `[fiber.queue]`), on the scheduler of
+//! Semaphores and Queues (`[task.semaphore]`, `[task.queue]`), on the scheduler of
 //! `runtime::fiber`.
 //!
 //! This is the WASM counterpart of the section "Semaphore and Queue" of the C runtime
@@ -14,18 +14,15 @@
 //!   that takes effect at its next suspension point.
 //! - A fiber interrupted while it waits leaves its line when its wait is dropped (`fb_drop_wait`
 //!   calls `fb_line_leave` with the wait's `W_OWNER`), and a semaphore then serves its line again.
-//! - The scope counts its Semaphores and Queues in a chain (`S_CELLS`, each record counting the
-//!   next), and a record does not count its scope: the runtime has no finalizers, so a record
-//!   cannot take itself out of the scope's list when it is freed, the way the C runtime's
-//!   `em_semaphore_fin` does. When the scope ends (`fb_cells_end`) every record is marked ended,
-//!   the fibers still in its lines are woken with the defect of a use after the scope ended
-//!   (`[fiber.escape]`), and the chain is released.
+//! - A Semaphore or a Queue belongs to no scope: the with of its built-in handler bounds its
+//!   lifetime, and a fiber that can use it is in a scope inside that with, so none waits on it
+//!   when the with ends (`[task.semaphore]`, `[task.queue]`).
 //! - A wait in a line counts its owner, so the record lives while a fiber waits on it. The wait
 //!   forgets it when woken or dropped, which breaks the cycle through the line.
 
 use super::fiber::{
-    R_REF, S_CELLS, S_CELLT, S_FLAGS, SF_CLOSED, W_LIVE, W_OWNER, W_REPR, WK_LINE, c, call, dropv,
-    g, i32_const_cell, ldl, plan, raise_msg, st_const, stl,
+    R_REF, W_LIVE, W_OWNER, W_REPR, WK_LINE, c, call, dropv, g, i32_const_cell, ldl, plan,
+    st_const, stl,
 };
 use super::*;
 
@@ -33,24 +30,20 @@ use super::*;
 
 /// 0 for a Semaphore, 1 for a Queue.
 const C_KIND: u32 = HDR;
-/// 1 once the scope ended.
-const C_ENDED: u32 = HDR + 8;
-/// Ref: the next record of the same scope.
-const C_NEXT: u32 = HDR + 16;
 /// The number of permits of a Semaphore; the capacity of a Queue.
-const C_A: u32 = HDR + 24;
+const C_A: u32 = HDR + 8;
 /// The free permits of a Semaphore; 1 when a Queue is closed.
-const C_B: u32 = HDR + 32;
+const C_B: u32 = HDR + 16;
 /// A Semaphore's line; a Queue's values, front first. The head (Ref) and the tail (raw, at +8).
-const C_LINE: u32 = HDR + 40;
-const SEM_SLOTS: i32 = 7;
+const C_LINE: u32 = HDR + 24;
+const SEM_SLOTS: i32 = 5;
 /// The number of values of a Queue.
-const Q_SIZE: u32 = HDR + 56;
+const Q_SIZE: u32 = HDR + 40;
 /// The fibers waiting to take (only while the queue is empty) and to offer (only while it is full;
 /// their entries hold the values). Each is a head and a tail, like `C_LINE`.
-const Q_TAKERS: u32 = HDR + 64;
-const Q_OFFERERS: u32 = HDR + 80;
-const QUEUE_SLOTS: i32 = 12;
+const Q_TAKERS: u32 = HDR + 48;
+const Q_OFFERERS: u32 = HDR + 64;
+const QUEUE_SLOTS: i32 = 10;
 
 // ---- the entries of a line ----
 
@@ -74,9 +67,6 @@ pub(crate) struct Plan {
     some_ref: u32,
     some_val: u32,
     none: u32,
-    msg_scope_used: u32,
-    msg_semaphore_ended: u32,
-    msg_queue_ended: u32,
     msg_semaphore_permits: u32,
     msg_needs: [u32; 2],
     msg_asked: [u32; 2],
@@ -129,16 +119,12 @@ pub(super) fn prepare(b: &mut Builder<'_>) -> Plan {
             refs,
         })
     };
-    let semaphore_desc = record(
-        b,
-        "Semaphore",
-        vec![false, false, true, false, false, true, false],
-    );
+    let semaphore_desc = record(b, "Semaphore", vec![false, false, false, true, false]);
     let queue_desc = record(
         b,
         "Queue",
         vec![
-            false, false, true, false, false, true, false, false, true, false, true, false,
+            false, false, false, true, false, false, true, false, true, false,
         ],
     );
     let entry_desc = record(b, "line", vec![true, true, false, false, false, true]);
@@ -153,17 +139,14 @@ pub(super) fn prepare(b: &mut Builder<'_>) -> Plan {
         some_ref,
         some_val,
         none,
-        msg_scope_used: msg(b, b"fiber scope was used after it ended"),
-        msg_semaphore_ended: msg(b, b"semaphore was used after its scope ended"),
-        msg_queue_ended: msg(b, b"queue was used after its scope ended"),
         msg_semaphore_permits: msg(b, b"semaphore needs at least 1 permit, but got "),
         msg_needs: [
-            msg(b, b"`with_permits` needs at least 1 permit, but got "),
-            msg(b, b"`try_with_permits` needs at least 1 permit, but got "),
+            msg(b, b"`Permits` needs at least 1 permit, but got "),
+            msg(b, b"`TryPermits` needs at least 1 permit, but got "),
         ],
         msg_asked: [
-            msg(b, b"`with_permits` asked for "),
-            msg(b, b"`try_with_permits` asked for "),
+            msg(b, b"`Permits` asked for "),
+            msg(b, b"`TryPermits` asked for "),
         ],
         msg_permits_of: msg(b, b" permits of a semaphore with "),
         msg_capacity: msg(b, b"queue needs a capacity of at least 1, but got "),
@@ -175,12 +158,8 @@ fn lp<'a>(b: &'a Builder<'_>) -> &'a Plan {
 }
 
 pub(super) const FUNCS: &[Sig] = &[
-    (
-        "fb_semaphore",
-        &[ValType::I32, ValType::I32],
-        &[ValType::I32],
-    ),
-    ("fb_queue", &[ValType::I32, ValType::I32], &[ValType::I32]),
+    ("fb_semaphore", &[ValType::I32], &[ValType::I32]),
+    ("fb_queue", &[ValType::I32], &[ValType::I32]),
     ("fb_acquire", &[ValType::I32, ValType::I32], &[]),
     (
         "fb_try_acquire",
@@ -203,7 +182,6 @@ pub(super) const FUNCS: &[Sig] = &[
     ("fb_queue_poll", &[ValType::I32], &[ValType::I32]),
     ("fb_queue_size", &[ValType::I32], &[ValType::I32]),
     ("fb_queue_close", &[ValType::I32], &[]),
-    ("fb_cells_end", &[ValType::I32], &[]),
     (
         "fb_line_leave",
         &[ValType::I32, ValType::I32, ValType::I32],
@@ -211,7 +189,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ),
     (
         "fb_cell_new",
-        &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+        &[ValType::I32, ValType::I32, ValType::I32],
         &[ValType::I32],
     ),
     ("fb_line_push", &[ValType::I32, ValType::I32], &[]),
@@ -221,7 +199,6 @@ pub(super) const FUNCS: &[Sig] = &[
         &[ValType::I32, ValType::I32],
         &[ValType::I32],
     ),
-    ("fb_line_end", &[ValType::I32, ValType::I32], &[]),
     (
         "fb_line_wait",
         &[
@@ -275,12 +252,10 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "fb_offer" | "fb_try_offer" => i32s(1),
         "fb_take" | "fb_queue_poll" => i32s(1),
         "fb_queue_close" => i32s(2),
-        "fb_cells_end" => i32s(2),
-        "fb_cell_new" => i32s(3),
+        "fb_cell_new" => i32s(2),
         "fb_line_push" => i32s(1),
         "fb_line_shift" => i32s(2),
         "fb_line_remove" => i32s(3),
-        "fb_line_end" => i32s(2),
         "fb_line_wait" => i32s(2),
         "fb_entry_new" => i32s(1),
         "fb_sem_serve" => i32s(3),
@@ -306,13 +281,11 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "fb_queue_poll" => queue_poll(b, ins),
         "fb_queue_size" => queue_size(b, ins),
         "fb_queue_close" => queue_close(b, ins),
-        "fb_cells_end" => cells_end(b, ins),
         "fb_line_leave" => line_leave(b, ins),
         "fb_cell_new" => cell_new(b, ins),
         "fb_line_push" => line_push(b, ins),
         "fb_line_shift" => line_shift(b, ins),
         "fb_line_remove" => line_remove(b, ins),
-        "fb_line_end" => line_end(b, ins),
         "fb_line_wait" => line_wait(b, ins),
         "fb_line_wake" => line_wake(b, ins),
         "fb_entry_new" => entry_new(b, ins),
@@ -343,19 +316,6 @@ fn add_slot(ins: &mut InstructionSink, l: u32, off: u32, delta: i32) {
     c(ins, delta);
     ins.i32_add();
     ins.i32_store(mem(off, 4));
-}
-
-/// Returns early (with `ret`) after raising the defect `msg` when the record in local 0 belongs
-/// to a scope that ended.
-fn check_ended(b: &mut Builder<'_>, ins: &mut InstructionSink, msg: u32, returns: bool) {
-    ldl(ins, 0, C_ENDED);
-    ins.if_(BlockType::Empty);
-    raise_msg(b, ins, msg);
-    if returns {
-        c(ins, 0);
-    }
-    ins.return_();
-    ins.end();
 }
 
 /// Takes the wait out of the entry in local `e` into local `w`, and releases the entry (with the
@@ -564,32 +524,6 @@ fn line_wake(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     dropv(b, ins, 0);
 }
 
-/// `fb_line_end(line, msg)`: wake every fiber in the line with the defect `msg` (a fiber of
-/// another scope, `[fiber.escape]`).
-fn line_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const E: u32 = 2;
-    const W: u32 = 3;
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    g(ins, 0);
-    call(b, ins, "fb_line_shift");
-    ins.local_tee(E);
-    ins.i32_eqz();
-    ins.br_if(1);
-    take_wait(b, ins, E, W);
-    g(ins, 1);
-    call(b, ins, "dup");
-    g(ins, W);
-    c(ins, 2);
-    g(ins, 1);
-    ins.i64_extend_i32_u();
-    c(ins, 0);
-    call(b, ins, "fb_line_wake");
-    ins.br(0);
-    ins.end();
-    ins.end();
-}
-
 /// `fb_line_leave(w, owner, serve)`: the wait was dropped while it waited in a line of `owner`
 /// (borrowed): take it out, and when `serve`, let a semaphore serve its line again.
 fn line_leave(b: &mut Builder<'_>, ins: &mut InstructionSink) {
@@ -621,14 +555,12 @@ fn line_leave(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 
 // ---- records ----
 
-/// `fb_cell_new(scope, kind, slots, desc) -> record`: a new Semaphore or Queue record with every
-/// slot 0, added to the end of the scope's chain.
+/// `fb_cell_new(kind, slots, desc) -> record`: a new Semaphore or Queue record with every slot 0.
 fn cell_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const C: u32 = 4;
-    const I: u32 = 5;
-    const T: u32 = 6;
+    const C: u32 = 3;
+    const I: u32 = 4;
+    g(ins, 1);
     g(ins, 2);
-    g(ins, 3);
     call(b, ins, "alloc");
     ins.local_set(C);
     c(ins, 0);
@@ -636,7 +568,7 @@ fn cell_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.block(BlockType::Empty);
     ins.loop_(BlockType::Empty);
     g(ins, I);
-    g(ins, 2);
+    g(ins, 1);
     ins.i32_ge_s();
     ins.br_if(1);
     g(ins, C);
@@ -653,60 +585,8 @@ fn cell_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.br(0);
     ins.end();
     ins.end();
-    stl(ins, C, C_KIND, 1);
-    // The scope's chain keeps its own reference.
+    stl(ins, C, C_KIND, 0);
     g(ins, C);
-    call(b, ins, "dup");
-    ldl(ins, 0, S_CELLT);
-    ins.local_tee(T);
-    ins.if_(BlockType::Empty);
-    stl(ins, T, C_NEXT, C);
-    ins.else_();
-    stl(ins, 0, S_CELLS, C);
-    ins.end();
-    stl(ins, 0, S_CELLT, C);
-    g(ins, C);
-}
-
-/// `fb_cells_end(scope)`: the scope ended. Its Semaphores and Queues are marked ended, the fibers
-/// still waiting on them stop with a defect (`[fiber.escape]`), and the chain is released.
-fn cells_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const C: u32 = 1;
-    const N: u32 = 2;
-    let (sem, queue) = (lp(b).msg_semaphore_ended, lp(b).msg_queue_ended);
-    ldl(ins, 0, S_CELLS);
-    ins.local_set(C);
-    st_const(ins, 0, S_CELLS, 0);
-    st_const(ins, 0, S_CELLT, 0);
-    ins.block(BlockType::Empty);
-    ins.loop_(BlockType::Empty);
-    g(ins, C);
-    ins.i32_eqz();
-    ins.br_if(1);
-    ldl(ins, C, C_NEXT);
-    ins.local_set(N);
-    st_const(ins, C, C_NEXT, 0);
-    st_const(ins, C, C_ENDED, 1);
-    ldl(ins, C, C_KIND);
-    ins.i32_eqz();
-    ins.if_(BlockType::Empty);
-    line_at(ins, C, C_LINE);
-    c(ins, sem as i32);
-    call(b, ins, "fb_line_end");
-    ins.else_();
-    line_at(ins, C, Q_TAKERS);
-    c(ins, queue as i32);
-    call(b, ins, "fb_line_end");
-    line_at(ins, C, Q_OFFERERS);
-    c(ins, queue as i32);
-    call(b, ins, "fb_line_end");
-    ins.end();
-    dropv(b, ins, C);
-    g(ins, N);
-    ins.local_set(C);
-    ins.br(0);
-    ins.end();
-    ins.end();
 }
 
 /// `fb_some_new(isref, word) -> Option`: `Some(word)`, taking the value's reference.
@@ -764,73 +644,47 @@ fn raise_count(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     dropv(b, ins, S);
 }
 
-/// `fb_semaphore(scope, permits)` / `fb_queue(scope, capacity)`: `s.semaphore(permits)`
-/// (`[fiber.semaphore]`) and `s.queue(capacity)` (`[fiber.queue]`).
+/// `fb_semaphore(permits)` / `fb_queue(capacity)`: the inits of the built-in handlers
+/// `Semaphore(permits:)` (`[task.semaphore]`) and `Queue(capacity:)` (`[task.queue]`).
 fn new_cell(b: &mut Builder<'_>, ins: &mut InstructionSink, queue: bool) {
-    const C: u32 = 2;
+    const C: u32 = 1;
     let p = lp(b);
-    let (closed, small, desc, slots) = if queue {
-        (p.msg_scope_used, p.msg_capacity, p.queue_desc, QUEUE_SLOTS)
+    let (small, desc, slots) = if queue {
+        (p.msg_capacity, p.queue_desc, QUEUE_SLOTS)
     } else {
-        (
-            p.msg_scope_used,
-            p.msg_semaphore_permits,
-            p.semaphore_desc,
-            SEM_SLOTS,
-        )
+        (p.msg_semaphore_permits, p.semaphore_desc, SEM_SLOTS)
     };
-    ldl(ins, 0, S_FLAGS);
-    c(ins, SF_CLOSED);
-    ins.i32_and();
-    ins.if_(BlockType::Empty);
-    raise_msg(b, ins, closed);
-    c(ins, 0);
-    ins.return_();
-    ins.end();
-    g(ins, 1);
+    g(ins, 0);
     c(ins, 1);
     ins.i32_lt_s();
     ins.if_(BlockType::Empty);
     c(ins, small as i32);
-    g(ins, 1);
+    g(ins, 0);
     c(ins, 0);
     c(ins, 0);
     call(b, ins, "fb_raise_count");
     c(ins, 0);
     ins.return_();
     ins.end();
-    g(ins, 0);
     c(ins, i32::from(queue));
     c(ins, slots);
     c(ins, desc as i32);
     call(b, ins, "fb_cell_new");
     ins.local_set(C);
-    stl(ins, C, C_A, 1);
+    stl(ins, C, C_A, 0);
     if !queue {
-        stl(ins, C, C_B, 1);
+        stl(ins, C, C_B, 0);
     }
     g(ins, C);
 }
 
 // ---- Semaphore ----
 
-/// `fb_sem_check(s, n, try) -> i32`: raise the defect of a Semaphore used after its scope ended,
-/// or asked for a bad number of permits by `with_permits` (`try` 0) or `try_with_permits` (1);
-/// 1 if it did.
+/// `fb_sem_check(s, n, try) -> i32`: raise the defect of a Semaphore asked for a bad number of
+/// permits by `Permits` (`try` 0) or `TryPermits` (1); 1 if it did.
 fn sem_check(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let p = lp(b);
-    let (ended, needs, asked, of) = (
-        p.msg_semaphore_ended,
-        p.msg_needs,
-        p.msg_asked,
-        p.msg_permits_of,
-    );
-    ldl(ins, 0, C_ENDED);
-    ins.if_(BlockType::Empty);
-    raise_msg(b, ins, ended);
-    c(ins, 1);
-    ins.return_();
-    ins.end();
+    let (needs, asked, of) = (p.msg_needs, p.msg_asked, p.msg_permits_of);
     g(ins, 1);
     c(ins, 1);
     ins.i32_lt_s();
@@ -901,7 +755,7 @@ fn sem_serve(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     dropv(b, ins, 0);
 }
 
-/// `fb_acquire(s, n)`: the init of `with_permits` (`[fiber.semaphore]`). Waits until `n` permits
+/// `fb_acquire(s, n)`: the init of the handler member `Permits` (`[task.semaphore]`). Waits until `n` permits
 /// are free and no fiber is ahead in the line.
 fn acquire(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     call(b, ins, "fb_interrupt_here");
@@ -943,8 +797,8 @@ fn sub_slot_local(ins: &mut InstructionSink, l: u32, off: u32, n: u32) {
     ins.i32_store(mem(off, 4));
 }
 
-/// `fb_try_acquire(s, n) -> Bool`: `try_with_permits` takes the permits only if no fiber waits and
-/// enough are free (`[fiber.semaphore]`).
+/// `fb_try_acquire(s, n) -> Bool`: the init of the handler member `TryPermits` takes the permits
+/// only if no fiber waits and enough are free (`[task.semaphore]`).
 fn try_acquire(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, 0);
     g(ins, 1);
@@ -967,13 +821,8 @@ fn try_acquire(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, 1);
 }
 
-/// `fb_release(s, n)`: the release of `with_permits`. After the scope ended nobody can take the
-/// permits, so it does nothing.
+/// `fb_release(s, n)`: the release of the handler members `Permits` and `TryPermits`.
 fn release(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    ldl(ins, 0, C_ENDED);
-    ins.if_(BlockType::Empty);
-    ins.return_();
-    ins.end();
     g(ins, 0);
     ldl(ins, 0, C_B);
     g(ins, 1);
@@ -983,10 +832,8 @@ fn release(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     call(b, ins, "fb_sem_serve");
 }
 
-/// `fb_available(s) -> Int`: `Semaphore.available(s)`.
-fn available(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    let msg = lp(b).msg_semaphore_ended;
-    check_ended(b, ins, msg, true);
+/// `fb_available(s) -> Int`: `available()` of a Semaphore.
+fn available(_: &mut Builder<'_>, ins: &mut InstructionSink) {
     ldl(ins, 0, C_B);
 }
 
@@ -1090,16 +937,14 @@ fn put_held(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     dropv(b, ins, 0);
 }
 
-/// `fb_offer(q, word, repr) -> Bool`: `Queue.offer` (`[fiber.queue]`). Waits while the queue is
+/// `fb_offer(q, word, repr) -> Bool`: `offer` of a Queue (`[task.queue]`). Waits while the queue is
 /// full; False when it is closed (lowering makes it the failure `QueueClosed`).
 fn offer(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    let msg = lp(b).msg_queue_ended;
     call(b, ins, "fb_interrupt_here");
     ins.if_(BlockType::Empty);
     c(ins, 0);
     ins.return_();
     ins.end();
-    check_ended(b, ins, msg, true);
     ldl(ins, 0, C_B);
     ins.if_(BlockType::Empty);
     c(ins, 0);
@@ -1125,17 +970,16 @@ fn offer(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, 0);
 }
 
-/// `fb_take(q) -> Option`: `Queue.take` (`[fiber.queue]`). Waits while the queue is empty; `None`
+/// `fb_take(q) -> Option`: `take` of a Queue (`[task.queue]`). Waits while the queue is empty; `None`
 /// when it is closed and empty.
 fn take(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const O: u32 = 1;
-    let (msg, none) = (lp(b).msg_queue_ended, lp(b).none);
+    let none = lp(b).none;
     call(b, ins, "fb_interrupt_here");
     ins.if_(BlockType::Empty);
     c(ins, 0);
     ins.return_();
     ins.end();
-    check_ended(b, ins, msg, true);
     ldl(ins, 0, Q_SIZE);
     ins.if_(BlockType::Empty);
     shift_held(b, ins, O);
@@ -1168,10 +1012,8 @@ fn shift_held(b: &mut Builder<'_>, ins: &mut InstructionSink, o: u32) {
     dropv(b, ins, 0);
 }
 
-/// `fb_try_offer(q, word, repr) -> Bool`: `Queue.try_offer` (`[fiber.queue]`).
+/// `fb_try_offer(q, word, repr) -> Bool`: `try_offer` of a Queue (`[task.queue]`).
 fn try_offer(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    let msg = lp(b).msg_queue_ended;
-    check_ended(b, ins, msg, true);
     ldl(ins, 0, C_B);
     ldl(ins, 0, Q_SIZE);
     ldl(ins, 0, C_A);
@@ -1186,11 +1028,10 @@ fn try_offer(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, 1);
 }
 
-/// `fb_queue_poll(q) -> Option`: `Queue.poll` (`[fiber.queue]`).
+/// `fb_queue_poll(q) -> Option`: `poll` of a Queue (`[task.queue]`).
 fn queue_poll(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const O: u32 = 1;
-    let (msg, none) = (lp(b).msg_queue_ended, lp(b).none);
-    check_ended(b, ins, msg, true);
+    let none = lp(b).none;
     ldl(ins, 0, Q_SIZE);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);
@@ -1201,20 +1042,17 @@ fn queue_poll(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, O);
 }
 
-/// `fb_queue_size(q) -> Int`: `Queue.size` (`[fiber.queue]`).
-fn queue_size(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    let msg = lp(b).msg_queue_ended;
-    check_ended(b, ins, msg, true);
+/// `fb_queue_size(q) -> Int`: `size()` of a Queue (`[task.queue]`).
+fn queue_size(_: &mut Builder<'_>, ins: &mut InstructionSink) {
     ldl(ins, 0, Q_SIZE);
 }
 
-/// `fb_queue_close(q)`: `Queue.close` (`[fiber.queue]`). The fibers waiting to take get `None`
+/// `fb_queue_close(q)`: `close` of a Queue (`[task.queue]`). The fibers waiting to take get `None`
 /// and those waiting to offer get False (lowering makes both the failure `QueueClosed`).
 fn queue_close(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const E: u32 = 1;
     const W: u32 = 2;
-    let (msg, none) = (lp(b).msg_queue_ended, lp(b).none);
-    check_ended(b, ins, msg, false);
+    let none = lp(b).none;
     ldl(ins, 0, C_B);
     ins.if_(BlockType::Empty);
     ins.return_();

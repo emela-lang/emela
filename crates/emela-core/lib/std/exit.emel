@@ -1,5 +1,5 @@
-# How a computation ended (spec 11.5), and `attempt`, which turns its errors and defects into that
-# value. `attempt` starts no fiber; `Fiber.await` returns the same `Exit`.
+# How a computation ended (`[task.cause]`), and `attempt`, which turns its errors and defects into
+# that value. `attempt` starts no task.
 #
 # Import it with `import Std.Exit.{Success, Failure}`:
 #
@@ -12,15 +12,15 @@
 
 import Std.Cause.{Cause}
 
-## How a computation ended (spec 11.5).
+## How a computation ended (`[task.cause]`).
 pub enum Exit[A, E] {
   ## Ended with a value.
   Success(A)
-  ## Ended with an error, a defect or an interruption.
+  ## Ended with an error or a defect.
   Failure(Cause[E])
 }
 
 ## Runs `f` here and turns its errors and defects into values. An interruption of the current
-## fiber is not caught.
+## task is not caught.
 @intrinsic
 pub fn attempt[A, E, R](f: fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }
