@@ -1,0 +1,7 @@
+handler Broken[S: (value: S): State[S] {
+  fn get() { self.value }
+}
+
+fn main() {
+  with Memory[Int(initial: 0) { run() }
+}

@@ -222,9 +222,6 @@ class $Root {
     this.waits = new Set();
     // Fibers that have not ended.
     this.fibers = new Set();
-    // The first defect raised while closing a continuation that is not a fiber's main one (an operation's
-    // implementation running after resume). It replaces `interrupted` as the result of the run.
-    this.orphan = undefined;
     // A run of `$sync`: it never waits, so yields for fairness continue at once.
     this.sync = false;
     // The number of yields for fairness so far.
@@ -259,7 +256,8 @@ class $Root {
     this.over = true;
     $roots.delete(this);
     this.queue = [];
-    // Stops what the continuations left behind still wait for (timers, requests), so the host can exit.
+    // Stops what the continuations that will not be resumed still wait for (timers, requests), so the host can
+    // exit.
     for (const wait of this.waits) wait.controller?.abort();
     this.waits.clear();
     this.sleepers = [];
@@ -268,7 +266,6 @@ class $Root {
 
   // The root fiber (main or the test function) ended.
   rootEnded(ok, value) {
-    if (!ok && $isInterrupted(value) && this.orphan !== undefined) value = this.orphan;
     this.finish(ok, value);
   }
 
@@ -298,20 +295,12 @@ class $Root {
     }
     const waits = [...this.waits].reverse().filter((wait) => !wait.closing);
     for (const wait of waits) {
-      // Dropping a caller also unwinds the implementation it waits for (`onDrop`), which may come later here.
-      if (!wait.live) continue;
+      // An operation's implementation waits only before it resumes (after resume it does not suspend, E0461), and
+      // is unwound by dropping its caller (`onDrop`).
+      if (!wait.live || wait.end !== wait.fiber.end) continue;
       $drop(this, wait);
       const fiber = wait.fiber;
-      let end = wait.end;
-      if (end !== fiber.end) {
-        end = (ok, value) => {
-          if (!ok && !$isInterrupted(value)) this.orphan ??= value;
-        };
-      }
-      this.queue.push(() => {
-        const error = end === fiber.end ? fiber.deliver() : new $Interrupted();
-        $step(this, fiber, wait.gen, end, "throw", error);
-      });
+      this.queue.push(() => $step(this, fiber, wait.gen, wait.end, "throw", fiber.deliver()));
     }
     if (!this.running) this.drain();
   }
@@ -335,6 +324,8 @@ class $Fiber {
     this.holds = 0;
     // The number of scopes whose body runs on this fiber (the depth of the next one).
     this.scopes = 0;
+    // The run-time scope of a background whose release waits for its tasks on this fiber.
+    this.waiting = null;
     // Once it ended: `{ ok, value }`, and the cause (a `$Cause`, or null when it returned a value).
     this.result = undefined;
     this.cause = null;
@@ -398,6 +389,8 @@ class $Fiber {
       return;
     }
     this.pending.push(target);
+    // The release of a background that waits for its tasks passes the interruption on to them (11.3).
+    if (this.waiting !== null) this.waiting.interruptedWhileWaiting();
     if (this.holds > 0) return;
     const wait = this.wait;
     if (wait === null || !wait.live) return;
@@ -498,6 +491,27 @@ export function $export(gen) {
         for (const stall of [...$exportLaunches]) stall();
       });
     }
+  });
+}
+
+// The `fetch` of an HTTP service (`[lib.http-service]`): runs `launch()` (a `$export` of the entry for `request`) and
+// returns a Promise of the response. The Promise resolves when the launch hands over the response (`respond` of
+// `http.mjs`), before the launch ends; the end of the launch goes to `ctx.waitUntil` where the host has it (Cloudflare
+// Workers). A launch that ends with a defect or an interruption before it answers rejects the Promise; one that ends
+// so after it answered writes the line `serve.mjs` writes for a rejected Promise to standard error.
+// The function that answers goes on the request under a registered symbol, because `respond` is in another module.
+export function $serve(request, ctx, launch) {
+  return new Promise((resolve, reject) => {
+    let answered = false;
+    request[Symbol.for("emela.respond")] = (outgoing) => {
+      answered = true;
+      resolve(outgoing);
+    };
+    const end = launch().then(resolve, (e) => {
+      if (!answered) return reject(e);
+      globalThis.console.error(e?.name === "Interrupted" ? "interrupted" : `defect: ${e?.message ?? e}`);
+    });
+    if (typeof ctx?.waitUntil === "function") ctx.waitUntil(end);
   });
 }
 
@@ -672,16 +686,17 @@ function $performOp(root, fiber, cont, request, wait) {
   };
   try {
     const result = request.op(...request.args, resume);
-    // A suspending implementation (a generator) runs as a separate continuation of the same fiber. If the caller
-    // is dropped (interrupted) before it is resumed, the implementation is unwound too, which aborts what it waits
-    // for (12.2).
+    // A suspending implementation (a generator) waits as a separate continuation of the same fiber until it
+    // resumes; after resume it does not suspend (E0461), so it runs to its end inside resume or right after it. If
+    // the caller is dropped (interrupted) before it is resumed, the implementation is unwound too, which aborts what
+    // it waits for (12.2).
     if ($isGenerator(result)) {
       let waiting = null;
       settled.track = (w) => {
         waiting = w;
       };
       wait.onDrop = () => {
-        if (used || waiting === null || !waiting.live) return;
+        if (waiting === null || !waiting.live) return;
         const w = waiting;
         $drop(root, w);
         // Queued without draining: whoever dropped the caller drains the queue.
@@ -731,34 +746,37 @@ globalThis[Symbol.for("emela.whenStalled")] = $whenStalled;
 
 // ---- Fiber operations (spec chapter 11) ----
 
-// A scope (11.2): the value of the Scope capability. Its body runs on `fiber`, and its children are forked fibers.
+// The run-time scope of a group or a background (`[task.group]`, `[task.background]`). Its body (the rest of the
+// with) runs on `fiber`, and its tasks are forked fibers.
 class $Scope {
-  constructor(fiber) {
+  constructor(fiber, background) {
     this.fiber = fiber;
     this.depth = fiber.scopes;
-    // Children that have not ended.
+    // A background: its tasks are not interrupted when the body ends or a task fails.
+    this.background = background;
+    // Tasks that have not ended.
     this.children = new Set();
-    // No more forks: the body ended or something failed (11.8).
+    // No more starts: the body ended or something failed.
     this.closed = false;
     this.bodyDone = false;
-    // The scope returned; its handles, Deferreds, Semaphores and Queues can no longer be used (11.8).
+    // The scope returned.
     this.ended = false;
-    // Its Semaphores and Queues: fibers of other scopes still waiting on them when it ends stop waiting (11.8).
-    this.cells = [];
-    // The first failure (a Fail or Die `$Cause`) of the body or a child; the result of the scope.
+    // The first failure (a Fail or Die `$Cause`) of the body or a task; the result of the scope.
     this.first = undefined;
-    // Called when the last child ends while the scope waits for them.
+    // Called when the last task ends while the scope waits for them.
     this.closer = null;
   }
 
-  // A failure of the body or a child. The first one becomes the result and interrupts the siblings and the body;
-  // later ones are added as notes (11.2).
+  // A failure of the body or a task. In a group, the first one becomes the result and interrupts the siblings and the
+  // body; later ones are added as notes. A failure of a task of a background (a defect of `on_failure`) stops
+  // nothing, and the body's result decides what it becomes (`$scope`).
   failed(cause) {
     if (this.first !== undefined) {
       this.first.note(cause);
       return;
     }
     this.first = cause;
+    if (this.background) return;
     this.closed = true;
     for (const child of this.children) child.interrupt(null);
     if (!this.bodyDone) this.fiber.interrupt(this);
@@ -774,14 +792,21 @@ class $Scope {
       closer();
     }
   }
+
+  // An interruption of the fiber arrived while the release waits: a background passes it on to its tasks (11.3).
+  interruptedWhileWaiting() {
+    for (const child of this.children) child.interrupt(null);
+  }
 }
 
-// `Fiber.scope(body)` (11.2). Runs `body(scope)` on the current fiber. When the body ends, the remaining children are
-// interrupted, and once all of them ended the scope returns: the first failure of the body or a child if any,
-// otherwise how the body ended.
-export function* $scope(body) {
+// The run-time scope of a group or a background (`FiberOp::Scope`). Runs `body(scope)` on the current fiber. When the
+// body ends, a group interrupts the remaining tasks; a background waits for them without interrupting, unless the
+// body unwinds by an interruption. Once all of them ended the scope returns. A group returns the first failure of
+// the body or a task if any, otherwise how the body ended. A background returns how the body ended, unless a task
+// failed (a defect of `on_failure`): that is a defect of its release (14.4).
+export function* $scope(body, background = false) {
   const fiber = $current;
-  const scope = new $Scope(fiber);
+  const scope = new $Scope(fiber, background);
   fiber.scopes++;
   let ok;
   let value;
@@ -797,12 +822,18 @@ export function* $scope(body) {
   fiber.unwinds.delete(scope);
   scope.bodyDone = true;
   scope.closed = true;
-  if (ok ? value instanceof $Fail : !$isInterrupted(value)) {
-    scope.failed(new $Cause(ok ? $CAUSE_FAIL : $CAUSE_DIE, value));
+  const interrupted = !ok && $isInterrupted(value);
+  if (!background) {
+    if (ok ? value instanceof $Fail : !interrupted) {
+      scope.failed(new $Cause(ok ? $CAUSE_FAIL : $CAUSE_DIE, value));
+    }
+    for (const child of scope.children) child.interrupt(null);
+  } else if (interrupted || fiber.pending.length > 0) {
+    scope.interruptedWhileWaiting();
   }
-  for (const child of scope.children) child.interrupt(null);
   if (scope.children.size > 0) {
     fiber.holds++;
+    if (background) fiber.waiting = scope;
     try {
       yield new $FiberRequest((_, wake) => {
         if (scope.children.size === 0) return { mode: "next", value: undefined };
@@ -811,11 +842,17 @@ export function* $scope(body) {
       }, true);
     } finally {
       fiber.holds--;
+      if (background) fiber.waiting = null;
     }
   }
   scope.ended = true;
-  for (const cell of scope.cells) cell.end();
   const first = scope.first;
+  // A defect of `on_failure` is a defect of the release of the background (11.3, 14.4).
+  if (background && first !== undefined) throw $releaseDefect(ok ? undefined : value, first.value, "Task.Background");
+  if (background) {
+    if (ok) return value;
+    throw value;
+  }
   if (first !== undefined) {
     if (first.kind === $CAUSE_FAIL) return first.value;
     throw first.value;
@@ -824,9 +861,9 @@ export function* $scope(body) {
   throw value;
 }
 
-// `s.fork(f)` (11.2). The child starts running when the current fiber next suspends.
+// `tasks.start(f)` (11.2). The task starts running when the current fiber next suspends.
 export function $fork(scope, f) {
-  if (scope.closed) throw new $Defect("fiber scope was used after it ended");
+  if (scope.closed) throw new $Defect("task group was used after it closed");
   const root = scope.fiber.root;
   const child = new $Fiber(root, scope);
   scope.children.add(child);
@@ -834,43 +871,16 @@ export function $fork(scope, f) {
   return child;
 }
 
-function $fiberRequest(h, verb, settled) {
-  return new $FiberRequest((_, wake) => {
-    if (h.scope.ended) return { mode: "throw", value: new $Defect(`fiber was ${verb} after its scope ended`) };
-    return h.watch(wake, () => settled(h));
-  });
-}
-
-// `Fiber.join(h)` (11.5). An interrupted child is a defect. A child that failed has interrupted its siblings, so a
-// joiner that sees it (only while it runs a release) unwinds as interrupted.
+// `Task.join(h)` (11.6). A task that failed or was interrupted has unwound its whole group, so a joiner that sees it
+// (only while it runs a release) unwinds as interrupted.
 export function $join(h) {
-  return $fiberRequest(h, "joined", () => {
-    const cause = h.cause;
-    if (cause === null) return { mode: "next", value: h.result.value };
-    if (cause.kind === $CAUSE_INTERRUPT) return { mode: "throw", value: new $Defect("fiber was interrupted") };
-    return { mode: "throw", value: new $Interrupted() };
-  });
-}
-
-// `Fiber.await(h)` (11.5). Returns an `Exit`.
-export function $fiberAwait(h) {
-  return $fiberRequest(h, "awaited", () => {
-    const cause = h.cause;
-    return { mode: "next", value: cause === null ? $exit(0, h.result.value) : $exit(1, cause) };
-  });
-}
-
-// `Fiber.interrupt(h)` (11.4). Waits until the child has unwound. Interrupting the current fiber itself unwinds it
-// at once (or after the release it runs).
-export function $interrupt(h) {
-  return new $FiberRequest((fiber, wake) => {
-    if (h.scope.ended) return { mode: "throw", value: new $Defect("fiber was interrupted after its scope ended") };
-    h.interrupt(null);
-    if (h === fiber) {
-      return fiber.holds === 0 ? { mode: "throw", value: fiber.deliver() } : { mode: "next", value: undefined };
-    }
-    return h.watch(wake, () => ({ mode: "next", value: undefined }));
-  });
+  return new $FiberRequest((_, wake) =>
+    h.watch(wake, () => {
+      const cause = h.cause;
+      if (cause === null) return { mode: "next", value: h.result.value };
+      return { mode: "throw", value: new $Interrupted() };
+    }),
+  );
 }
 
 // `Exit.attempt(f)` (11.5). Turns a Fail or a Die of `f` into `Failure(cause)`. An interruption is not caught.
@@ -911,25 +921,22 @@ function $exit(tag, value) {
   return { $tag: tag, $0: value };
 }
 
-// A Deferred (11.7): written at most once, and tied to the scope that made it.
+// A Deferred (`[task.deferred]`): written at most once. Its lifetime is the with of the built-in handler `Deferred`.
 class $DeferredCell {
-  constructor(scope) {
-    this.scope = scope;
+  constructor() {
     this.full = false;
     this.value = undefined;
     this.waiters = [];
   }
 }
 
-// `s.deferred()` (11.7).
-export function $deferred(scope) {
-  if (scope.closed) throw new $Defect("fiber scope was used after it ended");
-  return new $DeferredCell(scope);
+// The init of the built-in handler `Deferred` (`[task.deferred]`).
+export function $deferred() {
+  return new $DeferredCell();
 }
 
-// `Deferred.complete(d, value)` (11.7). Wakes every fiber waiting for it.
+// `complete(value)` of a Deferred (`[task.deferred]`). Wakes every fiber waiting for it.
 export function $complete(d, value) {
-  if (d.scope.ended) throw new $Defect("deferred was completed after its scope ended");
   if (d.full) return false;
   d.full = true;
   d.value = value;
@@ -939,44 +946,34 @@ export function $complete(d, value) {
   return true;
 }
 
-// `Deferred.await(d)` (11.7).
+// `await()` of a Deferred (`[task.deferred]`).
 export function $deferredAwait(d) {
   return new $FiberRequest((_, wake) => {
-    if (d.scope.ended) return { mode: "throw", value: new $Defect("deferred was awaited after its scope ended") };
     if (d.full) return { mode: "next", value: d.value };
     d.waiters.push(wake);
     return undefined;
   });
 }
 
-// `Deferred.poll(d)` (11.7).
+// `poll()` of a Deferred (`[task.deferred]`).
 export function $poll(d) {
-  if (d.scope.ended) throw new $Defect("deferred was polled after its scope ended");
   return d.full ? { $tag: 0, $0: d.value } : $None;
 }
 
-// ---- Semaphore and Queue (11.9, 11.10) ----
+// ---- Semaphore and Queue (`[task.semaphore]`, `[task.queue]`) ----
 //
 // Fibers wait in first-in first-out lines. A fiber given what it waits for (permits, a value, the news that the
 // queue is closed) is taken out of the line and woken as `served`. A fiber interrupted while it waits leaves its
-// line when its wait is dropped (`wait.onDrop`).
+// line when its wait is dropped (`wait.onDrop`). Their lifetimes are the withs of their built-in handlers, and every
+// fiber that can use one ends before that with does, so no line is left when it ends.
 
 function $leave(line, entry) {
   const i = line.indexOf(entry);
   if (i >= 0) line.splice(i, 1);
 }
 
-// Wakes every fiber still in `lines` with the defect `message` (a fiber of another scope, 11.8).
-function $endLines(lines, message) {
-  for (const line of lines) {
-    const entries = line.splice(0);
-    for (const entry of entries) entry.wake("throw", new $Defect(message));
-  }
-}
-
 class $SemaphoreCell {
-  constructor(scope, permits) {
-    this.scope = scope;
+  constructor(permits) {
     this.permits = permits;
     this.free = permits;
     // `{ n, wake }`, in the order the fibers started to wait.
@@ -991,32 +988,25 @@ class $SemaphoreCell {
       entry.wake("served", undefined);
     }
   }
-
-  end() {
-    $endLines([this.line], "semaphore was used after its scope ended");
-  }
 }
 
 function $semaphoreDefect(s, n, name) {
-  if (s.scope.ended) return new $Defect("semaphore was used after its scope ended");
   if (n < 1) return new $Defect(`\`${name}\` needs at least 1 permit, but got ${n}`);
   if (n > s.permits) return new $Defect(`\`${name}\` asked for ${n} permits of a semaphore with ${s.permits}`);
   return undefined;
 }
 
-// `s.semaphore(permits)` (11.9).
-export function $semaphore(scope, permits) {
-  if (scope.closed) throw new $Defect("fiber scope was used after it ended");
+// The init of the built-in handler `Semaphore` (`[task.semaphore]`).
+export function $semaphore(permits) {
   if (permits < 1) throw new $Defect(`semaphore needs at least 1 permit, but got ${permits}`);
-  const s = new $SemaphoreCell(scope, permits);
-  scope.cells.push(s);
-  return s;
+  return new $SemaphoreCell(permits);
 }
 
-// The init of `with_permits` (11.9): waits until `n` permits are free and no fiber is ahead in the line.
+// The init of the handler member `Permits` (`[task.semaphore]`): waits until `n` permits are free and no fiber is
+// ahead in the line.
 export function $acquire(s, n) {
   return new $FiberRequest((_, wake, wait) => {
-    const defect = $semaphoreDefect(s, n, "with_permits");
+    const defect = $semaphoreDefect(s, n, "Permits");
     if (defect !== undefined) return { mode: "throw", value: defect };
     if (s.line.length === 0 && s.free >= n) {
       s.free -= n;
@@ -1032,31 +1022,29 @@ export function $acquire(s, n) {
   });
 }
 
-// `try_with_permits` (11.9): takes the permits only if no fiber waits and enough are free.
+// The init of the handler member `TryPermits` (`[task.semaphore]`): takes the permits only if no fiber waits and
+// enough are free.
 export function $tryAcquire(s, n) {
-  const defect = $semaphoreDefect(s, n, "try_with_permits");
+  const defect = $semaphoreDefect(s, n, "TryPermits");
   if (defect !== undefined) throw defect;
   if (s.line.length > 0 || s.free < n) return false;
   s.free -= n;
   return true;
 }
 
-// The release of `with_permits` (11.9). After the scope ended nobody can take the permits, so it does nothing.
+// The release of `Permits` and `TryPermits` (`[task.semaphore]`).
 export function $release(s, n) {
-  if (s.scope.ended) return;
   s.free += n;
   s.serve();
 }
 
-// `Semaphore.available(s)` (11.9).
+// `available()` of a Semaphore (`[task.semaphore]`).
 export function $available(s) {
-  if (s.scope.ended) throw new $Defect("semaphore was used after its scope ended");
   return s.free;
 }
 
 class $QueueCell {
-  constructor(scope, capacity) {
-    this.scope = scope;
+  constructor(capacity) {
     this.capacity = capacity;
     this.items = [];
     this.closed = false;
@@ -1082,29 +1070,18 @@ class $QueueCell {
     }
     return value;
   }
-
-  end() {
-    $endLines([this.takers, this.offerers], "queue was used after its scope ended");
-  }
 }
 
-function $queueCheck(q) {
-  if (q.scope.ended) throw new $Defect("queue was used after its scope ended");
-}
-
-// `s.queue(capacity)` (11.10).
-export function $queue(scope, capacity) {
-  if (scope.closed) throw new $Defect("fiber scope was used after it ended");
+// The init of the built-in handler `Queue` (`[task.queue]`).
+export function $queue(capacity) {
   if (capacity < 1) throw new $Defect(`queue needs a capacity of at least 1, but got ${capacity}`);
-  const q = new $QueueCell(scope, capacity);
-  scope.cells.push(q);
-  return q;
+  return new $QueueCell(capacity);
 }
 
-// `Queue.offer(q, value)` (11.10). False when the queue is closed (lowering makes it the failure `QueueClosed`).
+// `offer(value)` of a Queue (`[task.queue]`). False when the queue is closed (lowering makes it the failure
+// `QueueClosed`).
 export function $offer(q, value) {
   return new $FiberRequest((_, wake, wait) => {
-    if (q.scope.ended) return { mode: "throw", value: new $Defect("queue was used after its scope ended") };
     if (q.closed) return { mode: "next", value: false };
     if (q.items.length < q.capacity) {
       q.put(value);
@@ -1117,10 +1094,9 @@ export function $offer(q, value) {
   });
 }
 
-// `Queue.take(q)` (11.10). `None` when the queue is closed and empty.
+// `take()` of a Queue (`[task.queue]`). `None` when the queue is closed and empty.
 export function $take(q) {
   return new $FiberRequest((_, wake, wait) => {
-    if (q.scope.ended) return { mode: "throw", value: new $Defect("queue was used after its scope ended") };
     if (q.items.length > 0) return { mode: "next", value: { $tag: 0, $0: q.shift() } };
     if (q.closed) return { mode: "next", value: $None };
     const entry = { wake };
@@ -1130,40 +1106,37 @@ export function $take(q) {
   });
 }
 
-// `Queue.try_offer(q, value)` (11.10).
+// `try_offer(value)` of a Queue (`[task.queue]`).
 export function $tryOffer(q, value) {
-  $queueCheck(q);
   if (q.closed || q.items.length >= q.capacity) return false;
   q.put(value);
   return true;
 }
 
-// `Queue.poll(q)` (11.10).
+// `poll()` of a Queue (`[task.queue]`).
 export function $queuePoll(q) {
-  $queueCheck(q);
   return q.items.length > 0 ? { $tag: 0, $0: q.shift() } : $None;
 }
 
-// `Queue.size(q)` (11.10).
+// `size()` of a Queue (`[task.queue]`).
 export function $size(q) {
-  $queueCheck(q);
   return q.items.length;
 }
 
-// `Queue.close(q)` (11.10). The fibers waiting to take or to offer stop with `QueueClosed`.
+// `close()` of a Queue (`[task.queue]`). The fibers waiting to take or to offer stop with `QueueClosed`.
 export function $close(q) {
-  $queueCheck(q);
   if (q.closed) return;
   q.closed = true;
   for (const entry of q.takers.splice(0)) entry.wake("served", $None);
   for (const entry of q.offerers.splice(0)) entry.wake("served", false);
 }
 
-// `CauseKind` (`Fail`, `Die`, `Interrupt`, in that order).
+// `CauseKind` (`Fail`, `Die`, in that order). How an interrupted fiber ended is kept as a third kind, which is never a
+// value of `CauseKind` (an interruption is not a cause, 11.6).
 const $CAUSE_FAIL = 0;
 const $CAUSE_DIE = 1;
 const $CAUSE_INTERRUPT = 2;
-const $causeKinds = [Object.freeze({ $tag: 0 }), Object.freeze({ $tag: 1 }), Object.freeze({ $tag: 2 })];
+const $causeKinds = [Object.freeze({ $tag: 0 }), Object.freeze({ $tag: 1 })];
 
 // Why a fiber did not end with a value (11.5). `value` is the `$Fail` of a Fail and the thrown exception of a Die.
 class $Cause {
@@ -1174,7 +1147,7 @@ class $Cause {
 
   // Adds a later failure `other` as a note to the display of this one (11.2).
   note(other) {
-    const note = `note: another fiber also failed: ${$causeToString(other)}`;
+    const note = `note: another task also failed: ${$causeToString(other)}`;
     if (this.kind === $CAUSE_FAIL) (this.value.notes ??= []).push(note);
     else if (this.value instanceof Error) this.value.message += `\n${note}`;
   }
@@ -1188,24 +1161,15 @@ export function $causeToString(c) {
   switch (c.kind) {
     case $CAUSE_FAIL:
       return `error: ${c.value[Symbol.for("emela.fail")]()}`;
-    case $CAUSE_DIE:
-      return `defect: ${$foreign(c.value).message}`;
     default:
-      return "interrupted";
+      return `defect: ${$foreign(c.value).message}`;
   }
 }
 
-// `Cause.raise(c)` (11.5). A Fail is returned as the failure; a Die is thrown again; an Interrupt unwinds the
-// current fiber as interrupted.
+// `Cause.raise(c)` (11.6). A Fail is returned as the failure, and a Die is thrown again.
 export function $causeRaise(c) {
-  switch (c.kind) {
-    case $CAUSE_FAIL:
-      return c.value;
-    case $CAUSE_DIE:
-      throw c.value;
-    default:
-      throw new $Interrupted();
-  }
+  if (c.kind === $CAUSE_FAIL) return c.value;
+  throw c.value;
 }
 
 // Marks the start of a release that may suspend: the current fiber is not interrupted until `$unhold` (11.4).
@@ -1237,16 +1201,6 @@ export function $releaseDefect(thrown, error, name) {
 
 function $isInterrupted(x) {
   return x instanceof Error && x.name === "Interrupted";
-}
-
-// Marks a released handler value: from now on each of its operations is a defect (8.6). Until capture sets are
-// checked (0.22), a capability that escaped its with is caught here at run time.
-export function $retire(handler, name) {
-  const used = () => {
-    throw new $Defect(`handler ${name} was used after release`);
-  };
-  // `defineProperty`, since an operation may be named `__proto__`.
-  for (const key of Object.keys(handler)) Object.defineProperty(handler, key, { value: used });
 }
 
 // A failed assert (spec 13.2). `text` is the source text of the expression and may be empty. `location` is where the
@@ -1417,9 +1371,96 @@ export function $output(fd, text) {
   }
 }
 
-// std/process.mjs, std/console.mjs, the launcher and the test runner reach the output through this key, since the
-// runtime may be inlined into the output. `stdoutClosed()` tells the launcher to exit with 141.
+// std/process.mjs, std/console.mjs and the test runner reach the output through this key, since the runtime may be
+// inlined into the output.
 globalThis[Symbol.for("emela.output")] = { write: $output, stdoutClosed: () => $stdoutClosed };
+
+// Launches `main` when this `main.mjs` is the entry module of the JS host (`[target.js.module]`). `entry` is
+// `import.meta.main` of `main.mjs`, and `url` its `import.meta.url`. A host that does not define `import.meta.main`
+// (older releases of Node 22) is asked through the real path of `process.argv[1]` instead.
+export function $launch(entry, url, main) {
+  const proc = globalThis.process;
+  if (typeof proc?.on !== "function") return;
+  if (entry === true) $launchMain(proc, main);
+  else if (entry === undefined) {
+    $startedWith(proc, url).then((started) => {
+      if (started) $launchMain(proc, main);
+    });
+  }
+}
+// Whether the real path of `process.argv[1]` is the path of `url`. `false` when either cannot be read: under
+// `node -e '...' word`, `process.argv[1]` is a word, not a file, and importing `main.mjs` there must not throw.
+// `node:fs` is imported only on Node and Bun, and only when `process.getBuiltinModule` is missing (before Node 22.3).
+async function $startedWith(proc, url) {
+  try {
+    const script = proc.argv?.[1];
+    if (typeof script !== "string" || proc.versions?.node === undefined) return false;
+    const fs = proc.getBuiltinModule?.("node:fs") ?? (await import("node:fs"));
+    const nodeUrl = proc.getBuiltinModule?.("node:url") ?? (await import("node:url"));
+    return fs.realpathSync(script) === nodeUrl.fileURLToPath(url);
+  } catch {
+    return false;
+  }
+}
+// Runs `main` and exits with the standard error and the exit code of `[cmd.build]`.
+function $launchMain(proc, main) {
+  let over = false;
+  function closed() {
+    if (!$stdoutClosed) return false;
+    proc.exit(141);
+    return true;
+  }
+  function stop(code, text) {
+    if (closed()) return;
+    proc.exitCode = code;
+    $output(2, text);
+    proc.stderr.write("", () => proc.exit(code));
+  }
+  function finish(value) {
+    over = true;
+    if (closed()) return;
+    const show = value?.[Symbol.for("emela.fail")];
+    if (typeof show === "function") {
+      $output(2, `error: ${show.call(value)}\n`);
+      proc.exitCode = 1;
+    }
+  }
+  function crash(error) {
+    if (over) return;
+    over = true;
+    if (error instanceof Error && error.name === "Interrupted") {
+      stop(130, "interrupted\n");
+    } else if (error instanceof Error && error.name === "Defect") {
+      stop(101, `defect: ${error.message}\n`);
+    } else {
+      stop(1, `${error?.stack ?? String(error)}\n`);
+    }
+  }
+  let cancel;
+  proc.on("uncaughtException", crash);
+  proc.on("beforeExit", () => {
+    if (over) return;
+    if (cancel !== undefined) {
+      cancel();
+      return;
+    }
+    over = true;
+    if (closed()) return;
+    $output(2, "interrupted\n");
+    proc.exitCode = 130;
+  });
+  globalThis[Symbol.for("emela.args")] = proc.argv.slice(2);
+  try {
+    const value = main();
+    if (Object.prototype.toString.call(value) === "[object Generator]") {
+      cancel = $start(value, (ok, result) => (ok ? finish(result) : crash(result)));
+    } else {
+      finish(value);
+    }
+  } catch (error) {
+    crash(error);
+  }
+}
 
 // The Prelude's `dbg(value)`. `show` is the display function generated from the value's type.
 export function $dbg(value, show) {

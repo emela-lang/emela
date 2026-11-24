@@ -1,0 +1,17 @@
+---
+source: crates/emela-types/tests/capabilities.rs
+expression: "run(r#\"\nfn value() {\n  with log = Quiet { log }\n}\n\nfn closure() {\n  with log = Quiet {\n    || log.info(\"hi\")\n  }\n}\n\nfn into_state() {\n  State.run(None, || {\n    st <- State[Option[use Logger]]\n    with log = Quiet {\n      st.set(Some(log))\n    }\n  })\n}\n\nfn used_up(names: List[String]) {\n  with log = Quiet {\n    names.map(|n| log.info(n))\n  }\n}\n\"#)"
+---
+value: fn() -> use Logger
+  log: use Logger
+closure: fn() -> fn() -> () uses { log }
+  log: use Logger
+into_state: fn() -> ((), Option[use Logger])
+  log: use Logger
+used_up: fn(List[String]) -> List[()]
+  names: List[String]
+  log: use Logger
+  n: String
+`log` CapabilityLeak { cap: "log", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 436..441 }) }
+`|| log.info("hi")` CapabilityLeak { cap: "log", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 481..486 }) }
+`st.set(Some(log))` CapabilityLeak { cap: "log", from: With, made_at: Some(Span { module: Idx::<ModuleData>(0), range: 610..615 }) }
