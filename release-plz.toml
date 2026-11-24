@@ -160,6 +160,9 @@ git_tag_enable = true
 # Maintain the existing root CHANGELOG.md (relative to the workspace Cargo.toml).
 git_release_enable = true
 git_release_draft = true
+# The release is named after the tag (`v0.28.2`). release-plz's default for a
+# workspace with several packages is `{{ package }}-v{{ version }}` (`emela-cli-v0.28.2`).
+git_release_name = "v{{ version }}"
 changelog_update = true
 changelog_path = "CHANGELOG.md"
 # The version group decides the version, not the changelog: emela-cli's

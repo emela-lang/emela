@@ -1,7 +1,7 @@
 //! Getting Pomes from a fake proxy and checksum database held in memory, and from local git
 //! repositories for `direct`.
 
-mod common;
+use crate::common;
 
 use common::*;
 use emela_pome::fetch::transport::{Response, Transport};

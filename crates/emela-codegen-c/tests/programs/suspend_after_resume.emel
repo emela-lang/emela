@@ -1,4 +1,4 @@
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
@@ -30,11 +30,11 @@ handler Res: Name {
 }
 
 fn main() -> () uses { Async } {
-  Fiber.scope(|| {
+  with tasks = Task.Group {
     with Res, FailsLate {
       r = (use Late).late() escape { Nope -> -1 }
       print("got #{r}")
     }
-  })
+  }
   print("not reached")
 }

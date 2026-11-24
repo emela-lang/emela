@@ -6,6 +6,8 @@ import Std.Process.{Process, Stdin}
 
 fn main() {
   with Process {
-    (use Console).print_line("#{(use Stdin).read_line()}")
+    stdin <- Stdin
+    console <- Console
+    console.print_line("#{stdin.read_line()}")
   }
 }

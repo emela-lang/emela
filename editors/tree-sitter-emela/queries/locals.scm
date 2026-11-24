@@ -34,6 +34,9 @@
 (binding
   pattern: (identifier) @local.definition.var)
 
+(effect_alias
+  name: (identifier) @local.definition.var)
+
 (binding
   pattern: (_
     (identifier) @local.definition.var))
