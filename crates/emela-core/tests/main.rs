@@ -25,6 +25,7 @@ mod mono;
 mod opt;
 mod post_mono_delta;
 mod reduce_skeleton;
+mod string_builder;
 mod zeta;
 
 /// Every `.rs` file in this directory that is not a test binary of its own is declared
