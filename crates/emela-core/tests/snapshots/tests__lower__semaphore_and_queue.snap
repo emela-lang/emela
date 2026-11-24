@@ -3,77 +3,141 @@ source: crates/emela-core/tests/lower.rs
 expression: "mine.join(\"\\n\\n\")"
 ---
 export suspend fn main(ev%0: evidence) -> Int fails {
-  let body%1: fn() -> Int fails suspends ev = suspend fn(ev%2: evidence) -> Int fails {
-    let s%3: Std.Semaphore.Semaphore = Std.Fiber.semaphore[{}, {}](2, ev%2)
-    let q%4: Std.Queue.Queue[String] = Std.Fiber.queue[String, {}, {}](1, ev%2)
-    let _%5: String = passed(q%4)!?
-    let _%6: Option[Int] = tried(s%3)
-    limited(s%3, ev%2)!
-  }
-  fiber#scope(suspend fn(s%7: fiber_scope) -> Int fails {
-    let scope%8: handler Std.Fiber.Scope[_, _] = handler Scope: Std.Fiber.Scope[_, _] {
-      fork: fn(g%9: fn(evidence) -> any fails suspends) -> any {
-        fiber#fork(s%7, suspend fn() -> any fails {
-          (g%9)(ev%0)!?
-        })
-      }
-      deferred: fn() -> any {
-        fiber#deferred(s%7)
-      }
-      semaphore: fn(permits%10: Int) -> any {
-        fiber#semaphore(s%7, permits%10)
-      }
-      queue: fn(capacity%11: Int) -> any {
-        fiber#queue(s%7, capacity%11)
+  with {
+    let arg%1: Int = 2
+    let h%2: handler Std.Semaphore.Semaphore = {
+      let semaphore%3: Std.Semaphore.Semaphore = fiber#semaphore(arg%1)
+      handler Semaphore: Std.Semaphore.Semaphore {
+        available: fn() -> Int {
+          fiber#available(semaphore%3)
+        }
+        Permits: suspend fn(x%4: Int, resume%5: fn((handler Std.Semaphore.Permit, fn() -> () suspends)) -> ()) -> () {
+          (resume%5)({
+            let _%6: () = fiber#acquire(semaphore%3, x%4)!
+            (handler Permit: Std.Semaphore.Permit {
+              count: fn() -> Int {
+                x%4
+              }
+            }, suspend fn() -> () {
+              fiber#release(semaphore%3, x%4)
+            })
+          })
+        }
+        TryPermits: fn(x%7: Int) -> (handler Std.Semaphore.Permit, fn() -> ()) fails {
+          if fiber#try_acquire(semaphore%3, x%7) {
+            (handler Permit: Std.Semaphore.Permit {
+              count: fn() -> Int {
+                x%7
+              }
+            }, fn() -> () {
+              fiber#release(semaphore%3, x%7)
+            })
+          } else {
+            fail Std.Semaphore.NoPermits.NoPermits
+          }
+        }
+        $cell: fn() -> Std.Semaphore.Semaphore {
+          semaphore%3
+        }
       }
     }
-    (body%1)(provide(ev%0; Std.Fiber.Scope[_, _] = scope%8))!?
-  })!?
+    let ev%8: evidence = provide(ev%0; Std.Semaphore.Semaphore = h%2)
+  } {
+    with {
+      let arg%9: Int = 1
+      let h%10: handler Std.Queue.Queue[String] = {
+        let queue%11: Std.Queue.Queue[String] = fiber#queue(arg%9)
+        handler Queue: Std.Queue.Queue[String] {
+          offer: suspend fn(x%12: String, resume%13: fn(()) -> ()) -> () fails {
+            (resume%13)(if fiber#offer(queue%11, x%12)! {
+              ()
+            } else {
+              fail Std.Queue.QueueClosed.QueueClosed
+            })
+          }
+          take: suspend fn(resume%14: fn(String) -> ()) -> () fails {
+            (resume%14)(match fiber#take(queue%11)! {
+              Option.Some(x%15) -> x%15
+              _ -> fail Std.Queue.QueueClosed.QueueClosed
+            })
+          }
+          try_offer: fn(x%16: String) -> Bool {
+            fiber#try_offer(queue%11, x%16)
+          }
+          poll: fn() -> Option[String] {
+            fiber#queue_poll(queue%11)
+          }
+          size: fn() -> Int {
+            fiber#size(queue%11)
+          }
+          close: fn() -> () {
+            fiber#close(queue%11)
+          }
+          $cell: fn() -> Std.Queue.Queue[String] {
+            queue%11
+          }
+        }
+      }
+      let ev%17: evidence = provide(ev%8; Std.Queue.Queue[String] = h%10)
+    } {
+      let _%18: String = passed$suspend1[{suspends, ev}](h%10, ev%17)!?
+      let _%19: Option[Int] = tried$suspend1[{suspends, ev}](h%2, ev%17)!
+      limited$suspend1[{suspends, ev}](h%2, ev%17)!
+    }
+  }
 }
 
-suspend fn passed(q%0: Std.Queue.Queue[String]) -> String fails {
-  let _%1: () = if fiber#offer(q%0, "x")! {
-    ()
-  } else {
-    fail Std.Queue.QueueClosed.QueueClosed
+suspend fn passed$suspend1[A](q%0: handler Std.Queue.Queue[String], ev%1: evidence) -> String fails {
+  let _%2: () = {
+    let h%3: handler Std.Queue.Queue[String] = q%0
+    let x%4: String = "x"
+    let cell%5: Std.Queue.Queue[String] = h%3.Std.Queue.Queue[String]#$cell()
+    if fiber#offer(cell%5, x%4)! {
+      ()
+    } else {
+      fail Std.Queue.QueueClosed.QueueClosed
+    }
   }
-  match fiber#take(q%0)! {
-    Option.Some(x%2) -> x%2
+  let h%6: handler Std.Queue.Queue[String] = q%0
+  let cell%7: Std.Queue.Queue[String] = h%6.Std.Queue.Queue[String]#$cell()
+  match fiber#take(cell%7)! {
+    Option.Some(x%8) -> x%8
     _ -> fail Std.Queue.QueueClosed.QueueClosed
   }
 }
 
-fn tried(s%0: Std.Semaphore.Semaphore) -> Option[Int] {
-  let s%1: Std.Semaphore.Semaphore = s%0
-  let n%2: Int = 1
-  let f%3: fn() -> Int = fn() -> Int {
-    fiber#available(s%0)
-  }
-  if fiber#try_acquire(s%1, n%2) {
-    with {
-      let permits%4: () = () release Semaphore {
-        fiber#release(s%1, n%2)
-      }
-    } {
-      Option.Some[Int]((f%3)())
-    }
-  } else {
-    Option.None[Int]
-  }
+suspend fn tried$suspend1[A](s%0: handler Std.Semaphore.Semaphore, ev%1: evidence) -> Option[Int] {
+  Std.Semaphore.try_with_permits$suspend12[Int, {}, {A}, {A}](s%0, 1, suspend fn(ev%2: evidence) -> Int {
+    s%0.Std.Semaphore.Semaphore#available()
+  }, ev%1)!
 }
 
-suspend fn limited(s%0: Std.Semaphore.Semaphore, ev%1: evidence) -> Int {
-  let s%2: Std.Semaphore.Semaphore = s%0
-  let n%3: Int = 2
-  let f%4: fn() -> Int ev = fn(ev%5: evidence) -> Int {
-    let _%6: () = (use[Log](ev%5)).Log#info("in")
-    1
-  }
+suspend fn limited$suspend1[A](s%0: handler Std.Semaphore.Semaphore, ev%1: evidence) -> Int {
   with {
-    let permits%7: () = fiber#acquire(s%2, n%3)! release Semaphore {
-      fiber#release(s%2, n%3)
+    let arg%2: Int = 2
+    let opened%3: (handler Std.Semaphore.Permit, fn() -> () suspends) = {
+      let h%4: handler Std.Semaphore.Semaphore = s%0
+      let x%5: Int = arg%2
+      let cell%6: Std.Semaphore.Semaphore = h%4.Std.Semaphore.Semaphore#$cell()
+      let _%7: () = fiber#acquire(cell%6, x%5)!
+      (handler Permit: Std.Semaphore.Permit {
+        count: fn() -> Int {
+          x%5
+        }
+      }, suspend fn() -> () {
+        fiber#release(cell%6, x%5)
+      })
     }
+    let h%8: handler Std.Semaphore.Permit = match opened%3 {
+      (x%9, _) -> x%9
+    } release Permits {
+      (match opened%3 {
+        (_, x%10) -> x%10
+      })()!
+    }
+    let ev%11: evidence = provide(ev%1;)
   } {
-    (f%4)(ev%1)
+    let _%12: () = (use[Log](ev%11)).Log#info("in")
+    h%8.Std.Semaphore.Permit#count()
   }
 }

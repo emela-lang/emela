@@ -89,12 +89,12 @@ pub fn try_lower_with(
 ) -> Result<Module, Vec<String>> {
     let (program, modules, entry, texts) = resolve_files(files, core);
     let types = check_program(&program);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // A program that tests how a type parameter that no call determines is instantiated gets
+    // W0305 (`[fn.decl]`).
     let diags: Vec<_> = types
         .diags
         .iter()
-        .filter(|d| !matches!(d.kind, emela_types::DiagnosticKind::CaptureEscape { .. }))
+        .filter(|d| !matches!(d.kind, emela_types::DiagnosticKind::UnusedTypeParam { .. }))
         .collect();
     assert!(diags.is_empty(), "{diags:?}");
     // The files under `src`, as diagnostics would show them (the bundled sources have none).

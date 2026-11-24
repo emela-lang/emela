@@ -244,7 +244,7 @@ fn arm(p: &mut Parser<'_>) {
 
 /// `"with" with_item { "," with_item } block`,
 /// `with_item = [ lower_name "=" ] supply [ "by" by_right ]`,
-/// `by_right = type_ref [ "[" type { "," type } "]" | "(" [ args ] ")" ]`
+/// `by_right = type_ref [ "[" type { "," type } "]" ] [ "(" [ args ] ")" ]`, read as a supply
 ///
 /// An item bound to a name (`src = Files.Open("in.txt")`, `[effect.with]`) is wrapped in a
 /// WITH_BIND that holds the name, `=` and the item. A handler member of a capability
@@ -268,7 +268,6 @@ fn with_expr(p: &mut Parser<'_>) {
                 p.bump();
                 if p.at(TYPE_NAME) {
                     supply(p);
-                    effect_type_args(p);
                 } else {
                     p.expect(TYPE_NAME);
                 }
@@ -305,16 +304,21 @@ fn cap_member_supply(p: &mut Parser<'_>) {
     m.complete(p, SUPPLY);
 }
 
-/// `supply = type_ref [ "(" [ args ] ")" ]`: a handler, a layer or a label, with the arguments
-/// of a handler's init (`WorkerKv(binding: "KV")`). With arguments, the PATH and the ARG_LIST are
+/// `supply = type_ref [ "[" type { "," type } "]" ] [ "(" [ args ] ")" ]`: a handler, a layer or
+/// a label, with the type arguments of a handler with type parameters (`Memory[Int]`) or of an
+/// effect right of `by` (`State[Int]`), and the arguments of a handler's init
+/// (`WorkerKv(binding: "KV")`). With either, the PATH, the TYPE_ARG_LIST and the ARG_LIST are
 /// wrapped in a SUPPLY; without, the item is the PATH itself.
 pub(super) fn supply(p: &mut Parser<'_>) -> CompletedMarker {
     let target = path(p);
-    if !p.at(L_PAREN) {
+    if !p.at(L_PAREN) && !p.at(L_BRACK) {
         return target;
     }
     let m = target.precede(p);
-    arg_list(p);
+    effect_type_args(p);
+    if p.at(L_PAREN) {
+        arg_list(p);
+    }
     m.complete(p, SUPPLY)
 }
 

@@ -122,10 +122,12 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
                     let p = s.path()?;
                     let res = lower.resolve_type_ns(&p, Expected::HandlerOrLayer);
                     let args = lower.supply_args(&s, res);
+                    let ty_args = lower.type_arg_list(s.type_args());
                     Some(LayerMember {
                         res,
                         span: lower.span(p.syntax().text_range()),
                         args,
+                        ty_args,
                     })
                 })
                 .collect();
@@ -548,7 +550,21 @@ impl Lower<'_, '_> {
             };
             let ty = param.ty().map(|t| self.lower_type(&t));
             let local = self.bind(&mut binder, name, local_kind, range);
-            params.push(Param { local, ty });
+            let borrowed = param
+                .syntax()
+                .children()
+                .filter(|n| n.kind() == ANNOTATION)
+                .find(|n| {
+                    n.children_with_tokens()
+                        .filter_map(|t| t.into_token())
+                        .any(|t| t.kind() == LOWER_NAME && t.text() == "borrowed")
+                })
+                .map(|n| self.span(n.text_range()));
+            params.push(Param {
+                local,
+                ty,
+                borrowed,
+            });
         }
         self.bind_all(binder);
         params
@@ -570,7 +586,11 @@ impl Lower<'_, '_> {
             if let Some(token) = param.name() {
                 let (name, range) = token_name(&token);
                 let local = self.bind(&mut binder, name, LocalKind::LambdaParam, range);
-                params.push(Param { local, ty });
+                params.push(Param {
+                    local,
+                    ty,
+                    borrowed: None,
+                });
             } else if let Some(token) = child_token(param.syntax(), SELF_KW) {
                 // As in [`Self::params`].
                 if !self.self_type {
@@ -585,14 +605,22 @@ impl Lower<'_, '_> {
                     LocalKind::SelfParam,
                     token.text_range(),
                 );
-                params.push(Param { local, ty });
+                params.push(Param {
+                    local,
+                    ty,
+                    borrowed: None,
+                });
             } else if let Some(node) = param.pattern() {
                 let range = node.text_range();
                 let pat = self.pat(&node, &mut binder);
                 let local =
                     self.alloc_local(node.text().to_string().into(), LocalKind::PatParam, range);
                 let value = self.alloc_expr(ExprKind::Path(Res::Local(local)), range);
-                params.push(Param { local, ty });
+                params.push(Param {
+                    local,
+                    ty,
+                    borrowed: None,
+                });
                 lets.push(Stmt::Let {
                     pat,
                     ty: None,
@@ -657,6 +685,7 @@ impl Lower<'_, '_> {
             Some(fields) => Fields::Named(fields),
             None => Fields::None,
         };
+        let bound = self.bound(t.syntax());
         let derives = self.derives(t.derive());
         self.pop_type_params();
         if let Some(ctor) = ctor {
@@ -673,6 +702,7 @@ impl Lower<'_, '_> {
             ctor,
             fields,
             derives,
+            bound,
             // Outside the bundled sources, `@intrinsic` is E0224 and the type stays a user type.
             is_intrinsic: t.has_annotation("intrinsic") && self.r.modules.is_core(self.module),
         })
@@ -683,6 +713,7 @@ impl Lower<'_, '_> {
             def,
             e.syntax().children().find(|n| n.kind() == TYPE_PARAM_LIST),
         );
+        let bound = self.bound(e.syntax());
         // Variants with unreadable names were skipped during collection, so match up only the
         // named ones, in order.
         let syntax_variants: Vec<_> = e.variants().filter(|v| v.name().is_some()).collect();
@@ -712,8 +743,16 @@ impl Lower<'_, '_> {
             type_params,
             variants: variants.to_vec(),
             derives,
+            bound,
             tags,
         })
+    }
+
+    /// The effect of `uses E` on a type or enum declaration (`[type.rules]`). The clause names
+    /// one effect; further ones are ignored.
+    fn bound(&mut self, decl: &SyntaxNode) -> Option<EffectRef> {
+        let clause = decl.children().find(|n| n.kind() == USES_CLAUSE)?;
+        self.effect_set(&clause).items.into_iter().next()
     }
 
     fn effect_item(&mut self, def: DefId, children: &[DefId], e: &ast::EffectDecl) -> Item {
@@ -818,7 +857,23 @@ impl Lower<'_, '_> {
         defs
     }
 
+    /// The type parameters of a handler (`[effect.handler]`) are in scope in its fields, the
+    /// effects after `:`, init, release, the operation bodies and the inner handlers. Those of an
+    /// inner handler are kept so that their names resolve; type inference reports them (E0460).
     fn handler_body(&mut self, def: DefId, ctor: Option<DefId>, h: &ast::HandlerDecl) -> Item {
+        let type_params = self.type_params(def, h.type_param_list());
+        let item = self.handler_body_in(def, ctor, h, type_params);
+        self.pop_type_params();
+        item
+    }
+
+    fn handler_body_in(
+        &mut self,
+        def: DefId,
+        ctor: Option<DefId>,
+        h: &ast::HandlerDecl,
+        type_params: Vec<TypeParam>,
+    ) -> Item {
         let fields = self.named_fields(h.field_list());
         if let Some(ctor) = ctor {
             // The constructor of a handler without fields is a value (`ConsoleLogger`).
@@ -834,19 +889,46 @@ impl Lower<'_, '_> {
                 }),
             );
         }
-        let fields = fields.unwrap_or_default();
+        let mut fields = fields.unwrap_or_default();
         let effects = self.handler_effects(h.effects());
+        let is_intrinsic = h.declares_only()
+            && h.syntax()
+                .children()
+                .filter_map(ast::Annotation::cast)
+                .any(|a| a.name().is_some_and(|n| n.text() == "intrinsic"))
+            && self.r.modules.is_core(self.module);
         // `init` runs on entering `with` and builds the handler value; there is no `self` yet. Its
         // parameters are in scope in its body only.
-        let (init_params, init) = match h.init() {
-            Some(b) => {
+        // The init of a built-in handler declares only its parameters (`[task.background]`).
+        let (init_params, init) = match (h.init(), h.init_params()) {
+            (Some(b), params) => {
                 self.push_scope();
-                let params = self.params(h.init_params(), LocalKind::Param);
+                let params = self.params(params, LocalKind::Param);
                 let body = self.block(&b);
                 self.pop_scope();
                 (params, Some(body))
             }
-            None => (Vec::new(), None),
+            (None, Some(params)) => {
+                self.push_scope();
+                let params = self.params(Some(params), LocalKind::Param);
+                self.pop_scope();
+                (params, None)
+            }
+            // The fields of a built-in handler are the parameters of its init, which the
+            // runtime implements (`Queue(capacity: 100)`, `[task.queue]`); it has no value to
+            // hold them in.
+            (None, None) if is_intrinsic => {
+                let params = std::mem::take(&mut fields)
+                    .into_iter()
+                    .map(|f| Param {
+                        local: self.alloc_local(f.name, LocalKind::Param, f.span.range),
+                        ty: Some(f.ty),
+                        borrowed: None,
+                    })
+                    .collect();
+                (params, None)
+            }
+            (None, None) => (Vec::new(), None),
         };
         let release = h.release().map(|b| {
             self.push_scope();
@@ -886,6 +968,7 @@ impl Lower<'_, '_> {
             .collect();
         let inner = self.inner_handlers(def, &effects, h);
         Item::Handler(HandlerItem {
+            type_params,
             effects,
             fields,
             ctor,
@@ -895,6 +978,7 @@ impl Lower<'_, '_> {
             ops,
             inner,
             member: None,
+            is_intrinsic,
         })
     }
 
@@ -1401,6 +1485,14 @@ impl Lower<'_, '_> {
                 Some(def) => def,
                 None => return Res::Err,
             }
+        };
+        // A built-in handler with the name of its effect is named where a handler is expected
+        // (`[module.resolution]`).
+        let def = match expected {
+            Expected::WithItem | Expected::HandlerOrLayer | Expected::HandlerOrEffect => {
+                self.r.program.twin_handler(def).unwrap_or(def)
+            }
+            _ => def,
         };
         let kind = self.r.program.defs[def].kind;
         let fits = match expected {
@@ -2347,14 +2439,16 @@ impl Lower<'_, '_> {
                 None => Res::Err,
             };
             let args = self.supply_args(&label, res);
+            let ty_args = self.type_arg_list(label.type_args());
             let mut by_init_args = None;
+            let mut by_args = Vec::new();
             let by = supplies.next().and_then(|s| {
                 let p = s.path()?;
                 let res = self.resolve_type_ns(&p, Expected::HandlerOrEffect);
                 by_init_args = self.supply_args(&s, res);
+                by_args = self.type_arg_list(s.type_args());
                 Some((res, self.span(p.syntax().text_range())))
             });
-            let by_args = self.type_arg_list(c.children().find(|n| n.kind() == TYPE_ARG_LIST));
             return Some((
                 WithItem {
                     res,
@@ -2363,6 +2457,7 @@ impl Lower<'_, '_> {
                     label: None,
                     cap: None,
                     args,
+                    ty_args,
                     by: Some(by.unwrap_or((Res::Err, self.span(c.text_range())))),
                     by_args,
                     by_init_args,
@@ -2404,6 +2499,7 @@ impl Lower<'_, '_> {
                     label: None,
                     cap: Some((cap_expr, label)),
                     args,
+                    ty_args: Vec::new(),
                     by: None,
                     by_args: Vec::new(),
                     by_init_args: None,
@@ -2416,6 +2512,7 @@ impl Lower<'_, '_> {
         let res = self.resolve_type_ns(&p, Expected::WithItem);
         let label = self.member_label.take();
         let args = self.supply_args(&s, res);
+        let ty_args = self.type_arg_list(s.type_args());
         Some((
             WithItem {
                 res,
@@ -2424,6 +2521,7 @@ impl Lower<'_, '_> {
                 label,
                 cap: None,
                 args,
+                ty_args,
                 by: None,
                 by_args: Vec::new(),
                 by_init_args: None,

@@ -1,11 +1,13 @@
 ---
 title: Warn about type parameters of a fn that its signature does not use
 authors: [Alliana]
-status: draft
+status: implemented
 issue:
 touches: [fn.decl, trait.decl, ext.decl, diag.list, lsp.code-action]
 requires: []
 related: []
+pr: 806
+decided: 2026-11-23
 ---
 
 # Warn about type parameters of a fn that its signature does not use
@@ -97,7 +99,7 @@ warning[W0305]: type parameter `A` of `f` does not appear in its signature
 
 ## Diagnostics
 
-- [ ] W0305: new. A type warning, so it is in W03xx (`[diag.bands]`). W0305 is not used in `[diag.list]`, `proposals/`, the local drafts or `crates/`.
+- [x] W0305: new. A type warning, so it is in W03xx (`[diag.bands]`). W0305 is not used in `[diag.list]`, `proposals/`, the local drafts or `crates/`.
 
 ## Compatibility
 
@@ -140,3 +142,9 @@ warning[W0305]: type parameter `A` of `f` does not appear in its signature
 ## Open questions
 
 ## Decision
+
+A type parameter of a fn that does not appear in its type is never determined by any call, because callers have no syntax for writing type arguments. It distinguishes nothing, and nothing tells the writer so. A warning at the declaration points at the place to fix.
+
+Type parameters of types and enums stay out of scope: they appear in the name of the type and unification compares them, so a phantom type parameter is legitimate. Handlers are left to `generic-handler`.
+
+Trait functions and `@external` fns are included for the same reason, and an inferred return type, fails or uses counts as part of the type. The quick fix makes the warning cheap to act on. It goes in as a compiler warning now rather than waiting for the linter; if the linter is adopted, it can move with the other warnings.

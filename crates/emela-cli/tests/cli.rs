@@ -137,10 +137,8 @@ fn new_application_runs() {
     // The JS host is `EMELA_JS_HOST` when the tests run on another host (`[cmd.build]`).
     let host = emela_driver::js_host_program();
     assert!(
-        command.starts_with(&format!(
-            "running `{} --input-type=module -e <launcher> -- ",
-            host.display()
-        )) && command.ends_with("main.mjs`"),
+        command.starts_with(&format!("running `{} ", host.display()))
+            && command.ends_with("main.mjs`"),
         "{command}"
     );
 }
@@ -275,10 +273,9 @@ fn check_clean_project() {
     assert_eq!(run.status.code(), Some(0));
 }
 
-/// `[intro.experimental]`, `[effect.escape]`: `capture-checking` is an experimental feature.
-/// Without it a value that leaves the `with` providing a capability it holds is the warning W0402
-/// and the command succeeds; with `--experimental-capture-checking` it is E0444 and the command
-/// fails. `--help` lists the flag.
+/// `[intro.experimental]`, `[effect.escape]`: `capture-checking` was removed in 0.29. A value
+/// that leaves the `with` that made the capability it holds is E0455 without any flag, and the
+/// name is accepted with W0206. `--help` no longer lists the flag.
 #[test]
 fn capture_checking_flag() {
     let project = Project::new(
@@ -287,24 +284,20 @@ fn capture_checking_flag() {
             ("app/Pome.toml", ""),
             (
                 "app/src/main.emel",
-                "effect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet: Logger {\n  fn info(msg) { () }\n}\n\nfn leak() -> fn() -> () {\n  with Quiet {\n    log = use Logger\n    || log.info(\"hi\")\n  }\n}\n\nfn main() {\n  leak()\n  ()\n}\n",
+                "effect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet: Logger {\n  fn info(msg) { () }\n}\n\nfn leak() -> fn() -> () {\n  with log = Quiet {\n    || log.info(\"hi\")\n  }\n}\n\nfn main() {\n  leak()\n  ()\n}\n",
             ),
         ],
     );
     let run = project.emela(&["check", "app"]);
-    assert_eq!(run.code, Some(0), "{run:?}");
-    assert!(run.stderr.contains("warning[W0402]"), "{run:?}");
+    assert_eq!(run.code, Some(1), "{run:?}");
+    assert!(run.stderr.contains("error[E0455]"), "{run:?}");
     let run = project.emela(&["check", "--experimental-capture-checking", "app"]);
     assert_eq!(run.code, Some(1), "{run:?}");
-    assert!(run.stderr.contains("error[E0444]"), "{run:?}");
-    assert!(
-        run.stderr
-            .contains("= note: experimental feature `capture-checking`"),
-        "{run:?}"
-    );
+    assert!(run.stderr.contains("warning[W0206]"), "{run:?}");
+    assert!(run.stderr.contains("error[E0455]"), "{run:?}");
     let help = project.emela(&["check", "--help"]);
     assert!(
-        help.stdout.contains("--experimental-capture-checking"),
+        !help.stdout.contains("--experimental-capture-checking"),
         "{help:?}"
     );
 }
@@ -734,7 +727,9 @@ fn lsp_over_stdio() {
         stdout.read_exact(&mut body).unwrap();
         String::from_utf8(body).unwrap()
     };
-    let root = format!("file://{}", project.path().display());
+    // Pasting the path would put `\` into the JSON string on Windows.
+    let root = emela_lsp::path_to_uri(project.path()).unwrap();
+    let root = root.as_str();
     send(format!(
         r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"capabilities":{{}},"rootUri":"{root}"}}}}"#
     ));
@@ -957,17 +952,18 @@ fn run_and_test_clock_example() {
 }
 
 #[test]
-fn run_and_test_fibers_example() {
-    // The `examples/fibers` example. The children of a scope wait concurrently; the combinators
-    // keep the order of their arguments, and a failing child interrupts its siblings (spec 11.2,
-    // 11.3).
+fn run_and_test_tasks_example() {
+    // The `examples/tasks` example. The tasks of a group wait concurrently; the combinators keep
+    // the order of their arguments, a failing task interrupts its siblings, and a background
+    // passes the failure of a task to `on_failure` (`[task.group]`, `[task.background]`,
+    // `[task.combinators]`).
     let project = Project::new(
-        "fibers",
+        "tasks",
         &[
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                include_str!("../../../examples/fibers/src/main.emel"),
+                include_str!("../../../examples/tasks/src/main.emel"),
             ),
         ],
     );
@@ -978,7 +974,8 @@ fn run_and_test_fibers_example() {
             Some(0),
             "fetched 2\nfetched 1\nboth: user 1, user 2\nfetched 5\nfetched 4\nfetched 3\n\
              map: [\"user 3\", \"user 4\", \"user 5\"]\nfetched 7\nrace: user 7\n\
-             timeout: None\nfetched -1\nnot found: -1\n",
+             timeout: None\nfetched -1\nnot found: -1\nbackground started\nfetched -2\n\
+             error: NotFound\n",
             ""
         )
     );
@@ -1400,10 +1397,7 @@ fn emela_node_is_read_with_a_warning() {
         "{run:?}"
     );
     assert_eq!(run.stderr.matches(W0902).count(), 1, "{run:?}");
-    let prefix = format!(
-        "running `{} --input-type=module -e <launcher> -- ",
-        host.display()
-    );
+    let prefix = format!("running `{} ", host.display());
     assert!(
         run.command
             .as_deref()

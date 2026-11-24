@@ -1,0 +1,15 @@
+---
+source: crates/emela-types/tests/capabilities.rs
+expression: "run(r#\"\nfn tell(l: use Logger) { l.info(\"x\") }\n\nfn pick(a: use Logger, b: use Logger, first: Bool) -> use Logger {\n  if first { a } else { b }\n}\n\nfn declared(l: use Logger) -> () uses {} { l.info(\"y\") }\n\nfn main() {\n  with a = Quiet {\n    with b = Loud {\n      tell(b)\n      pick(a, b, True).info(\"z\")\n      declared(a)\n    }\n  }\n}\n\"#)"
+---
+tell: fn(use Logger) -> () uses { l }
+  l: use Logger
+pick: fn(use Logger, use Logger, Bool) -> use Logger
+  a: use Logger
+  b: use Logger
+  first: Bool
+declared: fn(use Logger) -> () uses { l }
+  l: use Logger
+main: fn() -> ()
+  a: use Logger
+  b: use Logger

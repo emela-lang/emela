@@ -797,86 +797,117 @@ fn main() {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
-/// Concurrency (spec chapter 11). `Fiber.scope` builds the scope capability's handler (fork and
-/// deferred) and calls the body, and fork wraps the child function. A child runs with the table at
-/// the `Fiber.scope` call plus the forking capability value as Scope (spec 11.2). attempt wraps a
-/// function with an R into one that calls it with the current table.
+/// Concurrency (spec chapter 11). An item `Task.Group` runs the rest of the with in a run-time
+/// scope and binds the handler of the group (start), and start wraps the task function.
+/// `with d = Deferred` makes the Deferred and binds a handler value over it (`[task.deferred]`). A
+/// task runs with the table at the with plus the starting capability value as TaskGroup
+/// (`[task.group]`). attempt wraps a function with an R into one that calls it with the current
+/// table.
 #[test]
-fn fiber_scope_fork_and_attempt() {
+fn task_group_start_and_attempt() {
     let m = lower_files(&[(
         "main.emel",
         "\
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
 effect Log { fn info(msg: String) -> () }
 
 fn main() -> Int uses { Log, Async } {
-  Fiber.scope(|| {
-    s = use Scope
-    a = s.fork(|| (use Log).info(\"a\"))
-    b = Fiber.fork(|| 2)
-    d = s.deferred()
-    Deferred.complete(d, 1)
-    Fiber.join(a)
-    e = Exit.attempt(|| (use Log).info(\"e\"))
-    Fiber.join(b) + Deferred.await(d)
-  })
+  with d = Deferred {
+    with s = Task.Group {
+      a = s.start(|| (use Log).info(\"a\"))
+      b = s.start(|| 2)
+      d.complete(1)
+      a.join()
+      e = Exit.attempt(|| (use Log).info(\"e\"))
+      b.join() + d.await()
+    }
+  }
 }
 ",
     )]);
     let out = dump(&m);
     let mine: Vec<&str> = out
         .split("\n\n")
-        .filter(|f| {
-            f.starts_with("effect ")
-                || ["fn main(", "fn Std.Fiber.fork("]
-                    .iter()
-                    .any(|k| f.contains(k))
-        })
+        .filter(|f| f.starts_with("effect ") || ["fn main("].iter().any(|k| f.contains(k)))
         .collect();
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
-/// `with_permits` is a `with` whose init waits for the permits and whose release gives them back
-/// (`[fiber.semaphore]`); `try_with_permits` takes them first and wraps the value in `Some`.
-/// `offer` and `take` turn a closed queue into the failure `QueueClosed` (`[fiber.queue]`).
+/// An item `Task.Background` runs the rest of the with in a run-time scope in background mode
+/// (`[task.background]`). Its start runs the task inside attempt and passes a `Failure` to
+/// `on_failure`, with the table of the tasks; it returns `()`.
+#[test]
+fn task_background_item() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+import Std.Task.{Task}
+import Std.Cause.{Cause}
+
+effect Log { fn info(msg: String) -> () }
+
+error Oops
+
+fn main() -> () uses { Log, Async } {
+  with bg = Task.Background(on_failure: |c| (use Log).info(Cause.to_string(c))) {
+    bg.start(|| (use Log).info(\"a\"))
+    bg.start(|| fail Oops)
+    ()
+  }
+}
+",
+    )]);
+    let out = dump(&m);
+    let mine: Vec<&str> = out
+        .split("\n\n")
+        .filter(|f| f.contains("fn main("))
+        .collect();
+    insta::assert_snapshot!(mine.join("\n\n"));
+}
+
+/// The built-in handlers Semaphore and Queue (`[task.semaphore]`, `[task.queue]`): an item makes
+/// the runtime object and binds a handler value over it. The handler member `Permits` waits for
+/// the permits and pairs a `Permit` with the function that gives them back; `TryPermits` takes
+/// them first or fails with `NoPermits`. `offer` and `take` turn a closed queue into the failure
+/// `QueueClosed`.
 #[test]
 fn semaphore_and_queue() {
     let m = lower_files(&[(
         "main.emel",
         "\
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Semaphore.{Semaphore}
 import Std.Queue.{Queue, QueueClosed}
 
 effect Log { fn info(msg: String) -> () }
 
-fn limited(s: Semaphore) -> Int uses { Log, Async } {
-  s.with_permits(2, || {
+fn limited(s: use Semaphore) -> Int uses { Log, Async } {
+  with p = s.Permits(n: 2) {
     (use Log).info(\"in\")
-    1
-  })
+    p.count()
+  }
 }
 
-fn tried(s: Semaphore) -> Option[Int] {
-  s.try_with_permits(1, || s.available())
+fn tried(s: use Semaphore) -> Option[Int] {
+  Semaphore.try_with_permits(s, 1, || s.available())
 }
 
-fn passed(q: Queue[String]) -> String fails QueueClosed uses { Async } {
+fn passed(q: use Queue[String]) -> String fails QueueClosed uses { Async } {
   q.offer(\"x\")
   q.take()
 }
 
 fn main() -> Int fails QueueClosed uses { Log, Async } {
-  Fiber.scope(|| {
-    s = Fiber.semaphore(2)
-    q = Fiber.queue(1)
-    passed(q)
-    tried(s)
-    limited(s)
-  })
+  with s = Semaphore(permits: 2) {
+    with q = Queue(capacity: 1) {
+      passed(q)
+      tried(s)
+      limited(s)
+    }
+  }
 }
 ",
     )]);
@@ -884,7 +915,7 @@ fn main() -> Int fails QueueClosed uses { Log, Async } {
     let mine: Vec<&str> = out
         .split("\n\n")
         .filter(|f| {
-            ["limited(", "tried(", "passed("]
+            ["fn limited", "fn tried", "fn passed", "fn main("]
                 .iter()
                 .any(|k| f.contains(k))
         })

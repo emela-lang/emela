@@ -1868,3 +1868,46 @@ fn forms() {
     let diagnostics = out.split("== diagnostics\n").nth(1).unwrap_or_default();
     insta::assert_snapshot!(diagnostics);
 }
+
+/// Handlers with type parameters (`[effect.handler]`): the type parameters are in scope in the
+/// fields, the effects after `:`, init, the operation bodies and the inner handlers, and type
+/// arguments can be written on an item of `with`, of a layer and on the right of `by`
+/// (`[effect.with]`, `[effect.layer]`, `[effect.label]`). A type parameter is not in scope outside
+/// its handler.
+#[test]
+fn generic_handlers() {
+    insta::assert_snapshot!(run(&[(
+        "main.emel",
+        r##"effect Store[A] {
+  fn get() -> A
+  handler Open(path: String): Store[A]
+}
+
+effect Hits of Store[Int]
+
+handler Memory[S: Eq](value: S): Store[S] {
+  init(value: S) { Memory(value:) }
+  fn get() {
+    x: S = self.value
+    x
+  }
+  handler Open(path: String): Store[S] {
+    fn get() {
+      y: S = self.path
+      y
+    }
+  }
+}
+
+layer Both {
+  Memory[Int](value: 0)
+}
+
+fn main() {
+  with m = Memory[Int](value: 0), Hits by Memory[Int](value: 1) { m.get() }
+}
+
+fn outside(x: S) -> () { () }
+"##,
+    )]));
+}

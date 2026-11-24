@@ -82,6 +82,30 @@ error enum Std.FileSystem.FileSystemFailure {
   FileSystemFailure(path: String, message: String)
 }
 
+error enum Std.Tcp.HostNotFound {
+  HostNotFound(host: String)
+}
+
+error enum Std.Tcp.ConnectionRefused {
+  ConnectionRefused(host: String, port: Int)
+}
+
+error enum Std.Tcp.ConnectionClosed {
+  ConnectionClosed
+}
+
+error enum Std.Tcp.TlsFailure {
+  TlsFailure(message: String)
+}
+
+error enum Std.Tcp.TcpFailure {
+  TcpFailure(message: String)
+}
+
+error enum Std.Semaphore.NoPermits {
+  NoPermits
+}
+
 error enum Std.Queue.QueueClosed {
   QueueClosed
 }

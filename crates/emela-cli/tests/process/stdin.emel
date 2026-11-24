@@ -2,7 +2,7 @@
 # `waiting` on standard error, so the first read is interrupted while it waits.
 
 import Std.Console.{Console}
-import Std.Fiber
+import Std.Task
 import Std.Process.{InvalidInput, Process, Stdin, StdinFailure}
 
 fn line() -> String uses { Stdin } {
@@ -21,7 +21,7 @@ fn main() {
     c <- Console
     # Interrupted while waiting: what arrives later is not lost.
     stdin <- Stdin
-    first = Fiber.timeout(50, || stdin.read_line())
+    first = Task.timeout(50, || stdin.read_line())
     c.print_line("#{first}")
     c.print_error_line("waiting")
     c.print_line(line())

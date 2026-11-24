@@ -4,11 +4,13 @@
 
 import Std.Array.{Array}
 import Std.Bytes.{Bytes}
+import Std.Duration.{Duration}
 import Std.Instant.{Instant}
 import Std.Map.{Map}
 import Std.Set.{Set}
 import Std.Dynamic.Number.{OutOfRange}
 
+## A value in no particular format: what a format such as JSON parses into and writes from.
 pub enum Dynamic {
   Null
   Bool(Bool)
@@ -19,12 +21,15 @@ pub enum Dynamic {
   Binary(Bytes)
 } derive Eq, Show
 
+## A step of a path into a Dynamic: the key of Fields or the position of Items.
 pub enum Segment {
   Key(String)
   Index(Int)
 }
   derive Eq, Show
 
+## A Dynamic that could not be read as `expected`. `path` leads from the value being decoded to
+## `actual`. Show writes the kind of `actual`, not its contents.
 pub error DecodeError(expected: String, actual: Dynamic, path: List[Segment])
 
 impl DecodeError: Show {
@@ -40,7 +45,9 @@ impl DecodeError: Show {
   }
 }
 
+## Turns a value into a Dynamic. Derivable (`[trait.derive]`).
 pub trait Encode {
+  ## The value as a Dynamic.
   fn to_dynamic(self) -> Dynamic
 
   ## The value written for a field of an object. None leaves the key out.
@@ -58,7 +65,9 @@ impl DecodeErrors: Show {
   }
 }
 
+## Builds a value from a Dynamic. Derivable, except for opaque types (`[trait.derive]`).
 pub trait Decode {
+  ## Reads `d`, stopping at the first failure.
   fn from_dynamic(d: Dynamic) -> Self fails DecodeError
 
   ## Reads like `from_dynamic`, but reads every part and fails with all the failures. An impl
@@ -83,11 +92,16 @@ pub enum Attempt[A] {
   Failed(List[DecodeError])
 }
 
+## The keys of a Map written as Fields.
 pub trait ObjectKey: Ord {
+  ## The key as a String.
   fn to_key(self) -> String
+  ## Reads a key written by `to_key`.
   fn from_key(key: String) -> Self fails DecodeError
 }
 
+## The kind of `value`: `"null"`, `"bool"`, `"number"`, `"text"`, `"items"`, `"fields"` or
+## `"binary"`.
 pub fn kind(value: Dynamic) -> String {
   value match {
     Null      -> "null"
@@ -100,6 +114,7 @@ pub fn kind(value: Dynamic) -> String {
   }
 }
 
+## Reads Text as a String.
 pub fn string(value: Dynamic) -> String fails DecodeError {
   value match {
     Text(s) -> s
@@ -107,6 +122,7 @@ pub fn string(value: Dynamic) -> String fails DecodeError {
   }
 }
 
+## Reads Binary as Bytes.
 pub fn bytes(value: Dynamic) -> Bytes fails DecodeError {
   value match {
     Binary(b) -> b
@@ -114,6 +130,7 @@ pub fn bytes(value: Dynamic) -> Bytes fails DecodeError {
   }
 }
 
+## Reads a Bool.
 pub fn bool(value: Dynamic) -> Bool fails DecodeError {
   value match {
     Bool(b) -> b
@@ -121,6 +138,8 @@ pub fn bool(value: Dynamic) -> Bool fails DecodeError {
   }
 }
 
+## Reads a number as an Int. Its value must be an integer in the range of Int; `1.0` and `1e3`
+## are read.
 pub fn int(value: Dynamic) -> Int fails DecodeError {
   value match {
     Number(n) -> n.to_int() escape {
@@ -130,6 +149,8 @@ pub fn int(value: Dynamic) -> Int fails DecodeError {
   }
 }
 
+## Reads a number as an Int64. Its value must be an integer in the range of Int64; `1.0` and `1e3`
+## are read.
 pub fn int64(value: Dynamic) -> Int64 fails DecodeError {
   value match {
     Number(n) -> n.to_int64() escape {
@@ -139,6 +160,7 @@ pub fn int64(value: Dynamic) -> Int64 fails DecodeError {
   }
 }
 
+## Reads a number as the nearest Float.
 pub fn float(value: Dynamic) -> Float fails DecodeError {
   value match {
     Number(n) -> n.to_float()
@@ -201,6 +223,7 @@ fn at[A](segment: Segment, decoder: fn(Dynamic) -> A fails DecodeError, value: D
   }
 }
 
+## A decoder that reads Items, each element by `item`.
 pub fn list[A](
   item: fn(Dynamic) -> A fails DecodeError,
 ) -> fn(Dynamic) -> List[A] fails DecodeError {
@@ -212,6 +235,7 @@ pub fn list[A](
   }
 }
 
+## A decoder that reads Null as None and any other value as `Some` of `decoder`.
 pub fn optional[A](
   decoder: fn(Dynamic) -> A fails DecodeError,
 ) -> fn(Dynamic) -> Option[A] fails DecodeError {
@@ -223,6 +247,7 @@ pub fn optional[A](
   }
 }
 
+## A decoder that reads Fields, each value by `value`.
 pub fn dict[V](
   value: fn(Dynamic) -> V fails DecodeError,
 ) -> fn(Dynamic) -> Map[String, V] fails DecodeError {
@@ -236,6 +261,7 @@ pub fn dict[V](
   }
 }
 
+## A decoder that reads the element `n` of Items by `decoder`. Fewer elements is a DecodeError.
 pub fn index[A](
   n: Int,
   decoder: fn(Dynamic) -> A fails DecodeError,
@@ -254,6 +280,7 @@ pub fn index[A](
   }
 }
 
+## Reads the key `name` of Fields by `decoder`. A missing key is read as Null.
 pub fn field[A](value: Dynamic, name: String, decoder: fn(Dynamic) -> A fails DecodeError) -> A
   fails DecodeError {
   value match {
@@ -320,14 +347,18 @@ pub fn index_all[A](
   }
 }
 
+## The `"tag"` of an enum written by Encode.
 pub fn tag(value: Dynamic) -> String fails DecodeError {
   value.field("tag", string)
 }
 
+## Fields of `fields`. For a repeated key, the later value.
 pub fn object(fields: List[(String, Dynamic)]) -> Dynamic {
   Fields(Map.from_list(fields))
 }
 
+## The form of an enum written by Encode: an object with the `"tag"`, and the `"value"` if there
+## is one.
 pub fn variant(tag: String, value: Option[Dynamic]) -> Dynamic {
   value match {
     Some(payload) -> object([("tag", Text(tag)), ("value", payload)])
@@ -433,6 +464,26 @@ impl Instant: Decode {
     d match {
       Text(s) -> Instant.parse(s) escape {
         ParseError(..) -> fail DecodeError(expected: "date-time", actual: d, path: [])
+      }
+      _ -> fail DecodeError(expected: "text", actual: d, path: [])
+    }
+  }
+}
+
+## Text in the form of `Duration.to_string` (`1500ms`).
+impl Duration: Encode {
+  fn to_dynamic(self) {
+    Text(Duration.to_string(self))
+  }
+}
+
+## Reads Text with `Duration.parse`, so it accepts every form that `parse` reads (`1h30m`,
+## `PT1H30M`). A Number is not read: its unit is not in the value.
+impl Duration: Decode {
+  fn from_dynamic(d) {
+    d match {
+      Text(s) -> Duration.parse(s) escape {
+        ParseError(..) -> fail DecodeError(expected: "duration", actual: d, path: [])
       }
       _ -> fail DecodeError(expected: "text", actual: d, path: [])
     }

@@ -1451,7 +1451,7 @@ fn agent_failures_show_where_the_assert_is() {
 }
 
 /// Each test is a run of its own: after a test that stalls and unwinds as interrupted, the next
-/// test's `Exit.attempt` catches a defect again (`[fiber.cause]`). The same on every target.
+/// test's `Exit.attempt` catches a defect again (`[task.cause]`). The same on every target.
 #[test]
 fn an_attempt_after_a_stalled_test_catches_a_defect() {
     let fs = MemoryFiles::new([

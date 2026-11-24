@@ -10,7 +10,6 @@ mod bytes_stable;
 mod clock;
 mod component;
 mod external;
-mod fiber;
 mod filesystem;
 mod hosts;
 mod layout;
@@ -20,6 +19,7 @@ mod protocol;
 mod run;
 mod smoke;
 mod suspend;
+mod task;
 mod unicode;
 
 /// Every `.rs` file in this directory that is not a test binary of its own is declared

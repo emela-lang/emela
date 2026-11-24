@@ -141,7 +141,7 @@ fn a_suspending_program_without_fibers_displays_its_error() {
 #[test]
 fn a_failing_show_does_not_turn_notes_into_a_test_message() {
     let src = r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 
@@ -181,15 +181,15 @@ fn spin(n: Int) -> () uses { Tick } {
 fn once() -> Exit[(), Boom] uses { Async } {
   with Ticks {
     Exit.attempt(|| {
-      Fiber.scope(|| {
-        Fiber.fork(|| {
+      with tasks = Task.Group {
+        tasks.start(|| {
           spin(1000)
           fail Boom(text: "boom")
         })
-        Fiber.fork(|| with Res { spin(100000) })
+        tasks.start(|| with Res { spin(100000) })
         spin(100000)
         ()
-      })
+      }
     })
   }
 }
@@ -215,7 +215,7 @@ fn failing_show() -> () fails Boom uses { Async } {
         run.stdout
     );
     assert!(
-        !run.stdout.contains("note: another fiber also failed"),
+        !run.stdout.contains("note: another task also failed"),
         "{}",
         run.stdout
     );

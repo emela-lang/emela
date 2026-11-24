@@ -622,7 +622,7 @@ fn a_cascade_after_a_resume_keeps_the_outer_operation() {
 /// the end. A pause that was queued as the main continuation would end the run at the
 /// implementation's end and silently drop the rest of `main`.
 const YIELD_INSIDE_IMPLEMENTATION: &str = r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Clock.{Clock, TestClock}
 import Std.Instant.{Instant}
 import Std.State.{State}
@@ -659,7 +659,7 @@ handler Retrying: Retry {
 fn main() -> () uses { Async } {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
   (_, end) = State.run(start, || {
-    Fiber.scope(|| {
+    with tasks = Task.Group {
       with TestClock {
         with Ticks, Retrying {
           dbg("go #{(use Retry).go()}")
@@ -671,7 +671,7 @@ fn main() -> () uses { Async } {
         }
         ()
       }
-    })
+    }
   })
   dbg("end #{end |> Instant.to_unix_milliseconds}")
   ()
@@ -697,7 +697,7 @@ fn a_fairness_yield_inside_an_implementation_keeps_the_caller() {
 /// (spec 11.4): the finish of the body interrupts the child, and the queued job delivers the
 /// interruption instead of resuming the child's continuation.
 const WAKE_BEFORE_SCOPE_CLOSE: &str = r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Deferred.{Deferred}
 import Std.Clock.{Clock, TestClock}
 import Std.Instant.{Instant}
@@ -707,18 +707,19 @@ fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
   State.run(start, || {
     with TestClock {
-      v = Fiber.scope(|| {
-        d = Fiber.deferred()
-        h = Fiber.fork(|| {
-          n = Deferred.await(d)
-          dbg("child got #{n}")
-          n
-        })
-        (use Clock).sleep(10)
-        Deferred.complete(d, 5)
-        dbg("body returns")
-        1
-      })
+      v = with d = Deferred {
+        with tasks = Task.Group {
+          h = tasks.start(|| {
+            n = d.await()
+            dbg("child got #{n}")
+            n
+          })
+          (use Clock).sleep(10)
+          d.complete(5)
+          dbg("body returns")
+          1
+        }
+      }
       dbg("scope #{v}")
     }
   })
@@ -740,13 +741,11 @@ fn a_queued_wake_delivers_a_pending_interruption() {
     );
 }
 
-/// Interrupting a child unwinds every implementation it is nested in, innermost first (spec
+/// Interrupting a task unwinds every implementation it is nested in, innermost first (spec
 /// 14.5): the inner implementation's sleep is abandoned with the outer one, so its continuation
 /// does not run after the scope ends.
 const NESTED_IMPLEMENTATIONS_INTERRUPTED: &str = r#"
-import Std.Fiber.{Fiber, Scope}
-import Std.Exit.{Exit, Success, Failure}
-import Std.Cause.{Cause}
+import Std.Task.{Task}
 import Std.Clock.{Clock, TestClock}
 import Std.Instant.{Instant}
 import Std.State.{State}
@@ -776,27 +775,21 @@ handler CallingOuter: Outer {
   }
 }
 
-fn show[A, E](e: Exit[A, E]) -> String {
-  e match {
-    Success(_) -> "Success"
-    Failure(c) -> Cause.to_string(c)
-  }
-}
-
 fn main() -> () uses { Async } {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
   State.run(start, || {
     with TestClock {
       with CallingOuter, SlowInner {
-        Fiber.scope(|| {
-          h = Fiber.fork(|| (use Outer).outer())
-          (use Clock).sleep(20)
-          (use Clock).sleep(30)
-          Fiber.interrupt(h)
+        with tasks = Task.Group {
+          with stop = Task.Group {
+            stop.start(|| (use Outer).outer())
+            (use Clock).sleep(20)
+            (use Clock).sleep(30)
+          }
           (use Clock).sleep(200)
-          dbg("child #{show(Fiber.await(h))}")
+          dbg("child interrupted")
           ()
-        })
+        }
         ()
       }
     }

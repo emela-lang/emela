@@ -47,7 +47,7 @@ const TEST_DONE_LINE: &[u8] = b"\x1eemela-test {\"event\":\"done\"}\n";
 
 /// `show_failure(e)`: the message of an error value, calling the `show` function of its descriptor
 /// ([trait.builtin]) and appending the notes of the failures of the fibers of a scope
-/// ([fiber.scope]). An error whose type does not satisfy Show is shown by its name
+/// ([task.group]). An error whose type does not satisfy Show is shown by its name
 /// ([dyn.error]): `from_core` gives every constructed error enum a show function — the derived
 /// `name$E` (`Derive::ErrorName`) when the type does not satisfy Show, and its Show otherwise — so
 /// a language-produced error's descriptor always has one. Returns a null reference only when `e`

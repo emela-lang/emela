@@ -1,11 +1,11 @@
 //! Type inference, inference of `fails` and `uses`, trait resolution, match exhaustiveness and
-//! capture sets.
+//! the capabilities that values hold.
 //!
 //! Judgements have the form `Γ ⊢ e : T ! E ; R` (spec 9.1). T is inferred with Hindley-Milner;
 //! E and R are computed with set union and difference.
 
 mod body;
-mod capture;
+mod builtin;
 mod check;
 mod const_cycle;
 mod coverage;
@@ -15,26 +15,26 @@ mod entry_main;
 mod error;
 mod exhaustiveness;
 mod export;
-mod fiber;
 mod infer;
 mod layer;
 mod lower;
 mod methods;
 mod row;
 mod scheme;
+mod scopes;
 mod signature;
 mod sparse;
 mod traits;
 mod ty;
+mod unused_type_params;
 
 #[cfg(test)]
 mod tests;
 
-pub use capture::{Captures, Held, Provider};
 pub use check::{CheckOptions, ProgramTypes, body_refs, check_program, check_program_with};
 pub use diagnostic::{
-    Diagnostic, DiagnosticKind, EffectContext, ImmediateSource, InnerHandlerMismatch,
-    LabelBaseReason, LayerArg, SuspendingCall,
+    Diagnostic, DiagnosticKind, EffectContext, HandlerArgsReason, ImmediateSource,
+    InnerHandlerMismatch, LabelBaseReason, LayerArg, LeakFrom, SuspendingCall,
 };
 pub use display::{SchemeDisplay, TyDisplay};
 pub use entry_main::is_exit_code;
@@ -54,6 +54,6 @@ pub use scheme::Scheme;
 pub use signature::{InitParams, Signature, Signatures};
 pub use traits::{ImplHead, Traits, Unsatisfied, derivable, head_def, is_capability_type};
 pub use ty::{
-    CapElem, FnTy, ParamKind, Prim, Row, RowElem, RowVar, SetKind, Tag, Ty, TyConData, TyConId,
-    TyConKind, TyCons, TyParam, TyVar,
+    CapElem, CapId, FnTy, ParamKind, Prim, Row, RowElem, RowVar, SetKind, Tag, Ty, TyConData,
+    TyConId, TyConKind, TyCons, TyParam, TyVar,
 };

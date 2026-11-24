@@ -1,8 +1,0 @@
-exit: 0
---- stdout
---- stderr
-"plain body"
-"SHOUT alias"
-"SHOUT in place"
-"SHOUT outer child"
-"SHOUT alias fork"

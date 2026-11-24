@@ -22,7 +22,9 @@ import Std.Env.{SystemEnv}
 import Std.FileSystem.{SystemFileSystem}
 import Std.Platform.{Platform}
 import Std.State.{State}
+import Std.Tcp.{SystemTcp}
 
+## The arguments of the process, in order, without the name of the program.
 pub effect Args {
   ## The argument at `index` (from 0), or `None` when `index` is negative or not less than the
   ## number of arguments.
@@ -36,6 +38,7 @@ pub error InvalidInput derive Show
 ## The host cannot read standard input. `message` is the host's text.
 pub error StdinFailure(message: String) derive Show
 
+## Reads standard input as text (UTF-8).
 pub effect Stdin {
   ## The next line without its line terminator (`\n`, or `\r\n`), or `None` at the end of the
   ## input.
@@ -298,7 +301,7 @@ fn append_stderr(text: String) -> () uses { State[StderrText] } {
 # ---- Process ----
 
 ## Platform and the System handlers that need a process: the arguments, the standard streams, the
-## environment variables and the file system. Requires Async and ProcessHost (`[effect.host]`),
+## environment variables, the file system and TCP. Requires Async and ProcessHost (`[effect.host]`),
 ## which `main`, tests and `Http.serve` are given. A program that uses none of these writes
 ## `with Platform { ... }` instead.
 pub layer Process {
@@ -309,6 +312,7 @@ pub layer Process {
   SystemStderr
   SystemEnv
   SystemFileSystem
+  SystemTcp
 }
 
 # ---- ExitCode ----
@@ -340,12 +344,14 @@ pub fn exit_code_to_int(code: ExitCode) -> Int {
   n
 }
 
+## The exit code 0.
 pub const EXIT_SUCCESS: ExitCode = exit_code(0)
+## The exit code 1.
 pub const EXIT_FAILURE: ExitCode = exit_code(1)
 
 # The exit code of a `main` that returns an `ExitCode`. Lowering calls `exit_with` with the value
 # of such a `main` once it has returned, that is after the releases of its withs have run and the
-# children of its `Fiber.scope`s have ended (`emela_core::lower`). Nothing else calls them.
+# tasks of its groups and backgrounds have ended (`emela_core::lower`). Nothing else calls them.
 
 ## Makes the program exit with `code` when it ends normally: JS sets `process.exitCode`, native
 ## keeps it for the runtime's exit, and WASM writes out the output and calls `exit-with-code` at
