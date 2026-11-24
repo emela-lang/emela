@@ -7,7 +7,8 @@
 //! wrapper with its own encoding of the host's result. `Std.FileSystem` names
 //! `emela:runtime/filesystem@0.1.0`, a runtime label rather than a WIT interface: one operation
 //! takes several `wasi:filesystem` calls, which the runtime imports itself. The entry adapter of
-//! `Std.Http` names `emela:runtime/http@0.1.0` the same way, over `wasi:http/types`. The TestClock's
+//! `Std.Http` names `emela:runtime/http@0.1.0` the same way, over `wasi:http/types`, and the registry
+//! of `Std.Tcp` names `emela:runtime/tcp@0.1.0`, which imports nothing. The TestClock's
 //! `when-stalled` is a scheduler hook of the runtime rather than a WIT import, and is recognized
 //! the same way. [`classify`] recognizes them by their IR name, never by the module/name pair,
 //! so a program that names the same WASI function stays an unsupported external in
@@ -75,6 +76,10 @@ pub(crate) enum StdHost {
     FsOutcomeNameAt,
     /// Gives up a host outcome.
     FsReleaseOutcome,
+    /// `Std.Tcp`: the registry made by the init of `SystemTcp`.
+    TcpOpenRegistry,
+    /// `Std.Tcp`: the release of `SystemTcp`.
+    TcpReleaseRegistry,
     /// `Std.Http.serve`: reads the whole request being served.
     HttpRead,
     /// Whether the body of the request is UTF-8.
@@ -97,6 +102,8 @@ pub(crate) enum StdHost {
     HttpDraftHeader,
     /// The `response` resource of the response built.
     HttpFinishDraft,
+    /// `Std.Http.serve`: hands the response to the host before the launch ends.
+    HttpRespond,
 }
 
 impl StdHost {
@@ -130,6 +137,8 @@ impl StdHost {
             StdHost::FsOutcomeNameCount => "fs_outcome_name_count",
             StdHost::FsOutcomeNameAt => "fs_outcome_name_at",
             StdHost::FsReleaseOutcome => "fs_release_outcome",
+            StdHost::TcpOpenRegistry => "tcp_open_registry",
+            StdHost::TcpReleaseRegistry => "tcp_release_registry",
             StdHost::HttpRead => "http_read",
             StdHost::HttpReceivedText => "http_received_text",
             StdHost::HttpReceivedMethod => "http_received_method",
@@ -141,6 +150,7 @@ impl StdHost {
             StdHost::HttpNewDraft => "http_new_draft",
             StdHost::HttpDraftHeader => "http_draft_header",
             StdHost::HttpFinishDraft => "http_finish_draft",
+            StdHost::HttpRespond => "http_answer",
         }
     }
 
@@ -191,7 +201,13 @@ impl StdHost {
                 | StdHost::HttpNewDraft
                 | StdHost::HttpDraftHeader
                 | StdHost::HttpFinishDraft
+                | StdHost::HttpRespond
         )
+    }
+
+    /// Whether the host is part of `Std.Tcp` (`runtime/tcp.rs`).
+    pub(crate) fn is_tcp(self) -> bool {
+        matches!(self, StdHost::TcpOpenRegistry | StdHost::TcpReleaseRegistry)
     }
 
     /// Whether the host is part of `Std.FileSystem`.
@@ -256,6 +272,8 @@ const STD_HOSTS: &[(&str, StdHost)] = &[
     ),
     ("Std.FileSystem.outcome_name_at", StdHost::FsOutcomeNameAt),
     ("Std.FileSystem.release_outcome", StdHost::FsReleaseOutcome),
+    ("Std.Tcp.host_open_registry", StdHost::TcpOpenRegistry),
+    ("Std.Tcp.host_release_registry", StdHost::TcpReleaseRegistry),
     ("Std.Http.host_read", StdHost::HttpRead),
     ("Std.Http.host_received_text", StdHost::HttpReceivedText),
     ("Std.Http.host_received_method", StdHost::HttpReceivedMethod),
@@ -276,6 +294,7 @@ const STD_HOSTS: &[(&str, StdHost)] = &[
     ("Std.Http.host_draft", StdHost::HttpNewDraft),
     ("Std.Http.host_draft_header", StdHost::HttpDraftHeader),
     ("Std.Http.host_finish", StdHost::HttpFinishDraft),
+    ("Std.Http.host_respond", StdHost::HttpRespond),
 ];
 
 /// If `f` is a bundled `Std` external with a `wasm` binding that the runtime implements, which
