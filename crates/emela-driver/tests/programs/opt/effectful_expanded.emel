@@ -31,4 +31,5 @@ fn main() {
     each_range(0)
     each_range(5)
   }
+  ()
 }

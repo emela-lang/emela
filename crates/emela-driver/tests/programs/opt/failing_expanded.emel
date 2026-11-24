@@ -3,27 +3,28 @@
 
 error Stop(at: Int)
 
-fn visit(n: Int, stop: Int) -> () {
-  go(0, n, stop) escape {
+fn visit(n: Int, stop: Int) -> Int {
+  go(0, n, stop, 0) escape {
     Stop(at:) -> {
       dbg("stopped at #{at}")
-      ()
+      0 - 1
     }
   }
 }
 
-fn go(i: Int, n: Int, stop: Int) -> () fails Stop {
+fn go(i: Int, n: Int, stop: Int, acc: Int) -> Int fails Stop {
   if i >= n {
-    ()
+    acc
   } else {
     if i == stop { fail Stop(at: i) }
     dbg("visit #{i}")
-    go(i + 1, n, stop)
+    go(i + 1, n, stop, acc + i)
   }
 }
 
 fn main() {
-  visit(5, 2)
-  visit(5, 9)
-  visit(0, 0)
+  _ = visit(5, 2)
+  _ = visit(5, 9)
+  _ = visit(0, 0)
+  ()
 }

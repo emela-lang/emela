@@ -1,8 +1,8 @@
-# A mutation pair with an effectful body: `List.each(List.range(0, n), f)` where
-# `f` logs (the input of the range fusion and of a later each fusion).
+# A mutation pair with an effectful body: the callback of a folded
+# `List.range(0, n)` logs, so the range fusion rewrites this shape and the
+# order of the effect operations (and therefore stderr) must survive it, both
+# with optimisation on and off and with the hand-written expansion.
 # `effectful_expanded.emel` is the same program with the loop written by hand.
-# The order of the effect operations, and therefore stderr, must agree, both
-# with optimisation on and off and with the expansion.
 
 effect Log {
   fn log(msg: String) -> ()
@@ -16,7 +16,11 @@ handler ConsoleLog: Log {
 }
 
 fn each_range(n: Int) -> () uses { Log } {
-  List.each(List.range(0, n), |i| (use Log).log("at #{i}"))
+  _ = List.fold(List.range(0, n), 0, |acc, i| {
+    (use Log).log("at #{i}")
+    acc
+  })
+  ()
 }
 
 fn main() {
@@ -25,4 +29,5 @@ fn main() {
     each_range(0)
     each_range(5)
   }
+  ()
 }

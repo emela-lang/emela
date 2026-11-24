@@ -1,0 +1,53 @@
+# A mutation pair for the range fusion inside two nested `with`s: an effect is
+# performed inside the inner handler and both handlers have a release, so the
+# order of the releases (inner, then outer, at their own block ends) and the
+# order of the effect operations must survive the rewrite.
+# `nested_release_expanded.emel` is the same program with the loop written by
+# hand. The fused output changes with optimisation on, so the pair is a real
+# before/after, not only a parity check.
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler Outer: Log {
+  release {
+    dbg("close outer")
+    ()
+  }
+  fn log(msg) {
+    dbg("outer #{msg}")
+    ()
+  }
+}
+
+handler Inner: Log {
+  release {
+    dbg("close inner")
+    ()
+  }
+  fn log(msg) {
+    dbg("inner #{msg}")
+    ()
+  }
+}
+
+fn sum_range(n: Int) -> Int uses { Log } {
+  List.fold(List.range(0, n), 0, |acc, i| {
+    (use Log).log("at #{i}")
+    acc + i
+  })
+}
+
+fn main() {
+  with Outer {
+    with Inner {
+      dbg(sum_range(4))
+      (use Log).log("tail")
+    }
+    (use Log).log("outside")
+    dbg(sum_range(0))
+  }
+  dbg("after")
+  ()
+}
