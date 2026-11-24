@@ -13,7 +13,8 @@
 
 use emela_core::{Builtin, CtorRef, Type, TypeId, VariantFields};
 
-use super::{Derive, Lower, Piece, Shared};
+use super::concat::{self, Piece};
+use super::{Derive, Lower, Shared};
 use crate::enum_repr;
 use crate::ir::{
     Callee, Case, CaseKey, Const, Function, Operand, PrimOp, PrimTy, RuntimeOp, Stmt, SwitchOn,
@@ -213,7 +214,7 @@ impl Lower<'_> {
                     pieces.push(Piece::Op(s));
                 }
                 pieces.push(Piece::Text(")".into()));
-                let s = self.concat(pieces);
+                let s = concat::build(self, pieces);
                 self.term(Term::Return(Some(s)));
             }
             Type::Enum(id, args) => {
@@ -296,7 +297,7 @@ impl Lower<'_> {
         if !variant.tys.is_empty() {
             pieces.push(Piece::Text(")".into()));
         }
-        let s = self.concat(pieces);
+        let s = concat::build(self, pieces);
         self.term(Term::Return(Some(s)));
     }
 
@@ -318,11 +319,14 @@ impl Lower<'_> {
         let h = self.get("h", elem, Value::ListHead(p));
         let t = self.assign("t", ty, Value::ListTail(p));
         let s = self.show(elem, h.map(Operand::Var));
-        let next = self.concat(vec![
-            Piece::Op(Operand::Var(acc)),
-            Piece::Op(Operand::Var(sep)),
-            Piece::Op(s),
-        ]);
+        let next = concat::build(
+            self,
+            vec![
+                Piece::Op(Operand::Var(acc)),
+                Piece::Op(Operand::Var(sep)),
+                Piece::Op(s),
+            ],
+        );
         self.term(Term::Recur(vec![Operand::Var(t), next, string(", ")]));
         let else_ = self.close();
         self.push(Stmt::If {
@@ -339,11 +343,14 @@ impl Lower<'_> {
             inits: vec![Operand::Var(x), string(""), string("")],
             body,
         });
-        let s = self.concat(vec![
-            Piece::Text("[".into()),
-            Piece::Op(Operand::Var(joined)),
-            Piece::Text("]".into()),
-        ]);
+        let s = concat::build(
+            self,
+            vec![
+                Piece::Text("[".into()),
+                Piece::Op(Operand::Var(joined)),
+                Piece::Text("]".into()),
+            ],
+        );
         self.term(Term::Return(Some(s)));
     }
 
