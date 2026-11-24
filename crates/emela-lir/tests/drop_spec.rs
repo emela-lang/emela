@@ -4,8 +4,7 @@
 //! as a block release; every other drop stays generic. The pass is off by default, so a default
 //! build's Heap IR (and both backends' output) is unchanged.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::{
     Module as CoreModule, Roots, Type, TypeId, monomorphize_from, verify_monomorphic,
