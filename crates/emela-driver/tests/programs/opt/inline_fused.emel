@@ -1,0 +1,31 @@
+# A mutation pair: this is the form inlining takes as its input (T21). The small functions
+# `zero`, `get_or_default`, `add` and `noisy` are called here; `inline_expanded.emel` is the same
+# program with their bodies written at the call sites. Both must print the same, including the
+# order and the number of times the arguments of `add` are evaluated.
+
+type Body(x: Int, y: Int)
+
+fn zero() -> Body {
+  Body(x: 0, y: 0)
+}
+
+fn get_or_default(xs: List[Body], i: Int) -> Body {
+  List.get(xs, i) |> Option.or(zero())
+}
+
+fn add(a: Int, b: Int) -> Int {
+  a + b
+}
+
+fn noisy(label: String, x: Int) -> Int {
+  dbg("#{label} #{x}")
+  x
+}
+
+fn main() {
+  bodies = [Body(x: 1, y: 2)]
+  b = get_or_default(bodies, 0)
+  c = get_or_default(bodies, 1)
+  dbg((b.x, b.y, c.x, c.y))
+  dbg(add(noisy("a", 1), noisy("b", 2)))
+}

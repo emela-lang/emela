@@ -9,11 +9,21 @@ use emela_lir::{
     Callee, ErrorKind, Module, Stage, Stmt, Value, dump_function, from_core, to_heap, to_heap_with,
     verify,
 };
-use support::try_lower;
+use support::try_lower_with_opt;
 
 /// Lowers (from `roots`), monomorphizes and converts to the Flow IR (before the Heap IR passes).
+///
+/// The Core IR optimisations are off: the snapshots of this file pin the shape of lowering and of
+/// the Heap IR passes, which the Core optimisations may not disturb (plan §4.4).
 fn flow(files: &[(&str, &str)], roots: Roots) -> Module {
-    let m = try_lower(files, roots).unwrap_or_else(|e| panic!("{e:#?}"));
+    let m = try_lower_with_opt(
+        files,
+        roots,
+        emela_core::core_sources(),
+        emela_core::bundled_files(),
+        false,
+    )
+    .unwrap_or_else(|e| panic!("{e:#?}"));
     let fn_roots: Vec<_> = match roots {
         Roots::All => m.functions.iter().map(|(id, _)| id).collect(),
         _ => m

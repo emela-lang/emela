@@ -5,12 +5,23 @@ use crate::support;
 
 use emela_core::{Roots, monomorphize_from, verify_monomorphic};
 use emela_lir::{FnId, Module, convert_closures, dump_function, from_core, opt, verify};
-use support::try_lower;
+use support::try_lower_with_opt;
 
 /// Lowers, monomorphizes and converts to the Flow IR, then lifts the closures (the stage of the
 /// closure-level optimisations).
+///
+/// The Core IR optimisations are off: these tests are about what the LIR passes do to the shapes
+/// lowering produces, and Core inlining would move those shapes into the caller. The combination
+/// (inline, then SRA across the call) is covered by the backend tests and `opt_diff`.
 fn mid(files: &[(&str, &str)], roots: Roots) -> Module {
-    let m = try_lower(files, roots).unwrap_or_else(|e| panic!("{e:#?}"));
+    let m = try_lower_with_opt(
+        files,
+        roots,
+        emela_core::core_sources(),
+        emela_core::bundled_files(),
+        false,
+    )
+    .unwrap_or_else(|e| panic!("{e:#?}"));
     let fn_roots: Vec<_> = match roots {
         Roots::All => m.functions.iter().map(|(id, _)| id).collect(),
         _ => m

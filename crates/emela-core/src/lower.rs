@@ -100,8 +100,9 @@ pub struct Lowered {
     /// The IR function for each test function in `LowerInput::tests`, in the same order. Filled
     /// only with `Roots::Tests`.
     pub tests: Vec<FnId>,
-    /// What the Core IR optimisation passes changed (`opt::run`). Empty with `lower_with(_, _,
-    /// false)` and while no pass has fired.
+    /// What the Core IR optimisation passes changed (`opt::run`), including how many sweeps they
+    /// needed (`Stats::passes`). No change counter fires with `lower_with(_, _, false)`, or while
+    /// no pass has fired.
     pub stats: crate::opt::Stats,
 }
 
@@ -4182,6 +4183,8 @@ impl<'a> Lowerer<'a> {
             ("List", "map") => Some(CoreFn::ListMap),
             ("List", "range") => Some(CoreFn::ListRange),
             ("List", "reverse") => Some(CoreFn::ListReverse),
+            // The other collection functions of the core `List` module.
+            ("List", _) => Some(CoreFn::Collection),
             _ => None,
         }
     }

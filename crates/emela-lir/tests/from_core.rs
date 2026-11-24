@@ -6,11 +6,22 @@ use crate::support;
 
 use emela_core::{Roots, monomorphize_from, verify_monomorphic};
 use emela_lir::{Module, dump_function, from_core, verify};
-use support::try_lower;
+use support::try_lower_with_opt;
 
 /// Lowers (from `roots`), monomorphizes, converts and verifies.
+///
+/// The Core IR optimisations are off: these snapshots pin the shape of lowering, which the
+/// optimisations may not disturb (plan §4.4). The optimised pipeline is covered by the tests of
+/// the passes and of the backends.
 fn convert(files: &[(&str, &str)], roots: Roots) -> Module {
-    let m = try_lower(files, roots).unwrap_or_else(|e| panic!("{e:#?}"));
+    let m = try_lower_with_opt(
+        files,
+        roots,
+        emela_core::core_sources(),
+        emela_core::bundled_files(),
+        false,
+    )
+    .unwrap_or_else(|e| panic!("{e:#?}"));
     let fn_roots: Vec<_> = match roots {
         Roots::All => m.functions.iter().map(|(id, _)| id).collect(),
         _ => m
