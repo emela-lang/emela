@@ -72,8 +72,9 @@ fn render(src: &str) -> String {
     out
 }
 
-/// The declared types of `Std.Fiber`, `Std.Exit`, `Std.Cause`, `Std.Deferred`, `Std.Semaphore`
-/// and `Std.Queue` and the operations of `Scope`, as spec 11.2 to 11.10 write them. The bundled sources have no diagnostics (the
+/// The declared types of `Std.Fiber`, `Std.Exit`, `Std.Cause` and `Std.Semaphore`, and the
+/// operations of `Scope` and of the built-in effects `Deferred`, `Queue`, `Semaphore` and
+/// `Permit`, as spec 11.2 to 11.10 write them. The bundled sources have no diagnostics (the
 /// combinators `all`, `race`, `both` and `map` are written in Emela and type-check).
 #[test]
 fn fiber_sources_typecheck() {
@@ -105,20 +106,22 @@ fn fiber_sources_typecheck() {
         module_of("scope", "Std.Fiber"),
         module_of("attempt", "Std.Exit"),
         module_of("raise", "Std.Cause"),
-        module_of("poll", "Std.Deferred"),
         module_of("with_permits", "Std.Semaphore"),
-        module_of("try_offer", "Std.Queue"),
     ];
-    let scope = program
+    let effects: Vec<_> = program
         .defs
         .iter()
-        .find(|(_, d)| d.kind == DefKind::Effect && d.name == "Scope")
+        .filter(|(_, d)| {
+            d.kind == DefKind::Effect
+                && ["Scope", "Deferred", "Queue", "Semaphore", "Permit"].contains(&d.name.as_str())
+        })
         .map(|(def, _)| def)
-        .expect("the Scope effect exists");
+        .collect();
+    assert_eq!(effects.len(), 5, "the built-in effects exist");
     let mut out = String::new();
     for (def, data) in program.defs.iter() {
         let listed = (modules.contains(&data.module) && data.kind == DefKind::Fn)
-            || data.parent == Some(scope);
+            || data.parent.is_some_and(|p| effects.contains(&p));
         if !listed {
             continue;
         }
@@ -181,20 +184,23 @@ fn pairs() {
 }
 
 fn signal() -> Int uses { Async } {
-  Fiber.scope(|_| {
-    ready = Fiber.deferred()
-    Fiber.fork(|| Deferred.complete(ready, 1))
-    n = Deferred.await(ready)
-    peek = Deferred.poll(ready)
-    n
-  })
+  with ready = Deferred {
+    Fiber.scope(|_| {
+      Fiber.fork(|| ready.complete(1))
+      n = ready.await()
+      peek = ready.poll()
+      n
+    })
+  }
 }
 "#
     ));
 }
 
-/// The examples of spec 11.9 and 11.10 and of the proposal (`spec_11_9` and `spec_11_10` are
-/// the ones in the spec, completed into functions). `with_permits` has the E and R of `f` plus Async;
+/// The examples of spec 11.9 and 11.10 (`spec_11_9` and `spec_11_10` are the ones in the spec,
+/// completed into functions, with `Fiber.scope` for the group). A Semaphore and a Queue are
+/// items of a with that encloses the scope whose fibers use them. `with_permits` has the E and R
+/// of `f` plus Async;
 /// `try_with_permits` has those of `f` only. `offer` and `take` fail with `QueueClosed`, which an
 /// escape arm removes from E.
 #[test]
@@ -219,40 +225,40 @@ fn load(id: Int) -> User fails NotFound uses { Users } {
 }
 
 fn load_all(ids: List[Int]) {
-  Fiber.scope(|_| {
-    db = Fiber.semaphore(10)
-    Fiber.map(ids, |id| db.with_permit(|| load(id)))
-  })
+  with db = Semaphore(permits: 10) {
+    Fiber.map(ids, |id| Semaphore.with_permit(db, || load(id)))
+  }
 }
 
-fn weighted(s: Semaphore, n: Int) {
-  s.with_permits(n, || load(n))
+fn weighted(s: use Semaphore, n: Int) {
+  Semaphore.with_permits(s, n, || load(n))
 }
 
-fn tried(s: Semaphore) {
-  s.try_with_permit(|| load(1))
+fn tried(s: use Semaphore) {
+  Semaphore.try_with_permit(s, || load(1))
 }
 
-fn tried_n(s: Semaphore) {
-  s.try_with_permits(2, || 1)
+fn tried_n(s: use Semaphore) {
+  Semaphore.try_with_permits(s, 2, || 1)
 }
 
-fn counted(s: Semaphore) {
+fn counted(s: use Semaphore) {
   s.available()
 }
 
 fn run(jobs: List[Job]) {
-  Fiber.scope(|_| {
-    q = Fiber.queue(100)
-    Fiber.fork(|| {
-      jobs.each(|job| q.offer(job))
-      q.close()
+  with q = Queue(capacity: 100) {
+    Fiber.scope(|_| {
+      Fiber.fork(|| {
+        jobs.each(|job| q.offer(job))
+        q.close()
+      })
+      work(q)
     })
-    work(q)
-  })
+  }
 }
 
-fn work(q: Queue[Job]) {
+fn work(q: use Queue[Job]) {
   next = Some(q.take()) escape {
     QueueClosed -> None
   }
@@ -262,11 +268,11 @@ fn work(q: Queue[Job]) {
   }
 }
 
-fn taken(q: Queue[Job]) {
+fn taken(q: use Queue[Job]) {
   q.take()
 }
 
-fn others(q: Queue[Job]) {
+fn others(q: use Queue[Job]) {
   (q.try_offer(Job(id: 1)), q.poll(), q.size())
 }
 
@@ -275,20 +281,20 @@ fn query(sql: String) -> List[String] {
 }
 
 fn spec_11_9(sql: String) {
-  Fiber.scope(|_| {
-    db = Fiber.semaphore(10) # Semaphore, belongs to the scope
-    rows = db.with_permit(|| query(sql))
+  with db = Semaphore(permits: 10) {
+    rows = Semaphore.with_permit(db, || query(sql))
     rows
-  })
+  }
 }
 
 fn spec_11_10(job: Job) {
-  Fiber.scope(|_| {
-    q = Fiber.queue(100) # Queue[A], belongs to the scope
-    q.offer(job)
-    taken = q.take()
-    taken
-  })
+  with jobs = Queue(capacity: 100) {
+    Fiber.scope(|_| {
+      Fiber.fork(|| jobs.offer(job))
+      next = jobs.take()
+      next
+    })
+  }
 }
 "#
     ));
@@ -496,15 +502,17 @@ fn closure_is_fine() {
     ));
 }
 
-/// A fiber handle, a Deferred, a Semaphore or a Queue in the value type of `Fiber.scope` is E0425
-/// (spec 11.8),
-/// wherever it is in the type.
+/// A fiber handle in the value type of `Fiber.scope` is E0425 (spec 11.8), wherever it is in the
+/// type. A Deferred, a Semaphore or a Queue is a capability of a with, so it cannot leave that
+/// with (E0455, `[effect.escape]`).
 #[test]
 fn handles_cannot_leave_the_scope() {
     insta::assert_snapshot!(render(
         r#"
 import Std.Fiber.{Fiber, Scope}
+import Std.Deferred.{Deferred}
 import Std.Queue.{Queue}
+import Std.Semaphore.{Semaphore}
 
 fn handle() {
   Fiber.scope(|_| Fiber.fork(|| 1))
@@ -515,7 +523,7 @@ fn optional() {
 }
 
 fn deferred() {
-  Fiber.scope(|_| (Fiber.deferred(), 1))
+  with d = Deferred[Int] { (d, 1) }
 }
 
 fn joined() {
@@ -527,14 +535,11 @@ fn piped() {
 }
 
 fn semaphore() {
-  Fiber.scope(|_| Fiber.semaphore(2))
+  with s = Semaphore(permits: 2) { s }
 }
 
 fn queue() {
-  Fiber.scope(|_| {
-    q: Queue[Int] = Fiber.queue(1)
-    [q]
-  })
+  with q = Queue[Int](capacity: 1) { [q] }
 }
 "#
     ));
@@ -550,9 +555,6 @@ import Std.Fiber.{Fiber, Scope}
 
 handler MyScope: Scope[{}, {}] {
   fn fork(f) { todo() }
-  fn deferred() { todo() }
-  fn semaphore(permits) { todo() }
-  fn queue(capacity) { todo() }
 }
 
 fn provided() {

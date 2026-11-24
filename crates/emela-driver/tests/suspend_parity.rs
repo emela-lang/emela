@@ -707,18 +707,19 @@ fn main() {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
   State.run(start, || {
     with TestClock {
-      v = Fiber.scope(|_| {
-        d = Fiber.deferred()
-        h = Fiber.fork(|| {
-          n = Deferred.await(d)
-          dbg("child got #{n}")
-          n
+      v = with d = Deferred {
+        Fiber.scope(|_| {
+          h = Fiber.fork(|| {
+            n = d.await()
+            dbg("child got #{n}")
+            n
+          })
+          (use Clock).sleep(10)
+          d.complete(5)
+          dbg("body returns")
+          1
         })
-        (use Clock).sleep(10)
-        Deferred.complete(d, 5)
-        dbg("body returns")
-        1
-      })
+      }
       dbg("scope #{v}")
     }
   })

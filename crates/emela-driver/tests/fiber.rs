@@ -510,25 +510,27 @@ fn main() {
 
 #[test]
 fn deferred() {
-    // spec 11.7: a Deferred can be completed once, resuming every waiter. poll does not wait.
+    // `[task.deferred]`: a Deferred can be completed once, resuming every waiter. poll does not
+    // wait.
     let (code, out, err) = run_main(
         "deferred",
         &source(
             r##"
 fn main() {
   with SystemConsole, SystemClock {
-    Fiber.scope(|_| {
-      d = Fiber.deferred()
-      a = Fiber.fork(|| Deferred.await(d) + 1)
-      b = Fiber.fork(|| Deferred.await(d) + 2)
-      Fiber.fork(|| {
-        (use Clock).sleep(10)
-        Deferred.complete(d, 40)
+    with d = Deferred {
+      Fiber.scope(|_| {
+        a = Fiber.fork(|| d.await() + 1)
+        b = Fiber.fork(|| d.await() + 2)
+        Fiber.fork(|| {
+          (use Clock).sleep(10)
+          d.complete(40)
+        })
+        say("poll #{d.poll()}")
+        say("joined #{Fiber.join(a)} #{Fiber.join(b)}")
+        say("again #{d.complete(1)} #{d.poll()}")
       })
-      say("poll #{Deferred.poll(d)}")
-      say("joined #{Fiber.join(a)} #{Fiber.join(b)}")
-      say("again #{Deferred.complete(d, 1)} #{Deferred.poll(d)}")
-    })
+    }
   }
 }
 "##,
@@ -537,46 +539,6 @@ fn main() {
     assert_eq!(
         (code, out.as_str(), err.as_str()),
         (0, "poll None\njoined 41 42\nagain False Some(40)\n", "")
-    );
-}
-
-#[test]
-fn using_an_ended_scope_is_a_defect() {
-    // A Deferred records no capability (`[fiber.scope]`), so the types do not stop it from
-    // leaving its scope; the implementation still makes using it afterwards a defect. A Fiber
-    // that leaves its scope is E0455.
-    let (code, out, err) = run_main(
-        "ended-scope",
-        &source(
-            r##"
-fn main() {
-  with SystemConsole {
-    complete_later = Fiber.scope(|_| {
-      d = Fiber.deferred()
-      || Deferred.complete(d, 1)
-    })
-    say(show(Exit.attempt(|| complete_later())))
-    poll_later = Fiber.scope(|_| {
-      d = Fiber.deferred()
-      || Deferred.poll(d)
-    })
-    poll_later()
-    ()
-  }
-}
-"##,
-        ),
-    );
-    assert_eq!(
-        (code, out.as_str()),
-        (
-            101,
-            "Die defect: deferred was completed after its scope ended\n"
-        )
-    );
-    assert!(
-        err.contains("deferred was polled after its scope ended"),
-        "{err}"
     );
 }
 

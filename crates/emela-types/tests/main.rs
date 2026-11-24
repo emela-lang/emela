@@ -6,6 +6,7 @@
 mod common;
 
 mod body;
+mod builtin_handlers;
 mod capabilities;
 mod effect_type_params;
 mod effects;

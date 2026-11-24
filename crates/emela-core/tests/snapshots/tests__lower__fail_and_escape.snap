@@ -102,6 +102,10 @@ error enum Std.Tcp.TcpFailure {
   TcpFailure(message: String)
 }
 
+error enum Std.Semaphore.NoPermits {
+  NoPermits
+}
+
 error enum Std.Queue.QueueClosed {
   QueueClosed
 }

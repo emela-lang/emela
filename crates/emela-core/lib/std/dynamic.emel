@@ -4,6 +4,7 @@
 
 import Std.Array.{Array}
 import Std.Bytes.{Bytes}
+import Std.Duration.{Duration}
 import Std.Instant.{Instant}
 import Std.Map.{Map}
 import Std.Set.{Set}
@@ -463,6 +464,26 @@ impl Instant: Decode {
     d match {
       Text(s) -> Instant.parse(s) escape {
         ParseError(..) -> fail DecodeError(expected: "date-time", actual: d, path: [])
+      }
+      _ -> fail DecodeError(expected: "text", actual: d, path: [])
+    }
+  }
+}
+
+## Text in the form of `Duration.to_string` (`1500ms`).
+impl Duration: Encode {
+  fn to_dynamic(self) {
+    Text(Duration.to_string(self))
+  }
+}
+
+## Reads Text with `Duration.parse`, so it accepts every form that `parse` reads (`1h30m`,
+## `PT1H30M`). A Number is not read: its unit is not in the value.
+impl Duration: Decode {
+  fn from_dynamic(d) {
+    d match {
+      Text(s) -> Duration.parse(s) escape {
+        ParseError(..) -> fail DecodeError(expected: "duration", actual: d, path: [])
       }
       _ -> fail DecodeError(expected: "text", actual: d, path: [])
     }

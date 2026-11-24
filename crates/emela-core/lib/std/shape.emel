@@ -5,6 +5,7 @@
 
 import Std.Array.{Array}
 import Std.Bytes.{Bytes}
+import Std.Duration.{Duration}
 import Std.Instant.{Instant}
 import Std.Map.{Map}
 import Std.Set.{Set}
@@ -126,6 +127,12 @@ impl Dynamic: Shaped {
 ## every note, it does not restrict the values (`[api.std.shape]`).
 impl Instant: Shaped {
   fn shape_in(proxy, visiting) { Named(name: "Instant", shape: format(String, "date-time")) }
+}
+
+## A String without a note: the text that Encode writes (`1500ms`) is not an ISO 8601 duration, so
+## it has no `format` (`[api.std.shape]`).
+impl Duration: Shaped {
+  fn shape_in(proxy, visiting) { Named(name: "Duration", shape: String) }
 }
 
 impl List[A: Shaped]: Shaped {

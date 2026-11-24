@@ -928,7 +928,7 @@ fn deferred_takes_the_first_value() {
     );
     let body = let_(
         d,
-        fiber(FiberOp::Deferred, vec![var(s)]),
+        fiber(FiberOp::Deferred, vec![]),
         seq_ty(
             &k,
             &mut m,
@@ -954,18 +954,14 @@ fn deferred_takes_the_first_value() {
 
 #[test]
 fn using_a_scope_after_it_ended_is_a_defect() {
-    // What escapes a scope at run time cannot be used after it ended (11.8).
+    // What escapes a scope at run time cannot be used after it ended (11.8). A Deferred is the
+    // capability of a with, so the types keep it inside (`[task.deferred]`).
     let mut m = Module::new();
     let k = Kit::new(&mut m);
-    let (s1, s2, s3) = (
-        k.scope_local(&mut m, "s"),
-        k.scope_local(&mut m, "s"),
-        k.scope_local(&mut m, "s"),
-    );
-    let (x, h, d) = (
+    let (s1, s2) = (k.scope_local(&mut m, "s"), k.scope_local(&mut m, "s"));
+    let (x, h) = (
         k.scope_local(&mut m, "x"),
         m.local("h", k.fiber_ty(TypeId::INT)),
-        m.local("d", k.deferred_ty(TypeId::INT)),
     );
     let fork_after = let_(x, k.scope(s1, false, var(s1)), k.fork(x, int(1)));
     let join_after = let_(
@@ -973,28 +969,9 @@ fn using_a_scope_after_it_ended_is_a_defect() {
         k.scope(s2, false, k.fork(s2, int(1))),
         fiber(FiberOp::Join, vec![var(h)]),
     );
-    let complete_after = let_(
-        d,
-        k.scope(s3, false, fiber(FiberOp::Deferred, vec![var(s3)])),
-        fiber(FiberOp::Complete, vec![var(d), int(1)]),
-    );
-    let (s4, d2) = (
-        k.scope_local(&mut m, "s"),
-        m.local("d", k.deferred_ty(TypeId::INT)),
-    );
-    // The poll result is an `Option[Int]`, but adding Option to this module (`option_enum`)
-    // would change the output, so the discarded value is typed `()` here.
-    let polled = m.local("_", TypeId::UNIT);
-    let poll_after = let_(
-        d2,
-        k.scope(s4, false, fiber(FiberOp::Deferred, vec![var(s4)])),
-        let_(polled, fiber(FiberOp::Poll, vec![var(d2)]), int(1)),
-    );
     let lines = vec![
         k.log_exit(&mut m, k.attempt(true, fork_after)),
         k.log_exit(&mut m, k.attempt(true, join_after)),
-        k.log_exit(&mut m, k.attempt(true, complete_after)),
-        k.log_exit(&mut m, k.attempt(true, poll_after)),
         int(0),
     ];
     let body = seq(&k, &mut m, lines);
@@ -1003,8 +980,6 @@ fn using_a_scope_after_it_ended_is_a_defect() {
         run("after_scope", m),
         "Die defect: fiber scope was used after it ended\n\
          Die defect: fiber was joined after its scope ended\n\
-         Die defect: deferred was completed after its scope ended\n\
-         Die defect: deferred was polled after its scope ended\n\
          sync 0\n"
     );
 }

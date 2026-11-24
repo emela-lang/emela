@@ -627,7 +627,11 @@ impl Emitter<'_> {
             // Only `dbg` shows a function (`[trait.builtin]`): a function type has no Show, so
             // interpolation and `inspect` of one never get here.
             Type::Fn(_) => self.rt("$showFn").to_owned(),
-            Type::Handler(_) => panic!("invalid IR: capability values cannot be shown (spec 8.2)"),
+            // Only the capabilities of Deferred, Queue and Semaphore are shown (`[task.deferred]`).
+            Type::Handler(e) => match self.m.effects[*e].display {
+                Some(text) => format!("(() => {})", js_string(text)),
+                None => panic!("invalid IR: capability values cannot be shown (spec 8.2)"),
+            },
             Type::Evidence | Type::Cell(_) | Type::FiberScope | Type::Any => {
                 panic!("invalid IR: {t:?} values cannot be shown")
             }

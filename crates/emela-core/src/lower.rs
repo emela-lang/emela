@@ -35,6 +35,7 @@ use crate::ir::{
 use crate::mono::Monomorphized;
 use crate::named;
 
+mod builtin_handler;
 mod builtin_impls;
 mod derive_std;
 mod fiber;
@@ -42,7 +43,7 @@ mod local_fn;
 mod member;
 mod suspend;
 
-use fiber::{AttemptCall, ForkCall, PermitsCall, QueueCall, ScopeCall};
+use fiber::{AttemptCall, ForkCall, ScopeCall};
 use local_fn::Lifted;
 use suspend::Specialization;
 
@@ -191,7 +192,9 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
                 (Roots::Exported, Some(Item::Fn(_))) => cx.is_main(def),
                 (Roots::Public, Some(Item::Fn(_))) => cx.is_public_root(def),
                 (Roots::All, Some(Item::Fn(f))) => f.body.is_some() || f.is_external,
-                (Roots::All, Some(Item::Const(_) | Item::Handler(_))) => true,
+                (Roots::All, Some(Item::Const(_))) => true,
+                // A built-in handler has no functions (`lower/builtin_handler.rs`).
+                (Roots::All, Some(Item::Handler(h))) => !h.is_intrinsic,
                 _ => false,
             };
             if is_root {
@@ -452,10 +455,6 @@ enum Target {
     Fork(Box<ForkCall>),
     /// `Exit.attempt(f)`（11.5）．
     Attempt(Box<AttemptCall>),
-    /// `Semaphore.with_permits` and `try_with_permits` (spec 11.9).
-    Permits(Box<PermitsCall>),
-    /// `Queue.offer` and `Queue.take` (spec 11.10).
-    Queue(Box<QueueCall>),
 }
 
 /// What is needed to lower `State.run(initial, body)`. Locals are allocated up front.
@@ -622,8 +621,6 @@ impl Target {
             Target::Scope(scope) => scope.apply(args),
             Target::Fork(fork) => fork.apply(args),
             Target::Attempt(attempt) => attempt.apply(args),
-            Target::Permits(permits) => permits.apply(args),
-            Target::Queue(queue) => queue.apply(args),
         }
     }
 }
@@ -1455,6 +1452,7 @@ impl<'a> Lowerer<'a> {
             args: args.clone(),
             ops: Vec::new(),
             label_of: None,
+            display: self.capability_display(def),
         });
         self.effects.insert(key.clone(), id);
         // A label has its base's operations, typed with the base's type arguments
@@ -1486,6 +1484,10 @@ impl<'a> Lowerer<'a> {
                 ops.push(op);
             }
         }
+        // The effect of a built-in handler gets `$cell` last (`lower/builtin_handler.rs`).
+        let display = self.module.effects[id].display;
+        let args = self.module.effects[id].args.clone();
+        ops.extend(self.cell_op(display, &args));
         self.module.effects[id].ops = ops;
         id
     }
@@ -2173,20 +2175,19 @@ impl<'a> Lowerer<'a> {
                     let op = self.module.effects[effect].ops[index].clone();
                     let args = self.init_args(id, info.binds[i].args, &written_args);
                     let pair = self.module.local("opened", op.ret);
-                    binds.push(WithBind::new(
-                        pair,
-                        Expr::Call {
-                            callee: Callee::Op {
-                                handler: Box::new(value),
-                                effect,
-                                op: index,
-                                ty_args: Vec::new(),
-                            },
-                            args,
-                            fails: op.fails,
-                            suspends: op.suspend,
+                    let open = Expr::Call {
+                        callee: Callee::Op {
+                            handler: Box::new(value),
+                            effect,
+                            op: index,
+                            ty_args: Vec::new(),
                         },
-                    ));
+                        args,
+                        fails: op.fails,
+                        suspends: op.suspend,
+                    };
+                    let open = self.builtin_direct(open);
+                    binds.push(WithBind::new(pair, open));
                     let (h_ty, release_ty) = match self.module.ty(op.ret) {
                         Type::Tuple(elems) => (elems[0], elems[1]),
                         _ => unreachable!("a member's operation returns a pair"),
@@ -2245,6 +2246,18 @@ impl<'a> Lowerer<'a> {
                     continue;
                 }
             };
+            // A built-in handler: its value binds the runtime object it makes, and its release
+            // does nothing (`lower/builtin_handler.rs`).
+            if self.is_builtin_handler(h) {
+                let args = self.init_args(id, info.binds[i].args, &written_args);
+                let Some(value) = self.builtin_handler(h, own_id, args) else {
+                    return self.unsupported("this built-in handler", span);
+                };
+                let l = self.module.local("h", handler_ty);
+                locals.push(l);
+                binds.push(WithBind::new(l, value));
+                continue;
+            }
             let f = self.fn_id(h, 0);
             // The type arguments of a handler with type parameters (`[effect.with]`): its
             // functions are generic, and its effects and requirements are instantiated.
@@ -2765,20 +2778,21 @@ impl<'a> Lowerer<'a> {
             .collect();
         let args = params.iter().map(|&l| Expr::Var(l)).collect();
         params.extend(ev);
+        let call = Expr::Call {
+            callee: Callee::Op {
+                handler: Box::new(Expr::Var(h)),
+                effect: effect_id,
+                op: index,
+                ty_args: self.op_ty_args(effect_id, index, id),
+            },
+            args,
+            fails,
+            suspends,
+        };
         let lambda = Expr::Lambda {
             params,
             ty,
-            body: Box::new(Expr::Call {
-                callee: Callee::Op {
-                    handler: Box::new(Expr::Var(h)),
-                    effect: effect_id,
-                    op: index,
-                    ty_args: self.op_ty_args(effect_id, index, id),
-                },
-                args,
-                fails,
-                suspends,
-            }),
+            body: Box::new(self.builtin_direct(call)),
             suspends,
         };
         bind(lambda, handler)
@@ -3180,7 +3194,8 @@ impl<'a> Lowerer<'a> {
             (Target::Op { effect, op, .. }, Some(_)) => Some((*effect, *op)),
             _ => None,
         };
-        let mut call = named::in_written_order(&mut self.module, args, |args| target.apply(args));
+        let call = named::in_written_order(&mut self.module, args, |args| target.apply(args));
+        let mut call = self.builtin_direct(call);
         if let Some((effect, index)) = opened {
             call = self.open_in_init(call, callee, effect, index);
         }
@@ -3230,7 +3245,10 @@ impl<'a> Lowerer<'a> {
         Expr::Lambda {
             params,
             ty: self.ty(self.expr_ty(id)),
-            body: Box::new(target.apply(args)),
+            body: Box::new({
+                let call = target.apply(args);
+                self.builtin_direct(call)
+            }),
             suspends: self.ty_suspends(self.expr_ty(id)),
         }
     }

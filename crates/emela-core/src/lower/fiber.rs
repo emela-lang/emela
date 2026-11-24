@@ -1,17 +1,11 @@
 //! Lowering concurrency (spec chapter 11).
 //!
-//! `@intrinsic` functions of `Std.Fiber`, `Std.Exit`, `Std.Cause`, `Std.Deferred`,
-//! `Std.Semaphore` and `Std.Queue` are lowered to `Expr::Fiber` in the Core IR ([`FiberFn`]). The
-//! capability value of the builtin effect Scope is a handler value that lowering builds where
-//! `Fiber.scope` is called ([`ScopeCall`]). The operations fork, deferred, semaphore and queue
-//! become ordinary operation calls; only fork wraps the child function at the call site
-//! ([`ForkCall`]).
-//!
-//! `Semaphore.with_permits` becomes a `with` whose init waits for the permits and whose release
-//! gives them back ([`PermitsCall`]), so the permits come back however `f` ends, after the
-//! releases of the withs inside `f` (`[fiber.semaphore]`). `Queue.offer` and `Queue.take` become
-//! operations that report a closed queue as a value, and lowering turns that value into the
-//! failure `QueueClosed` ([`QueueCall`]), so the runtimes never build an error value.
+//! `@intrinsic` functions of `Std.Fiber`, `Std.Exit` and `Std.Cause` are lowered to
+//! `Expr::Fiber` in the Core IR ([`FiberFn`]). The capability value of the builtin effect Scope
+//! is a handler value that lowering builds where `Fiber.scope` is called ([`ScopeCall`]). Its
+//! operation fork becomes an ordinary operation call that wraps the child function at the call
+//! site ([`ForkCall`]). The built-in handlers Deferred, Queue and Semaphore are lowered in
+//! `lower/builtin_handler.rs`.
 //!
 //! A child uses the handlers in place when `Fiber.scope` was called, except that Scope refers to
 //! the scope the child belongs to (spec 11.2). Scope's handler value captures the evidence table
@@ -36,10 +30,7 @@ use emela_resolve::hir::{DefId, DefModule, ExprId, Item, Span};
 use emela_types::{FnTy, Tag, Ty};
 
 use super::{Call, Lowerer, Target};
-use crate::ir::{
-    Arm, Callee, CtorRef, EffectId, EnumId, Expr, FiberOp, FnType, Lit, Local, Pat, Type, TypeId,
-    WithBind,
-};
+use crate::ir::{Callee, EffectId, EnumId, Expr, FiberOp, FnType, Lit, Local, Type, TypeId};
 
 /// `@intrinsic` functions that lowering maps to `Expr::Fiber`.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -49,18 +40,6 @@ pub(super) enum FiberFn {
     Await,
     Interrupt,
     Attempt,
-    Complete,
-    DeferredAwait,
-    Poll,
-    WithPermits,
-    TryWithPermits,
-    Available,
-    Offer,
-    Take,
-    TryOffer,
-    QueuePoll,
-    Size,
-    Close,
     CauseKind,
     CauseToString,
     CauseRaise,
@@ -75,18 +54,6 @@ impl FiberFn {
             ("Std.Fiber", "await") => FiberFn::Await,
             ("Std.Fiber", "interrupt") => FiberFn::Interrupt,
             ("Std.Exit", "attempt") => FiberFn::Attempt,
-            ("Std.Deferred", "complete") => FiberFn::Complete,
-            ("Std.Deferred", "await") => FiberFn::DeferredAwait,
-            ("Std.Deferred", "poll") => FiberFn::Poll,
-            ("Std.Semaphore", "with_permits") => FiberFn::WithPermits,
-            ("Std.Semaphore", "try_with_permits") => FiberFn::TryWithPermits,
-            ("Std.Semaphore", "available") => FiberFn::Available,
-            ("Std.Queue", "offer") => FiberFn::Offer,
-            ("Std.Queue", "take") => FiberFn::Take,
-            ("Std.Queue", "try_offer") => FiberFn::TryOffer,
-            ("Std.Queue", "poll") => FiberFn::QueuePoll,
-            ("Std.Queue", "size") => FiberFn::Size,
-            ("Std.Queue", "close") => FiberFn::Close,
             ("Std.Cause", "kind") => FiberFn::CauseKind,
             ("Std.Cause", "to_string") => FiberFn::CauseToString,
             ("Std.Cause", "raise") => FiberFn::CauseRaise,
@@ -100,12 +67,7 @@ impl FiberFn {
 /// ```text
 /// let b = body
 /// fiber#scope(fn(s) {
-///   let h = Scope {
-///     fork: fn(g) { fiber#fork(s, fn() { g(ev) }) },
-///     deferred: fn() { fiber#deferred(s) },
-///     semaphore: fn(n) { fiber#semaphore(s, n) },
-///     queue: fn(n) { fiber#queue(s, n) },
-///   }
+///   let h = Scope { fork: fn(g) { fiber#fork(s, fn() { g(ev) }) } }
 ///   b(h, ev + { Scope: h })
 /// })
 /// ```
@@ -116,8 +78,9 @@ impl FiberFn {
 pub(super) struct ScopeCall {
     /// Scope's IR effect.
     effect: EffectId,
-    /// Indices of the operations fork, deferred, semaphore and queue in `EffectDef::ops`.
-    ops: [usize; 4],
+    /// The index of the operation fork in `EffectDef::ops`, and the number of operations.
+    fork_op: usize,
+    ops_len: usize,
     /// The evidence table at the `Fiber.scope` call.
     ev: Option<Local>,
     /// Whether the scope (and its children) may fail.
@@ -126,20 +89,15 @@ pub(super) struct ScopeCall {
     body_call: Call,
     /// Whether the body takes the scope's capability as its parameter (`[fiber.scope]`).
     takes_cap: bool,
-    /// The types of the lambdas built: the child run by fork, the implementations of fork,
-    /// deferred, semaphore and queue, and the function `fiber#scope` runs.
+    /// The types of the lambdas built: the child run by fork, the implementation of fork, and
+    /// the function `fiber#scope` runs.
     child_ty: TypeId,
     fork_ty: TypeId,
-    deferred_ty: TypeId,
-    sized_ty: TypeId,
     inner_ty: TypeId,
     body: Local,
     scope: Local,
     handler: Local,
     g: Local,
-    /// The parameters of semaphore's and queue's implementations.
-    permits: Local,
-    capacity: Local,
 }
 
 impl ScopeCall {
@@ -171,31 +129,8 @@ impl ScopeCall {
             }),
             suspends: false,
         };
-        let deferred = Expr::Lambda {
-            params: Vec::new(),
-            ty: self.deferred_ty,
-            body: Box::new(Expr::Fiber {
-                op: FiberOp::Deferred,
-                args: vec![Expr::Var(self.scope)],
-            }),
-            suspends: false,
-        };
-        let sized = |op, n| Expr::Lambda {
-            params: vec![n],
-            ty: self.sized_ty,
-            body: Box::new(Expr::Fiber {
-                op,
-                args: vec![Expr::Var(self.scope), Expr::Var(n)],
-            }),
-            suspends: false,
-        };
-        let semaphore = sized(FiberOp::Semaphore, self.permits);
-        let queue = sized(FiberOp::Queue, self.capacity);
-        let mut ops = vec![Expr::Lit(Lit::Unit); 4];
-        ops[self.ops[0]] = fork;
-        ops[self.ops[1]] = deferred;
-        ops[self.ops[2]] = semaphore;
-        ops[self.ops[3]] = queue;
+        let mut ops = vec![Expr::Lit(Lit::Unit); self.ops_len];
+        ops[self.fork_op] = fork;
         // The body receives the scope's capability, the handler value (`[fiber.scope]`), and
         // the table with Scope provided by it.
         let cap = self.takes_cap.then_some(Expr::Var(self.handler));
@@ -354,151 +289,8 @@ impl AttemptCall {
     }
 }
 
-/// What is needed to lower `Semaphore.with_permits(s, n, f)` and `try_with_permits(s, n, f)`.
-///
-/// ```text
-/// let s = …; let n = …; let f = …
-/// with _ = fiber#acquire(s, n) release fiber#release(s, n) { f(ev) }      // with_permits
-/// if fiber#try_acquire(s, n) {                                           // try_with_permits
-///   with _ = () release fiber#release(s, n) { Some(f(ev)) }
-/// } else { None }
-/// ```
-///
-/// The bound variable is `()`, not a handler value, so nothing is marked released. A fiber
-/// interrupted while `fiber#acquire` waits has taken no permit, and an init that does not
-/// complete runs no release of its own (`[dyn.with]`), so no permit is given back that was not
-/// taken.
-pub(super) struct PermitsCall {
-    /// `try_with_permits`: the constructors `Some` and `None` and the type of `f`'s value.
-    try_: Option<(CtorRef, CtorRef, TypeId)>,
-    f_call: Call,
-    /// The current evidence table to pass to `f`; `None` if it needs none.
-    ev: Option<Expr>,
-    s: Local,
-    n: Local,
-    f: Local,
-    held: Local,
-}
-
-impl PermitsCall {
-    pub(super) fn apply(self, args: Vec<Expr>) -> Expr {
-        let [s, n, f]: [Expr; 3] = args.try_into().expect("with_permits takes three arguments");
-        let permits = || vec![Expr::Var(self.s), Expr::Var(self.n)];
-        let release = Expr::Fiber {
-            op: FiberOp::Release,
-            args: permits(),
-        };
-        let call = Expr::Call {
-            callee: Callee::Indirect(Box::new(Expr::Var(self.f))),
-            args: self.ev.into_iter().collect(),
-            fails: self.f_call.fails,
-            suspends: self.f_call.suspends,
-        };
-        let body = match self.try_ {
-            None => Expr::With {
-                binds: vec![WithBind::managed(
-                    self.held,
-                    Expr::Fiber {
-                        op: FiberOp::Acquire,
-                        args: permits(),
-                    },
-                    "Semaphore",
-                    release,
-                )],
-                body: Box::new(call),
-            },
-            Some((some, none, a)) => Expr::If {
-                cond: Box::new(Expr::Fiber {
-                    op: FiberOp::TryAcquire,
-                    args: permits(),
-                }),
-                then: Box::new(Expr::With {
-                    binds: vec![WithBind::managed(
-                        self.held,
-                        Expr::Lit(Lit::Unit),
-                        "Semaphore",
-                        release,
-                    )],
-                    body: Box::new(Expr::Ctor {
-                        ctor: some,
-                        ty_args: vec![a],
-                        args: vec![call],
-                    }),
-                }),
-                else_: Box::new(Expr::Ctor {
-                    ctor: none,
-                    ty_args: vec![a],
-                    args: Vec::new(),
-                }),
-            },
-        };
-        [(self.s, s), (self.n, n), (self.f, f)]
-            .into_iter()
-            .rev()
-            .fold(body, |body, (var, value)| Expr::Let {
-                var,
-                value: Box::new(value),
-                body: Box::new(body),
-            })
-    }
-}
-
-/// What is needed to lower `Queue.offer(q, value)` and `Queue.take(q)`: the operation reports a
-/// closed queue as a value, which becomes the failure `QueueClosed`.
-///
-/// ```text
-/// if fiber#offer(q, value) { () } else { fail QueueClosed }
-/// fiber#take(q) match { Some(x) -> x, _ -> fail QueueClosed }
-/// ```
-pub(super) struct QueueCall {
-    closed: CtorRef,
-    /// `take`: the constructor `Some` and the variable bound to the value.
-    take: Option<(CtorRef, Local)>,
-}
-
-impl QueueCall {
-    pub(super) fn apply(self, args: Vec<Expr>) -> Expr {
-        let fail = Expr::Fail(Box::new(Expr::Ctor {
-            ctor: self.closed,
-            ty_args: Vec::new(),
-            args: Vec::new(),
-        }));
-        match self.take {
-            None => Expr::If {
-                cond: Box::new(Expr::Fiber {
-                    op: FiberOp::Offer,
-                    args,
-                }),
-                then: Box::new(Expr::Lit(Lit::Unit)),
-                else_: Box::new(fail),
-            },
-            Some((some, x)) => Expr::Match {
-                scrutinee: Box::new(Expr::Fiber {
-                    op: FiberOp::Take,
-                    args,
-                }),
-                arms: vec![
-                    Arm {
-                        pat: Pat::Ctor {
-                            ctor: some,
-                            fields: vec![Pat::Bind(x)],
-                        },
-                        guard: None,
-                        body: Expr::Var(x),
-                    },
-                    Arm {
-                        pat: Pat::Wild,
-                        guard: None,
-                        body: fail,
-                    },
-                ],
-            },
-        }
-    }
-}
-
 impl Lowerer<'_> {
-    /// Whether it is a builtin effect (`@intrinsic effect`; only Scope today).
+    /// Whether it is a builtin effect (`@intrinsic effect`).
     pub(super) fn is_intrinsic_effect(&self, effect: DefId) -> bool {
         matches!(self.hir.item(effect), Some(Item::Effect(e)) if e.is_intrinsic)
     }
@@ -532,24 +324,6 @@ impl Lowerer<'_> {
             ),
             FiberFn::Join => simple(FiberOp::Join),
             FiberFn::Interrupt => simple(FiberOp::Interrupt),
-            FiberFn::Complete => simple(FiberOp::Complete),
-            FiberFn::DeferredAwait => simple(FiberOp::DeferredAwait),
-            FiberFn::Poll => simple(FiberOp::Poll),
-            FiberFn::Available => simple(FiberOp::Available),
-            FiberFn::TryOffer => simple(FiberOp::TryOffer),
-            FiberFn::QueuePoll => simple(FiberOp::QueuePoll),
-            FiberFn::Size => simple(FiberOp::Size),
-            FiberFn::Close => simple(FiberOp::Close),
-            FiberFn::WithPermits | FiberFn::TryWithPermits => Some(
-                self.permits_call(&fn_ty, which == FiberFn::TryWithPermits)
-                    .map(|p| Target::Permits(Box::new(p)))
-                    .ok_or_else(|| self.unsupported(&format!("{module}.{}", data.name), span)),
-            ),
-            FiberFn::Offer | FiberFn::Take => Some(
-                self.queue_call(&fn_ty, which == FiberFn::Take)
-                    .map(|q| Target::Queue(Box::new(q)))
-                    .ok_or_else(|| self.unsupported(&format!("{module}.{}", data.name), span)),
-            ),
             FiberFn::CauseToString => simple(FiberOp::CauseToString),
             FiberFn::CauseRaise => simple(FiberOp::CauseRaise { fails: call.fails }),
             FiberFn::Await => match self.ret_enum(&fn_ty) {
@@ -582,57 +356,6 @@ impl Lowerer<'_> {
         }
     }
 
-    /// `fn_ty` is the instantiated type of `with_permits` or `try_with_permits`.
-    fn permits_call(&mut self, fn_ty: &FnTy, try_: bool) -> Option<PermitsCall> {
-        let f_ty = fn_ty.params.get(2)?;
-        let Ty::Fn(f) = f_ty else {
-            return None;
-        };
-        let f_call = Call {
-            fails: !f.fails.is_empty(),
-            suspends: self.ty_suspends(f_ty),
-        };
-        let a = self.ty(&f.ret);
-        let try_ = try_.then(|| (self.module.some_ctor(), self.module.none_ctor(), a));
-        let ev = self.ty_takes_ev(f_ty).then(|| self.ev_arg());
-        let s_ty = self.ty(&fn_ty.params[0]);
-        let f_ir_ty = self.ty(f_ty);
-        Some(PermitsCall {
-            try_,
-            f_call,
-            ev,
-            s: self.module.local("s", s_ty),
-            n: self.module.local("n", TypeId::INT),
-            f: self.module.local("f", f_ir_ty),
-            held: self.module.local("permits", TypeId::UNIT),
-        })
-    }
-
-    /// `fn_ty` is the instantiated type of `offer` or `take`.
-    fn queue_call(&mut self, fn_ty: &FnTy, take: bool) -> Option<QueueCall> {
-        let closed = self.queue_closed()?;
-        let take = if take {
-            let a = self.ty(&fn_ty.ret);
-            Some((self.module.some_ctor(), self.module.local("x", a)))
-        } else {
-            None
-        };
-        Some(QueueCall { closed, take })
-    }
-
-    /// The constructor of `QueueClosed` of `Std.Queue`.
-    fn queue_closed(&self) -> Option<CtorRef> {
-        self.hir.defs.iter().find_map(|(def, data)| {
-            let in_queue = matches!(&data.module, DefModule::Source(m)
-                if self.modules[*m].name.to_string() == "Std.Queue");
-            if in_queue && data.name == "QueueClosed" {
-                self.ctors.get(def).copied()
-            } else {
-                None
-            }
-        })
-    }
-
     /// The enum of the return type (Exit, CauseKind).
     fn ret_enum(&self, fn_ty: &FnTy) -> Option<EnumId> {
         match &fn_ty.ret {
@@ -646,12 +369,15 @@ impl Lowerer<'_> {
         let Some(Ty::Fn(body)) = fn_ty.params.first() else {
             return None;
         };
+        // The R of the body may hold other built-in effects (a Deferred it captures); Scope is
+        // the one with fork.
         let tag = body
             .uses
             .effect_tags()
-            .find(|t| self.is_intrinsic_effect(t.def))?
+            .find(|t| self.is_scope_effect(t.def))?
             .clone();
-        let (effect, ops) = self.scope_effect(&tag)?;
+        let (effect, fork_op) = self.scope_effect(&tag)?;
+        let ops_len = self.module.effects[effect].ops.len();
         let body_ty = self.ty(&fn_ty.params[0]);
         // The child function as wrapped by `ForkCall`: it takes the table at the `Fiber.scope`
         // call and returns the child's value, whose type each fork chooses.
@@ -677,8 +403,6 @@ impl Lowerer<'_> {
             sets: None,
         });
         let fork_ty = self.module.fn_type(vec![g_ty], TypeId::ANY);
-        let deferred_ty = self.module.fn_type(Vec::new(), TypeId::ANY);
-        let sized_ty = self.module.fn_type(vec![TypeId::INT], TypeId::ANY);
         let ret = self.ty(&body.ret);
         let inner_ty = self.module.func(FnType {
             params: vec![TypeId::FIBER_SCOPE],
@@ -690,44 +414,40 @@ impl Lowerer<'_> {
         });
         Some(ScopeCall {
             effect,
-            ops,
+            fork_op,
+            ops_len,
             ev: self.ev,
             fails: call.fails,
             body_call,
             takes_cap: body.params.len() == 1,
             child_ty,
             fork_ty,
-            deferred_ty,
-            sized_ty,
             inner_ty,
             body: self.module.local("body", body_ty),
             scope: self.module.local("s", TypeId::FIBER_SCOPE),
             handler: self.module.local("scope", handler_ty),
             g: self.module.local("g", g_ty),
-            permits: self.module.local("permits", TypeId::INT),
-            capacity: self.module.local("capacity", TypeId::INT),
         })
     }
 
-    /// Scope's IR effect for the tag, and the indices of the operations fork, deferred, semaphore
-    /// and queue.
-    fn scope_effect(&mut self, tag: &Tag) -> Option<(EffectId, [usize; 4])> {
+    /// Scope's IR effect for the tag, and the index of the operation fork.
+    fn scope_effect(&mut self, tag: &Tag) -> Option<(EffectId, usize)> {
         let effect = self.effect_id(&self.key_here(tag));
-        let index = |name: &str| {
-            self.module.effects[effect]
-                .ops
+        let fork = self.module.effects[effect]
+            .ops
+            .iter()
+            .position(|o| o.name == "fork")?;
+        Some((effect, fork))
+    }
+
+    /// Whether `effect` is Scope: the built-in effect with the operation fork.
+    fn is_scope_effect(&self, effect: DefId) -> bool {
+        self.is_intrinsic_effect(effect)
+            && self
+                .hir
+                .effect_ops(effect)
                 .iter()
-                .position(|o| o.name == name)
-        };
-        Some((
-            effect,
-            [
-                index("fork")?,
-                index("deferred")?,
-                index("semaphore")?,
-                index("queue")?,
-            ],
-        ))
+                .any(|&op| self.hir.defs[op].name == "fork")
     }
 
     /// Prepares lowering a fork call on the capability value `handler` (whose type's Scope tag is
@@ -739,7 +459,7 @@ impl Lowerer<'_> {
         op_ty: &Ty,
         expr: ExprId,
     ) -> Option<ForkCall> {
-        let (effect, [fork, ..]) = self.scope_effect(tag)?;
+        let (effect, fork) = self.scope_effect(tag)?;
         let Ty::Fn(op_ty) = op_ty else {
             return None;
         };

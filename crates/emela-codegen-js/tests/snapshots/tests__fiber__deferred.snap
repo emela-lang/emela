@@ -43,7 +43,7 @@ function* main() {
   const c$7 = JsClock();
   const n$8 = NeverClock();
   return (yield* $scope((function* (s$9) {
-    const d$10 = $deferred(s$9);
+    const d$10 = $deferred();
     const _$21 = $fork(s$9, (function* () {
       const _$15 = ($spend() && (yield $pause()), (yield $perform(c$7.sleep, [30])));
       const r$14 = $complete(d$10, "slow");

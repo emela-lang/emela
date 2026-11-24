@@ -79,11 +79,7 @@ const S_FIRST: u32 = HDR + 24; // Ref: the first failure (a Cause)
 const S_CHEAD: u32 = HDR + 32; // raw: children that have not ended
 const S_CTAIL: u32 = HDR + 40;
 const S_CLOSER: u32 = HDR + 48; // raw: the wait for the last child
-/// Ref: the first of the scope's Semaphores and Queues (`runtime::line`), chained through their
-/// own counted link; raw: the last one.
-pub(super) const S_CELLS: u32 = HDR + 56;
-pub(super) const S_CELLT: u32 = HDR + 64;
-const S_SLOTS: i32 = 9;
+const S_SLOTS: i32 = 7;
 
 pub(super) const SF_CLOSED: i32 = 1;
 const SF_BODY_DONE: i32 = 2;
@@ -91,14 +87,13 @@ const SF_ENDED: i32 = 4;
 
 // ---- the Deferred record ----
 
-const D_SCOPE: u32 = HDR; // Ref
-const D_FULL: u32 = HDR + 8;
-const D_ISREF: u32 = HDR + 16;
-const D_WORD: u32 = HDR + 24; // i64
-const D_VAL: u32 = HDR + 32; // Ref
-const D_WHEAD: u32 = HDR + 40;
-const D_WTAIL: u32 = HDR + 48;
-const D_SLOTS: i32 = 7;
+const D_FULL: u32 = HDR;
+const D_ISREF: u32 = HDR + 8;
+const D_WORD: u32 = HDR + 16; // i64
+const D_VAL: u32 = HDR + 24; // Ref
+const D_WHEAD: u32 = HDR + 32;
+const D_WTAIL: u32 = HDR + 40;
+const D_SLOTS: i32 = 6;
 
 // ---- the wait record ----
 
@@ -263,11 +258,7 @@ pub(crate) struct Plan {
     pub(crate) scope_body_desc: u32,
     pub(crate) scope_close_desc: u32,
     pub(crate) msg_join: u32,
-    pub(crate) msg_scope_used: u32,
     pub(crate) msg_scope_fork: u32,
-    pub(crate) msg_deferred_complete: u32,
-    pub(crate) msg_deferred_await: u32,
-    pub(crate) msg_deferred_poll: u32,
     pub(crate) def_join: u32,
     pub(crate) def_await: u32,
     pub(crate) def_interrupt: u32,
@@ -381,7 +372,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ("fb_join", &[ValType::I32, ValType::I32], &[ValType::I64]),
     ("fb_await", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("fb_interrupt", &[ValType::I32], &[]),
-    ("fb_deferred", &[ValType::I32], &[ValType::I32]),
+    ("fb_deferred", &[], &[ValType::I32]),
     (
         "fb_complete",
         &[ValType::I32, ValType::I64, ValType::I32],
@@ -547,7 +538,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "fb_join" => vec![(5, ValType::I32), (1, ValType::I64)],
         "fb_await" => vec![(5, ValType::I32), (1, ValType::I64)],
         "fb_interrupt" => i32s(6),
-        "fb_deferred" => i32s(4),
+        "fb_deferred" => i32s(1),
         "fb_complete" => vec![(5, ValType::I32), (1, ValType::I64)],
         "fb_deferred_await" => i32s(6),
         "fb_poll" => i32s(7),
@@ -664,7 +655,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         enum_id: -1,
         name: "Scope".to_owned(),
         show: None,
-        refs: vec![false, false, false, true, false, false, false, true, false],
+        refs: vec![false, false, false, true, false, false, false],
     });
     let deferred_desc = b.desc(DescKey {
         kind: 0,
@@ -672,7 +663,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         enum_id: -1,
         name: "Deferred".to_owned(),
         show: None,
-        refs: vec![true, false, false, false, true, false, false],
+        refs: vec![false, false, false, true, false, false],
     });
     let waiter_desc = b.desc(DescKey {
         kind: 0,
@@ -794,11 +785,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     let notes = if used(b) { b.alloc_static(8) } else { 0 };
     let msg = |b: &mut Builder<'_>, s: &[u8]| b.string_literal(s);
     let msg_join = msg(b, b"fiber was interrupted");
-    let msg_scope_used = msg(b, b"fiber scope was used after it ended");
     let msg_scope_fork = msg(b, b"fiber scope was used after it ended");
-    let msg_deferred_complete = msg(b, b"deferred was completed after its scope ended");
-    let msg_deferred_await = msg(b, b"deferred was awaited after its scope ended");
-    let msg_deferred_poll = msg(b, b"deferred was polled after its scope ended");
     let def_join = msg(b, b"fiber was joined after its scope ended");
     let def_await = msg(b, b"fiber was awaited after its scope ended");
     let def_interrupt = msg(b, b"fiber was interrupted after its scope ended");
@@ -863,11 +850,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         scope_body_desc,
         scope_close_desc,
         msg_join,
-        msg_scope_used,
         msg_scope_fork,
-        msg_deferred_complete,
-        msg_deferred_await,
-        msg_deferred_poll,
         def_join,
         def_await,
         def_interrupt,
@@ -3357,8 +3340,6 @@ fn scope(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     st_const(ins, SO, S_CHEAD, 0);
     st_const(ins, SO, S_CTAIL, 0);
     st_const(ins, SO, S_CLOSER, 0);
-    st_const(ins, SO, S_CELLS, 0);
-    st_const(ins, SO, S_CELLT, 0);
     // Call the body with the scope capability as its argument.
     let ty = b.call_ty(&[Repr::Ref, Repr::Ref], Repr::I64);
     g(ins, 0);
@@ -3584,11 +3565,6 @@ fn scope_finish(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_or();
     ins.local_set(FIRST);
     stl(ins, 0, S_FLAGS, FIRST);
-    // The fibers still waiting on the scope's Semaphores and Queues stop waiting (`[fiber.escape]`).
-    if plan(b).line.used {
-        g(ins, 0);
-        call(b, ins, "fb_cells_end");
-    }
     ldl(ins, 0, S_FIRST);
     ins.local_set(FIRST);
     g(ins, FIRST);
@@ -4182,24 +4158,15 @@ fn interrupt(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.global_set(G_SUSPENDING);
 }
 
-/// `fb_deferred(scope) -> Deferred`: a new Deferred belonging to the scope (spec 11.7).
+/// `fb_deferred() -> Deferred`: the init of the built-in handler `Deferred`, an empty Deferred
+/// (`[task.deferred]`). Its with bounds its lifetime, so it belongs to no scope.
 fn deferred(b: &mut Builder<'_>, ins: &mut InstructionSink) {
-    const D: u32 = 2;
+    const D: u32 = 0;
     let desc = plan(b).deferred_desc;
-    let msg = plan(b).msg_scope_used;
-    ldl(ins, 0, S_FLAGS);
-    c(ins, SF_CLOSED);
-    ins.i32_and();
-    ins.if_(BlockType::Empty);
-    raise_msg(b, ins, msg);
-    ins.i32_const(0);
-    ins.return_();
-    ins.end();
     c(ins, D_SLOTS);
     c(ins, desc as i32);
     call(b, ins, "alloc");
     ins.local_set(D);
-    st_dup(b, ins, D, D_SCOPE, 0);
     st_const(ins, D, D_FULL, 0);
     st_const(ins, D, D_ISREF, 0);
     st_const(ins, D, D_VAL, 0);
@@ -4211,26 +4178,15 @@ fn deferred(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, D);
 }
 
-/// `fb_complete(d, word, repr) -> Bool`: store the value if empty (spec 11.7).
+/// `fb_complete(d, word, repr) -> Bool`: store the value if empty (`[task.deferred]`).
 fn complete(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const W: u32 = 4;
     const NEXT: u32 = 5;
     const V: u32 = 6;
     const TMP: u32 = 7;
     const WORD: u32 = 8; // i64
-    let msg = plan(b).msg_deferred_complete;
     ins.local_get(1);
     ins.local_set(WORD);
-    ldl(ins, 0, D_SCOPE);
-    ins.local_set(TMP);
-    ldl(ins, TMP, S_FLAGS);
-    c(ins, SF_ENDED);
-    ins.i32_and();
-    ins.if_(BlockType::Empty);
-    raise_msg(b, ins, msg);
-    ins.i32_const(0);
-    ins.return_();
-    ins.end();
     ldl(ins, 0, D_FULL);
     ins.if_(BlockType::Empty);
     ins.i32_const(0);
@@ -4302,22 +4258,11 @@ fn complete(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     c(ins, 1);
 }
 
-/// `fb_deferred_await(d, repr) -> word`: wait until a value is stored (spec 11.7).
+/// `fb_deferred_await(d, repr) -> word`: wait until a value is stored (`[task.deferred]`).
 fn deferred_await(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const W: u32 = 2;
-    let msg = plan(b).msg_deferred_await;
     call(b, ins, "fb_interrupt_here");
     ins.if_(BlockType::Empty);
-    ins.i64_const(0);
-    ins.return_();
-    ins.end();
-    ldl(ins, 0, D_SCOPE);
-    ins.local_set(W);
-    ldl(ins, W, S_FLAGS);
-    c(ins, SF_ENDED);
-    ins.i32_and();
-    ins.if_(BlockType::Empty);
-    raise_msg(b, ins, msg);
     ins.i64_const(0);
     ins.return_();
     ins.end();
@@ -4352,20 +4297,9 @@ fn deferred_await(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i64_const(0);
 }
 
-/// `fb_poll(d, repr, some, none) -> Option`: the stored value without waiting (spec 11.7).
+/// `fb_poll(d, repr, some, none) -> Option`: the stored value without waiting (`[task.deferred]`).
 fn poll(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const E: u32 = 4;
-    let msg = plan(b).msg_deferred_poll;
-    ldl(ins, 0, D_SCOPE);
-    ins.local_set(E);
-    ldl(ins, E, S_FLAGS);
-    c(ins, SF_ENDED);
-    ins.i32_and();
-    ins.if_(BlockType::Empty);
-    raise_msg(b, ins, msg);
-    ins.i32_const(0);
-    ins.return_();
-    ins.end();
     ldl(ins, 0, D_FULL);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);

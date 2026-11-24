@@ -1,8 +1,6 @@
 exit: 0
 --- stdout
 --- stderr
-<semaphore>
-Some(<semaphore>)
 "start 1, 1 free"
 "start 2, 0 free"
 "end 1"
@@ -33,12 +31,7 @@ Some(0)
 "small runs"
 "big: interrupted, 1 free"
 "defect: semaphore needs at least 1 permit, but got 0"
-"defect: `with_permits` needs at least 1 permit, but got 0"
-"defect: `with_permits` asked for 4 permits of a semaphore with 3"
-"defect: `try_with_permits` needs at least 1 permit, but got -1"
-"defect: `try_with_permits` asked for 5 permits of a semaphore with 3"
-"defect: semaphore was used after its scope ended"
-"defect: semaphore was used after its scope ended"
-"inner scope ends"
-"waiter: defect: semaphore was used after its scope ended"
-"the holder ended"
+"defect: `Permits` needs at least 1 permit, but got 0"
+"defect: `Permits` asked for 4 permits of a semaphore with 3"
+"defect: `TryPermits` needs at least 1 permit, but got -1"
+"defect: `TryPermits` asked for 5 permits of a semaphore with 3"
