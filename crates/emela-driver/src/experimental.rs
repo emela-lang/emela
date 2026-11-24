@@ -50,12 +50,12 @@ pub struct Feature {
 pub const FEATURES: &[Feature] = &[Feature {
     name: CAPTURE_CHECKING,
     since: "0.28.0",
-    stage: Stage::Experimental,
-    summary: "A value that holds a capability and leaves the with or `Fiber.scope` that provides \
-              it is a compile error (E0444) instead of a warning (W0402)",
+    stage: Stage::Removed,
+    summary: "Removed in 0.29: the types tell capabilities apart, and a capability that leaves \
+              the with that made it is E0455",
 }];
 
-/// `capture-checking` (`[effect.escape]`): W0402 becomes E0444.
+/// `capture-checking`, removed in 0.29 (`[effect.escape]`): its name is accepted with W0206.
 pub const CAPTURE_CHECKING: &str = "capture-checking";
 
 /// The features that can be enabled now, for the flags `--help` lists (`[cmd.build]`).

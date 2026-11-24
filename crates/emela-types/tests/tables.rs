@@ -3,7 +3,7 @@
 //!
 //! Prints only the expressions and patterns of `main.emel`, in source order.
 
-mod common;
+use crate::common;
 
 use std::fmt::Write;
 

@@ -141,9 +141,9 @@ jobs:
           tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
       - name: Install wasm-opt
         run: sudo apt-get update && sudo apt-get install -y binaryen
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
       - name: Build
         run: scripts/build-playground.sh package
       - name: Compile and run a program with it
@@ -169,6 +169,33 @@ jobs:
         run: gh release edit ${{ needs.release-plz-release.outputs.tag }} --draft=false --repo ${{ github.repository }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify-discord:
+    name: Notify Discord
+    # After the release is public, so the link in the post opens the published page.
+    needs: [release-plz-release, publish-release]
+    if: needs.release-plz-release.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Post the release to Discord
+        env:
+          TAG: ${{ needs.release-plz-release.outputs.tag }}
+          GH_REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          release=$(gh release view "$TAG" --json name,url,body)
+          # An embed description holds at most 4096 characters.
+          payload=$(jq '{
+            embeds: [{
+              title: "Emela \(.name)",
+              url: .url,
+              description: (.body | if length > 4000 then .[:4000] + "\n…" else . end)
+            }]
+          }' <<< "$release")
+          curl -fsS -H "Content-Type: application/json" -d "$payload" "$DISCORD_WEBHOOK_URL"
 
   notify-nix:
     name: Notify emela.nix

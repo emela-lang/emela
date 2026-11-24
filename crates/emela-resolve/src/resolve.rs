@@ -319,11 +319,13 @@ impl<'a> Resolver<'a> {
                 ast::Item::Impl(_) => (DefKind::Impl, None, false, false),
             };
             if !matches!(item, ast::Item::Fn(_)) {
-                // A built-in effect (`Scope`, spec 11.2) and a built-in type (`Bytes`,
+                // A built-in effect (`TaskGroup`, `[task.group]`) and a built-in type (`Bytes`,
                 // `[api.std.bytes]`) are marked with `@intrinsic`.
+                // A built-in handler (`Deferred`, `[kw.annotation]`) has no body.
                 let allowed = match &item {
                     ast::Item::Effect(_) => true,
                     ast::Item::Type(it) => it.field_list().is_none(),
+                    ast::Item::Handler(it) => it.declares_only(),
                     _ => false,
                 };
                 self.check_intrinsic(module, &syntax, allowed);
@@ -353,6 +355,10 @@ impl<'a> Resolver<'a> {
                     self.insert(module, Ns::Ctor, name.clone(), entry);
                 }
                 DefKind::Impl => {}
+                DefKind::Handler if self.twin_of(module, &item, &name).is_some() => {
+                    let effect = self.twin_of(module, &item, &name).expect("checked above");
+                    self.program.twin_handlers.insert(effect, def);
+                }
                 _ => self.insert(module, Ns::Type, name.clone(), entry),
             }
 
@@ -364,7 +370,11 @@ impl<'a> Resolver<'a> {
                 }
                 // A handler without fields still needs a constructor for its value if it has
                 // `init` (spec 8.4).
-                ast::Item::Handler(it) if it.field_list().is_some() || it.init().is_some() => {
+                // A built-in handler has none: its value is made by the runtime.
+                ast::Item::Handler(it)
+                    if !it.declares_only()
+                        && (it.field_list().is_some() || it.init().is_some()) =>
+                {
                     ctor = Some(self.define_ctor(module, def, &name, range));
                 }
                 ast::Item::Enum(it) => {
@@ -422,10 +432,42 @@ impl<'a> Resolver<'a> {
     }
 
     /// `@intrinsic` is allowed only on fns without a body, on effects (built-in effects such
-    /// as `Scope`, spec 8.1) and on types without fields (built-in types such as `Bytes`,
+    /// as `TaskGroup`, spec 8.1) and on types without fields (built-in types such as `Bytes`,
     /// `[kw.annotation]`) in the bundled core sources. `allowed` tells whether `node` is one of
     /// those. Fns in traits, impls and handlers are checked too (never allowed), although the
     /// parser does not put annotations inside those bodies yet.
+    /// The effect that `item`, a handler named `name`, may share its name with: one declared
+    /// earlier in the same module, when `item` is a built-in handler of the bundled sources
+    /// (`@intrinsic`, without a body) that implements only that effect (`[module.resolution]`).
+    /// Any other handler with the name of an effect is a duplicate (E0213).
+    fn twin_of(&self, module: ModuleId, item: &ast::Item, name: &SmolStr) -> Option<DefId> {
+        let ast::Item::Handler(h) = item else {
+            return None;
+        };
+        let intrinsic = h
+            .syntax()
+            .children()
+            .filter_map(ast::Annotation::cast)
+            .any(|a| a.name().is_some_and(|n| n.text() == "intrinsic"));
+        if !intrinsic || !h.declares_only() || !self.modules.is_core(module) {
+            return None;
+        }
+        let mut effects = h.effects();
+        let only = effects.next()?;
+        if effects.next().is_some() {
+            return None;
+        }
+        let path = only.path()?;
+        let mut segments = path.segments();
+        let segment = segments.next()?;
+        if segments.next().is_some() || segment.text() != name.as_str() {
+            return None;
+        }
+        let entry = self.scopes[module].get(Ns::Type, name)?;
+        (!entry.imported && self.program.defs[entry.target].kind == DefKind::Effect)
+            .then_some(entry.target)
+    }
+
     pub(crate) fn check_intrinsic(&mut self, module: ModuleId, node: &SyntaxNode, allowed: bool) {
         let Some(annotation) = node
             .children()

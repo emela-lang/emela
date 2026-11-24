@@ -225,7 +225,11 @@ fn entry_fn(program: &mut Program, f: DefId, adapter: DefId, attr: Span) -> Opti
             kind: LocalKind::Param,
             span,
         });
-        params.push(Param { local, ty });
+        params.push(Param {
+            local,
+            ty,
+            borrowed: None,
+        });
         args.push(Arg {
             label: None,
             value: expr(program, ExprKind::Path(Res::Local(local))),

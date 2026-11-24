@@ -4,6 +4,8 @@
 import Std.Dynamic.{Decode, Encode, Dynamic, DecodeError}
 import Std.Shape.{Shape, Shaped}
 
+## A field that tells a missing key (`Absent`), null (`Null`) and a value (`Present`) apart, for
+## the bodies of partial updates.
 pub enum Presence[A] {
   Absent
   Null

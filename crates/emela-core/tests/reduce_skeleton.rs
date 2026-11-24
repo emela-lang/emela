@@ -6,7 +6,7 @@
 //! reduction kernel, and a run with the rules that are still empty on has the same output. A
 //! rule that has landed has its own tests; the comparison here narrows to leave it off.
 
-mod support;
+use crate::support;
 
 use emela_core::opt::{CoreFn, CoreFns, Options, Rules};
 use emela_core::{Module, dump, opt};
