@@ -4,7 +4,7 @@
 //! the pipeline as a whole: running it twice changes nothing, the same source gives the same IR,
 //! and `--no-opt` skips every pass.
 
-mod support;
+use crate::support;
 
 use emela_core::{dump, opt};
 use support::lower_files_with;
