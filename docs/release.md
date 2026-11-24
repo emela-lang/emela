@@ -37,7 +37,8 @@ VSCode 拡張（`editors/vscode`）は別に出す。下の「VSCode 拡張」�
 
 1. `main` にマージする。コミット/PR タイトルは conventional commits
    （`feat:` `fix:` など）に従う。次バージョンはこの履歴から決まる
-   （0.y 系では `feat:`→minor、`fix:`→patch）。
+   （0.y 系では `feat!:` `fix!:` など破壊的な変更→minor、それ以外の `feat:` `fix:` `perf:`→patch）。
+   どれが破壊的かは下の「バージョンの意味」で決める。
 2. `main` への push で release-plz が `release/vX.Y.Z` PR を自動で開く。
    中身は Cargo.toml/Cargo.lock の bump と CHANGELOG の追記。内容を確認する。
 3. その `release/vX.Y.Z` PR をマージする。
@@ -47,6 +48,32 @@ VSCode 拡張（`editors/vscode`）は別に出す。下の「VSCode 拡張」�
    2. `build` が Linux と macOS で tarball を、Windows で zip を作り、Release に載せる。
    3. `publish-release` が下書きを公開する。
    4. `notify-nix` が emela.nix に新しい版を知らせる。
+
+### バージョンの意味（v0.29.0 より後）
+
+v0.29.0 までは `feat:` でも minor を上げていた。それより後は次のとおり。
+
+- minor（`0.30.0`）: stable な機能だけを使うプログラムが壊れうるのは minor だけ。
+  コンパイルが通らなくなる、実行結果が変わる、deprecated なものを消す、診断コードを
+  振り直す、がこれに当たる。PR タイトルを `feat!:` か `fix!:` にする。
+- patch（`0.29.1`）: 追加と修正。stable なプログラムを壊さない。新しい警告や
+  deprecation の予告は patch で出してよい。
+- experimental な機能（`[intro.experimental]`）は互換性の外にあるので、patch で入れても
+  変えても消してもよい。PR タイトルは `feat:` のまま。
+
+### 機能の入れ方
+
+1. 追加だけの小さな機能（std の関数を足すなど）は `feat:` で入れ、patch で出す。
+2. 大きな機能や、stable な書き方の意味に触れる機能は experimental な機能として入れる。
+   `crates/emela-driver/src/experimental.rs` の `FEATURES` と `[intro.experimental]` の表に
+   1行足し、規則に "Experimental (`name`)." の印を付ける。patch ごとに作り直してよい。
+3. 安定させるとき:
+   - 追加だけなら、印を外し `Stage::Stable` にして `feat:` で入れる（patch）。
+   - 今の書き方を壊すなら、先に patch で deprecation の警告を出し、次の minor で
+     `feat!:` として切り替える。
+4. 破壊的な変更は experimental の裏に溜め、minor でまとめて切り替える。`feat!:` が
+   `main` に入ると release PR は次の minor になるので、`feat!:` をマージする時期が
+   minor を出す時期になる。
 
 ## プレリリース（prerelease.yml）
 

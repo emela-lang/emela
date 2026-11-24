@@ -105,7 +105,7 @@ In the order of `TEMPLATE.md`:
 | Motivation | What the current specification cannot express or makes hard, shown with real code |
 | Proposal | Syntax, meaning and typing rules, with the code users write first |
 | Diagnostics | Diagnostics added, changed or removed. "Code to be assigned" when not decided |
-| Compatibility | Whether programs that compile now stop compiling or change meaning |
+| Compatibility | Whether programs that compile now stop compiling or change meaning. If they do, the change lands in a minor release; until then it is an experimental feature or a deprecation warning (`docs/release.md`) |
 | Implementation | The crates to change, and the results of any prototype |
 | Alternatives | Syntax and design alternatives, and why they were not chosen |
 | Prior art | Related concepts, and the languages or papers that have them, named by concept |
