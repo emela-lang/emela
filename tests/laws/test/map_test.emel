@@ -26,6 +26,48 @@ fn insert_then_get() {
   })
 }
 
+@test
+fn update_matches_insert_and_remove() {
+  Property.check(
+    Gen.pair(Gen.list(Gen.pair(Gen.int(), Gen.int())), Gen.pair(Gen.int(), Gen.int())),
+    |(pairs, key_and_value)| {
+      (k, v) = key_and_value
+      m = Map.from_list(pairs)
+      assert Map.update(m, k, |_| Some(v)) == Map.insert(m, k, v)
+      assert Map.update(m, k, |_| None) == Map.remove(m, k)
+      assert Map.update(m, k, |old| old) == m
+      assert Map.update(Map.empty(), k, |_| Some(v)) == Map.from_list([(k, v)])
+      assert Map.update(Map.empty(), k, |_| None) == Map.empty()
+      updated = Map.update(m, k, |old| Option.map(old, |w| w + 1))
+      assert Map.get(updated, k) == Option.map(Map.get(m, k), |w| w + 1)
+    },
+  )
+}
+
+# `from_sorted` makes the middle key the root of seven keys.
+@test
+fn update_at_the_root() {
+  m = Map.from_list([(1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7)])
+  assert Map.update(m, 4, |_| None) == Map.remove(m, 4)
+  assert Map.update(m, 4, |_| Some(40)) == Map.insert(m, 4, 40)
+  assert Map.update(m, 4, |old| Option.map(old, |v| v * 10)) == Map.insert(m, 4, 40)
+  assert Map.update(m, 4, |old| old) == m
+}
+
+@test
+fn keys_and_values_follow_to_list() {
+  Property.check(Gen.list(Gen.pair(Gen.int(), Gen.int())), |pairs| {
+    m = Map.from_list(pairs)
+    in_order = Map.to_list(m)
+    assert Map.keys(m) == List.map(in_order, |(k, _)| k)
+    assert Map.values(m) == List.map(in_order, |(_, v)| v)
+    assert increasing(Map.keys(m))
+    assert Map.keys(m) == Map.fold(m, from: [], f: |acc, k, _| [k, ..acc]).reverse()
+    assert Map.values(m) == Map.fold(m, from: [], f: |acc, _, v| [v, ..acc]).reverse()
+    assert List.length(Map.keys(m)) == Map.size(m)
+  })
+}
+
 fn increasing(xs: List[Int]) -> Bool {
   xs match {
     [a, b, ..rest] -> a < b && increasing([b, ..rest])
