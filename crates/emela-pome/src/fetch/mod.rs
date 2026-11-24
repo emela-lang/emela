@@ -10,6 +10,7 @@ pub mod archive;
 pub mod cache;
 pub mod config;
 pub mod direct;
+pub mod progress;
 pub mod sumdb;
 pub mod transport;
 
@@ -25,6 +26,7 @@ use crate::version::{Version, latest_candidates};
 use cache::Cache;
 use config::{Config, Source};
 use direct::Direct;
+use progress::{Progress, Silent, Step};
 use sumdb::SumdbClient;
 use transport::Transport;
 
@@ -64,6 +66,7 @@ pub struct Fetcher<T: Transport> {
     transport: T,
     cache: Cache,
     direct: Direct,
+    progress: Box<dyn Progress + Send + Sync>,
 }
 
 impl<T: Transport> Fetcher<T> {
@@ -74,7 +77,18 @@ impl<T: Transport> Fetcher<T> {
             transport,
             cache,
             direct: Direct::default(),
+            progress: Box::new(Silent),
         }
+    }
+
+    /// Reports what this fetcher and the commands using it do to `progress`.
+    pub fn with_progress(mut self, progress: impl Progress + Send + Sync + 'static) -> Self {
+        self.progress = Box::new(progress);
+        self
+    }
+
+    pub fn progress(&self) -> &dyn Progress {
+        &*self.progress
     }
 
     pub fn with_direct(mut self, direct: Direct) -> Self {
@@ -111,6 +125,7 @@ impl<T: Transport> Fetcher<T> {
     /// versions that cannot be ingested. `direct` takes the largest release, else the largest
     /// prerelease.
     pub fn latest(&self, path: &SourcePath) -> Result<Version, FetchError> {
+        self.progress.step(Step::Latest(path));
         self.first(path, |source| match source {
             Source::Proxy(base) => {
                 let body = self.proxy_get(base, &format!("{}/@latest", path.escaped()))?;
@@ -137,6 +152,7 @@ impl<T: Transport> Fetcher<T> {
     ) -> Result<Vec<u8>, FetchError> {
         let file = self.cache.manifest_file(path, version);
         let cached = self.cache.read_file(&file);
+        self.progress.step(Step::Manifest(path, version));
         let content = match &cached {
             Some(c) => c.clone(),
             None => self.first(path, |source| match source {
@@ -214,6 +230,7 @@ impl<T: Transport> Fetcher<T> {
 
     /// Gets a version to write it into the lock, checking it against the checksum database.
     pub fn download(&self, path: &SourcePath, version: &Version) -> Result<Locked, FetchError> {
+        self.progress.step(Step::Fetch(path, version));
         let (commit, files) = self.files(path, version)?;
         let (tree, manifest) = hashes(path, version, &files)?;
         if let Some(record) = self.lookup(path, version)? {
@@ -245,6 +262,7 @@ impl<T: Transport> Fetcher<T> {
         self.cache
             .put_file(&self.cache.manifest_file(path, version), content)
             .map_err(FetchError::Cache)?;
+        self.progress.fetched(path, version);
         let external =
             crate::lock::external_files(files.iter().map(|(p, c)| (p.as_str(), c.as_slice())));
         Ok(Locked {
@@ -260,6 +278,8 @@ impl<T: Transport> Fetcher<T> {
 
     /// The directory of a locked version: from the cache, or fetched and checked against the lock.
     pub fn ensure(&self, locked: &Locked) -> Result<PathBuf, FetchError> {
+        self.progress
+            .step(Step::Fetch(&locked.path, &locked.version));
         let dir = self.cache.dir(&locked.path, &locked.version);
         if dir.exists() {
             return Ok(dir);
@@ -276,9 +296,12 @@ impl<T: Transport> Fetcher<T> {
                 crate::lock::LOCK_FILE,
             ));
         }
-        self.cache
+        let dir = self
+            .cache
             .put_dir(&locked.path, &locked.version, &files)
-            .map_err(FetchError::Cache)
+            .map_err(FetchError::Cache)?;
+        self.progress.fetched(&locked.path, &locked.version);
+        Ok(dir)
     }
 
     /// Hashes a cached version again (`emela pome verify`). `None` if it is not in the cache.

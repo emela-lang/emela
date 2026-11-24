@@ -1,0 +1,68 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"effect Store[A] {\n  fn get() -> A\n  handler Open(path: String): Store[A]\n}\n\neffect Hits of Store[Int]\n\nhandler Memory[S: Eq](value: S): Store[S] {\n  init(value: S) { Memory(value:) }\n  fn get() {\n    x: S = self.value\n    x\n  }\n  handler Open(path: String): Store[S] {\n    fn get() {\n      y: S = self.path\n      y\n    }\n  }\n}\n\nlayer Both {\n  Memory[Int](value: 0)\n}\n\nfn main() {\n  with m = Memory[Int](value: 0), Hits by Memory[Int](value: 1) { m.get() }\n}\n\nfn outside(x: S) -> () { () }\n\"##,)])"
+---
+== Main (src/main.emel)
+effect Main.Store
+  type-param Main.Store.A
+  op Main.Store.get
+    ret Main.Store.A
+  handler member Main.Store.Open: Main.Store[Main.Store.A]
+    param path#0: String
+effect Main.Hits
+  of Main.Store
+handler Main.Memory: Main.Store[Main.Memory.S]
+  type-param Main.Memory.S: Eq
+  field value: Main.Memory.S
+  ctor Main.Memory.Memory
+  init
+    param value#1: Main.Memory.S
+    block
+      call
+        Main.Memory.Memory
+        value: (punned)
+          value#1
+  fn get -> Main.Store.get self#2
+    body
+      block
+        let x#3: Main.Memory.S =
+          field .value
+            self#2
+        x#3
+  handler Main.Memory.Open: Main.Store[Main.Memory.S]
+    field path: String
+    ctor Main.Memory.Open.Open
+    fn get -> Main.Store.get self#4
+      body
+        block
+          let y#5: Main.Memory.S =
+            field .path
+              self#4
+          y#5
+    implements Main.Store.Open
+layer Main.Both { Main.Memory[Int](..) }
+  args Main.Memory
+    value:
+      0
+fn Main.main
+  body
+    block
+      with m#6 = Main.Memory[Int](..), Main.Hits by Main.Memory[Int](..)
+        args
+          value:
+            0
+        args
+          value:
+            1
+        block
+          call
+            field .get
+              m#6
+fn Main.outside
+  param x#7: <error>
+  ret ()
+  body
+    block
+      ()
+== diagnostics
+error src/main.emel@473..474 `S`: undefined type parameter `S`

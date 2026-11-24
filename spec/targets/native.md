@@ -8,7 +8,7 @@ The native target makes an executable for the machine that runs the compiler. Th
 - The C library of the OS is a dependency of every executable. The compiler does not read C headers and does not carry definitions of the types of the C library; the C compiler resolves them.
 - The emitted C and the runtime include only headers of C11 and of POSIX.1-2008. The bundled C sources of std MAY use headers specific to one OS, guarded so that each source compiles on every supported platform (`[target]`).
 - Differences between operating systems are confined to C sources. Only boundary types (12.4) cross the boundary between Emela and C, so a structure, a macro or a constant of the C library never reaches Emela code. Emela source has no construct that depends on the OS, and a program has the same meaning on every supported platform.
-- The build target `c` is a deprecated name of the native target. `--target c`, `[build].target = "c"` and a `[pome].targets` that contains `"c"` select the native target and report W0903. It is read until 0.29, after which it is an unknown target.
+- `c`, the name of the native target before 0.28, is an unknown target since 0.29, in `--target`, `[build].target` and `[pome].targets`.
 
 ## 16.7.1 Output `[target.native.output]`
 

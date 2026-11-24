@@ -1,0 +1,14 @@
+---
+source: crates/emela-types/tests/task.rs
+expression: "render(r#\"\nimport Std.Exit.{Exit, Success, Failure}\nimport Std.Cause.{Cause, CauseKind, Fail, Die, Interrupt}\n\nerror Boom\n\neffect Log {\n  fn info(msg: String) -> ()\n}\n\nfn boom() -> Int fails Boom { fail Boom }\n\nfn guarded() -> () uses { Log } {\n  Exit.attempt(|| boom()) match {\n    Success(_) -> ()\n    Failure(cause) -> (use Log).info(Cause.to_string(cause))\n  }\n}\n\nfn reraise() {\n  Exit.attempt(|| boom()) match {\n    Success(n) -> n\n    Failure(cause) -> Cause.raise(cause)\n  }\n}\n\nfn recovered() {\n  reraise() escape {\n    Boom -> 0\n  }\n}\n\nfn kinds(c: Cause[Boom]) -> Bool {\n  Cause.kind(c) match {\n    Fail -> True\n    Die -> False\n  }\n}\n\n\"#)"
+---
+boom: fn() -> Int fails Boom
+guarded: fn() -> () uses { Log }
+  cause: Cause[Boom]
+reraise: fn() -> Int fails Boom
+  n: Int
+  cause: Cause[Boom]
+recovered: fn() -> Int
+kinds: fn(Cause[Boom]) -> Bool
+  c: Cause[Boom]
+resolve: `Std.Cause` has no `Interrupt`
