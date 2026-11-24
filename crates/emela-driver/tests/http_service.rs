@@ -31,13 +31,28 @@ fn text(bytes: &[u8]) -> &str {
 
 /// Builds `main` as `app/src/main.emel` into `dir` and returns the directory.
 fn build_service(name: &str, main: &str) -> PathBuf {
-    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)];
-    let fs = MemoryFiles::new(sources.iter().copied());
+    build_service_with(name, main, &[])
+}
+
+/// [`build_service`] with more files of the project: (path under `app/src`, source).
+fn build_service_with(name: &str, main: &str, more: &[(&str, &str)]) -> PathBuf {
+    let more: Vec<(String, &str)> = more
+        .iter()
+        .map(|(path, source)| (format!("app/src/{path}"), *source))
+        .collect();
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", main)]
+        .into_iter()
+        .chain(more.iter().map(|(path, source)| (path.as_str(), *source)));
+    let fs = MemoryFiles::new(sources);
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir(name);
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
+    // The programs still write `use E` as an expression (W0403, deprecated).
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::DEPRECATED_USE)),
         "{:?}",
         analysis.diagnostics
     );
@@ -436,8 +451,12 @@ fn run_starts_serve_mjs() {
     let exists = serve.exists();
     let _ = std::fs::remove_dir_all(&options.out_dir);
     let _ = std::fs::remove_dir_all(&node_dir);
+    // The programs still write `use E` as an expression (W0403, deprecated).
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::DEPRECATED_USE)),
         "{:?}",
         analysis.diagnostics
     );
@@ -488,10 +507,32 @@ fn fetches() {
 
 fn main() {}
 "##;
+    let spawns = r##"import Std.Http
+import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+import Std.Task.{Spawn}
+import Routes
+
+fn audit(request: Request) -> () uses { Async } { () } # 補
+
+@entry(Http.serve)
+pub fn app(request: Request) -> Response uses { Spawn[{}, { Async }] } {
+  spawn <- Spawn
+  spawn.start(|| audit(request))
+  Routes.route(request)
+}
+"##;
+    let routes = r##"import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+
+pub fn route(request: Request) -> Response { Response.new(200, request.url) }
+"##;
     for (name, main) in [("spec-service", service), ("spec-client", client)] {
         let dir = build_service(name, main);
         let _ = std::fs::remove_dir_all(&dir);
     }
+    let dir = build_service_with("spec-spawns", spawns, &[("routes.emel", routes)]);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A server of the service, for the test that compares the targets: `serve.mjs` on node, or
@@ -645,8 +686,12 @@ fn wasm_serves_the_same_as_js() {
         &mut CoreWasm,
         &wasm,
     );
+    // The programs still write `use E` as an expression (W0403, deprecated).
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::DEPRECATED_USE)),
         "{:?}",
         analysis.diagnostics
     );
@@ -755,8 +800,12 @@ await show(new Request("http://example.com/ok"));
         &mut CoreWasm,
         &wasm,
     );
+    // The programs still write `use E` as an expression (W0403, deprecated).
     assert!(
-        analysis.diagnostics.is_empty(),
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.code == Some(emela_driver::code::DEPRECATED_USE)),
         "{:?}",
         analysis.diagnostics
     );
@@ -786,4 +835,132 @@ console.log(codes.join(" "));
         .output()
         .expect("cannot start node");
     text(&out.stdout).trim_end().to_owned()
+}
+
+const SPAWNS: &str = r##"import Std.Http
+import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+import Std.Task.{Spawn}
+import Std.Clock.{Clock, SystemClock}
+import Std.Console.{Console, SystemConsole}
+
+error Broken derive Show
+
+effect Wait {
+  suspend fn wait() -> ()
+}
+
+## Never resumes: the task stalls.
+handler Forgets: Wait {
+  suspend fn wait(resume) { () }
+}
+
+fn later(line: String) uses { Async } {
+  with SystemClock, SystemConsole {
+    clock <- Clock
+    clock.sleep(500)
+    console <- Console
+    console.print_line(line)
+  }
+}
+
+fn broken() -> () fails Broken { fail Broken }
+
+fn stalls() uses { Async } {
+  with Forgets {
+    wait <- Wait
+    wait.wait()
+  }
+}
+
+@entry(Http.serve)
+pub fn app(request: Request) -> Response uses { Spawn[Broken, { Async }] } {
+  spawn <- Spawn
+  path = Request.path(request)
+  if path == "/stall" {
+    spawn.start(|| stalls())
+  } else {
+    spawn.start(|| later("after #{path}"))
+    spawn.start(|| broken())
+  }
+  Response.new(200, "ok #{path}")
+}
+"##;
+
+/// The app runs inside a `Task.Background` that provides Spawn. The response goes to the host when
+/// the app returns, before the tasks end; the end of the launch goes to `waitUntil` of the context
+/// where the host passes one; a task that fails writes its cause to standard error
+/// (`[lib.http-service]`). A task that stalls is interrupted when the host's event loop runs dry,
+/// and the launch then ends (`[dyn.suspend]`).
+#[test]
+fn spawned_tasks_run_after_the_response() {
+    let dir = build_service("spawns-js", SPAWNS);
+    let (stdout, stderr) = harness(
+        &dir,
+        r#"import service from "./main.mjs";
+const waits = [];
+const ctx = { waitUntil: (p) => waits.push(p) };
+const show = async (res) => console.log(res.status, await res.text());
+await show(await service.fetch(new Request("http://example.com/a"), {}, ctx));
+console.log("waiting", waits.length);
+await Promise.all(waits);
+console.log("ended");
+await show(await service.fetch(new Request("http://example.com/b")));
+await new Promise((resolve) => setTimeout(resolve, 600));
+await show(await service.fetch(new Request("http://example.com/stall"), {}, ctx));
+await Promise.all(waits);
+console.log("ended");
+"#,
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        stdout,
+        "200 ok /a\nwaiting 1\nafter /a\nended\n200 ok /b\nafter /b\n200 ok /stall\nended\n"
+    );
+    assert_eq!(stderr, "error: Broken\nerror: Broken\n");
+}
+
+/// On WASM the response is returned with `task.return`, and the tasks run after it in the same
+/// `handle` (`[target.wasm.output]`): the response does not wait for them.
+#[test]
+fn wasm_answers_before_spawned_tasks() {
+    if !have_wasmtime() {
+        return;
+    }
+    let sources = [("app/Pome.toml", ""), ("app/src/main.emel", SPAWNS)];
+    let fs = MemoryFiles::new(sources.iter().copied());
+    let input = Input::resolve(&fs, Path::new("app")).unwrap();
+    let wasm = out_dir("spawns-wasm");
+    let (analysis, entry) = build(
+        &fs,
+        &input,
+        &mut Lower::default().with_target(Target::Wasm),
+        &mut CoreWasm,
+        &wasm,
+    );
+    assert_eq!(analysis.diagnostics, []);
+    let mut wasmtime = Command::new(wasmtime_program());
+    wasmtime
+        .args(["serve", "-S", "p3=y,cli=y", "--addr", "127.0.0.1:0"])
+        .arg(entry.unwrap());
+    let served = Served::start(wasmtime, wasm.join("served.log"));
+    let script = format!(
+        r#"const started = Date.now();
+const res = await fetch({:?} + "/a");
+console.log(res.status, await res.text(), Date.now() - started < 400);
+"#,
+        served.base
+    );
+    let out = Command::new("node")
+        .arg("--input-type=module")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .expect("cannot start node");
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    let lines = served.program_lines();
+    drop(served);
+    let _ = std::fs::remove_dir_all(&wasm);
+    assert_eq!(text(&out.stdout), "200 ok /a true\n");
+    assert_eq!(lines, "error: Broken\nafter /a\n");
 }

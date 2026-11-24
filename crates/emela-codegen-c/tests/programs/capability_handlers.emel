@@ -1,0 +1,74 @@
+## Handlers and capabilities ([effect.handler]): a handler member opened inside an init through
+## a handler that a with inside the init provides is released at the end of that with; self
+## passed to a parameter of type use E is the capability of its handler.
+
+effect Counter {
+  fn next() -> Int
+}
+
+effect Counters {
+  handler Open(start: Int): Counter
+}
+
+handler Plain: Counters {
+  handler Open(start: Int): Counter {
+    init(start: Int) {
+      _ = dbg("open #{start}")
+      Self(start:)
+    }
+    release {
+      _ = dbg("close #{self.start}")
+    }
+    fn next() { self.start }
+  }
+}
+
+effect Answer {
+  fn get() -> Int
+}
+
+handler Cached(n: Int): Answer {
+  init() {
+    n = with Plain {
+      c = Counters.Open(1)
+      c.next() + 1
+    }
+    _ = dbg("init done")
+    Self(n:)
+  }
+  release {
+    _ = dbg("release Cached")
+  }
+  fn get() { self.n }
+}
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+fn again(l: use Logger) { l.info("") }
+
+handler Echo: Logger {
+  fn info(msg) {
+    _ = dbg("echo #{msg}")
+    if msg == "" { () } else { again(self) }
+  }
+}
+
+handler Numbered(n: Int): Logger {
+  init(n: Int) { Self(n:) }
+  fn info(msg) {
+    _ = dbg("#{self.n}: #{msg}")
+    if msg == "" { () } else { again(self) }
+  }
+}
+
+fn main() {
+  with a = Cached {
+    _ = dbg(a.get())
+  }
+  with e = Echo, n = Numbered(n: 3) {
+    e.info("hi")
+    n.info("yo")
+  }
+}

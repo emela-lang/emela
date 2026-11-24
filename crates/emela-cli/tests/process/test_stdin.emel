@@ -6,10 +6,12 @@ import Std.Process.{Args, InvalidInput, Stdin, StdinFailure, StdinLines, SystemA
 import Std.State.{State}
 
 fn quote(prefix: String) -> () fails InvalidInput | StdinFailure uses { Console, Stdin } {
-  (use Stdin).read_line() match {
+  stdin <- Stdin
+  stdin.read_line() match {
     None -> ()
     Some(line) -> {
-      (use Console).print_line("#{prefix}#{line}")
+      console <- Console
+      console.print_line("#{prefix}#{line}")
       quote(prefix)
     }
   }
@@ -28,7 +30,7 @@ fn quotes_each_line() {
 fn read_line_takes_the_first_line_then_none() {
   (lines, rest) = State.run(StdinLines(lines: ["a", "", "c"]), || {
     with TestStdin {
-      s = use Stdin
+      s <- Stdin
       [s.read_line(), s.read_line(), s.read_line(), s.read_line(), s.read_line()]
     }
   })
@@ -40,7 +42,7 @@ fn read_line_takes_the_first_line_then_none() {
 fn read_text_joins_the_lines_left() {
   ((first, text, after), rest) = State.run(StdinLines(lines: ["a", "b", "c"]), || {
     with TestStdin {
-      s = use Stdin
+      s <- Stdin
       (s.read_line(), s.read_text(), s.read_text())
     }
   })
@@ -52,16 +54,15 @@ fn read_text_joins_the_lines_left() {
 
 @test
 fn read_text_of_no_lines_is_empty() {
-  (text, _) = State.run(StdinLines(lines: []), || with TestStdin { (use Stdin).read_text() })
+  stdin <- Stdin
+  (text, _) = State.run(StdinLines(lines: []), || with TestStdin { stdin.read_text() })
   assert text == ""
 }
 
 @test
 fn read_line_leaves_the_lines_not_read() {
-  (_, rest) = State.run(
-    StdinLines(lines: ["a", "b"]),
-    || with TestStdin { (use Stdin).read_line() },
-  )
+  stdin <- Stdin
+  (_, rest) = State.run(StdinLines(lines: ["a", "b"]), || with TestStdin { stdin.read_line() })
   assert rest == StdinLines(lines: ["b"])
 }
 
@@ -75,7 +76,7 @@ fn derived_impls() {
 @test
 fn system_args_are_empty_under_test() {
   with SystemArgs {
-    a = use Args
+    a <- Args
     assert a.list() == []
     assert a.get(0) == None
     assert a.get(-1) == None

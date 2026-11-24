@@ -60,10 +60,12 @@ fn run_c(name: &str, main: &str, backend: &mut CoreC) -> (Analysis, Option<RunOu
     result
 }
 
+/// The diagnostics but W0403: the programs still write `use E` as an expression (deprecated).
 fn codes(analysis: &Analysis) -> Vec<(Option<&str>, &str)> {
     analysis
         .diagnostics
         .iter()
+        .filter(|d| d.code != Some(emela_driver::code::DEPRECATED_USE))
         .map(|d| (d.code, d.message.as_str()))
         .collect()
 }
@@ -160,6 +162,56 @@ fn main() {
             Some("E0412"),
             "external function `now` has no `@external(c, ...)` for target `native`"
         )]
+    );
+}
+
+/// `Process` bundles `SystemTcp`, whose init and release are reached by every `with Process`
+/// (`[ext.decl]`): they have a C binding even though the operations do not yet.
+#[test]
+fn process_with_system_tcp_runs_natively() {
+    if !have_cc() {
+        return;
+    }
+    let main = r##"import Std.Console.{Console}
+import Std.Process.{Process}
+
+fn main() {
+  with Process {
+    console <- Console
+    console.print_line("ok")
+  }
+}
+"##;
+    let (analysis, output) = run_c("process-tcp", main, &mut CoreC::default());
+    assert_eq!(codes(&analysis), []);
+    let output = output.unwrap();
+    assert_eq!(output.code, 0);
+    assert_eq!(text(&output.stdout), "ok\n");
+}
+
+/// The operations of `SystemTcp` have no C binding yet (`[api.std.tcp]`): calling one is E0412.
+#[test]
+fn tcp_operations_are_e0412_natively() {
+    let main = r##"import Std.Tcp.{Tcp, SystemTcp}
+
+fn main() {
+  with SystemTcp {
+    tcp <- Tcp
+    tcp.close(tcp.connect("localhost", 80))
+  } escape {
+    _ -> ()
+  }
+}
+"##;
+    let (analysis, output) = run_c("tcp-e0412", main, &mut CoreC::default());
+    assert!(output.is_none());
+    let found = codes(&analysis);
+    assert!(
+        found.contains(&(
+            Some("E0412"),
+            "external function `host_connect` has no `@external(c, ...)` for target `native`"
+        )),
+        "{found:?}"
     );
 }
 
@@ -608,8 +660,14 @@ fn build_target_from_pome_toml() {
         read("[build]\ntarget = \"native\"\n"),
         Ok(Some(Target::Native))
     );
-    // `[target.native]`: `c` is a deprecated name of `native`.
-    assert_eq!(read("[build]\ntarget = \"c\"\n"), Ok(Some(Target::Native)));
+    // `[target.native]`: `c` is an unknown target since 0.29.
+    assert_eq!(
+        read("[build]\ntarget = \"c\"\n"),
+        Err((
+            Some("E0232"),
+            "unknown target `c` in `[build].target`".to_owned()
+        ))
+    );
     assert_eq!(
         read("[build]\ntarget = \"node\"\n"),
         Err((
@@ -747,7 +805,7 @@ void host_again_threaded(em_task *task) {
 
 const HOST_EMEL: &str = r##"import Std.Console.{Console, SystemConsole}
 import Std.Clock.{SystemClock}
-import Std.Fiber.{Fiber}
+import Std.Task.{Task}
 
 @external(c, "./host.c", "host_double")
 suspend fn host_double(n: Int, ms: Int) -> Int
@@ -812,9 +870,9 @@ fn main() {
     console.print_line(host.greet("c"))
     console.print_line("#{host.double(21, 10)}")
     console.print_line("#{host.threaded(41)}")
-    console.print_line("#{Fiber.timeout(20, || host.double(5, 60000))}")
-    console.print_line("#{Fiber.all([|| host.double(1, 30), || host.double(2, 10)])}")
-    console.print_line("#{Fiber.race([|| host.double(3, 60000), || host.double(4, 10)])}")
+    console.print_line("#{Task.timeout(20, || host.double(5, 60000))}")
+    console.print_line("#{Task.all([|| host.double(1, 30), || host.double(2, 10)])}")
+    console.print_line("#{Task.race([|| host.double(3, 60000), || host.double(4, 10)])}")
   }
 }
 
