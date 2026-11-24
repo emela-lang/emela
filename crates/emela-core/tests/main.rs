@@ -6,6 +6,7 @@
 mod support;
 
 mod dump;
+mod fold;
 mod inline;
 mod lower;
 mod mono;
