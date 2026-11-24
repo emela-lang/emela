@@ -14,6 +14,7 @@ mod lower;
 mod mono;
 mod opt;
 mod reduce_skeleton;
+mod zeta;
 
 /// Every `.rs` file in this directory that is not a test binary of its own is declared
 /// above. Without the declaration Cargo would not build it, and its tests would not run.
