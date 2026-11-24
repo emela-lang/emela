@@ -1,5 +1,0 @@
----
-source: crates/emela-types/tests/capture.rs
-expression: "render(r#\"\nimport Std.Clock.{Clock}\n\neffect Tick {\n  fn tick() -> ()\n}\n\nhandler Ticking: Tick {\n  fn tick() {\n    clock = use Clock\n    f = || clock.sleep(1)\n    f()\n  }\n}\n\"#)"
----
-`f()` SuspendingFnOp { op: "tick", call: Fn { callee: Some("f"), effects: ["Clock"] } }

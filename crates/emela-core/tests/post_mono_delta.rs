@@ -8,7 +8,7 @@
 //! The observable behaviour of the stage is checked on a real higher-order program by the mutation
 //! pair `higher_order_fused.emel` / `higher_order_expanded.emel` in `emela-driver/tests/opt_diff.rs`.
 
-mod support;
+use crate::support;
 
 use emela_core::{Callee, Expr, FnId, Module, dump};
 use support::{lower_files_mono_with_stats, lower_files_with_stats};

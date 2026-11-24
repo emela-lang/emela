@@ -1,27 +1,32 @@
-# A Duration is an opaque Int64 of milliseconds (spec 15.2, 4.4). Values are made and taken apart
-# only through this module, and may be negative. Unit conversion and addition wrap on overflow
-# like Int64 (spec 16.1).
+# A Duration is an opaque Int64 of milliseconds (`[lib.layers]`, `[module.opaque]`). Values are made
+# and taken apart only through this module, and may be negative. Unit conversion and addition wrap
+# on overflow like Int64 (`[target.number]`).
 
 ## Made with constructors like `Duration.seconds(5)`.
 pub opaque type Duration(milliseconds: Int64)
   derive Eq, Ord
 
+## `n` milliseconds.
 pub fn milliseconds(n: Int64) -> Duration {
   Duration(milliseconds: n)
 }
 
+## `n` seconds.
 pub fn seconds(n: Int64) -> Duration {
   Duration(milliseconds: n * 1000)
 }
 
+## `n` minutes.
 pub fn minutes(n: Int64) -> Duration {
   Duration(milliseconds: n * 60000)
 }
 
+## `n` hours.
 pub fn hours(n: Int64) -> Duration {
   Duration(milliseconds: n * 3600000)
 }
 
+## The number of milliseconds.
 pub fn to_milliseconds(d: Duration) -> Int64 {
   d.milliseconds
 }
@@ -31,6 +36,7 @@ pub fn to_seconds(d: Duration) -> Int64 {
   d.milliseconds / 1000
 }
 
+## The sum.
 pub fn add(d: Duration, other: Duration) -> Duration {
   Duration(milliseconds: d.milliseconds + other.milliseconds)
 }
@@ -40,9 +46,368 @@ pub fn subtract(d: Duration, other: Duration) -> Duration {
   Duration(milliseconds: d.milliseconds - other.milliseconds)
 }
 
-## Milliseconds with an `ms` suffix (`1500ms`).
+## Milliseconds with an `ms` suffix (`1500ms`, `-1500ms`). `parse` reads it back. The format is in
+## spec `[api.std.duration]`.
 pub fn to_string(d: Duration) -> String {
   "#{d.milliseconds.to_string()}ms"
+}
+
+## The time part of an ISO 8601 duration (`PT1H30M`, `PT1.5S`, `-PT0.5S`, `PT0S`): a sign for a
+## negative length, then the hours, the minutes and the seconds, each left out when it is 0. The
+## hours are not carried into days (`PT48H`). `parse` reads it back. The format is in spec
+## `[api.std.duration]`.
+pub fn to_iso8601(d: Duration) -> String {
+  # The fields are split before they are negated: the least Int64 has no negation. `/` truncates
+  # toward 0 and `%` has the sign of the dividend, so every field of a negative length is negative
+  # or 0, and each of them can be negated.
+  n = d.milliseconds
+  hours = magnitude(n / 3600000)
+  minutes = magnitude(n % 3600000 / 60000)
+  seconds = magnitude(n % 60000 / 1000)
+  milli = magnitude(n % 1000)
+  sign = if n < 0 { "-" } else { "" }
+  h = if hours == 0 { "" } else { "#{hours.to_string()}H" }
+  m = if minutes == 0 { "" } else { "#{minutes.to_string()}M" }
+  s = if seconds == 0 && milli == 0 {
+    ""
+  } else if milli == 0 {
+    "#{seconds.to_string()}S"
+  } else {
+    "#{seconds.to_string()}.#{fraction_of_second(milli)}S"
+  }
+  if n == 0 { "PT0S" } else { "#{sign}PT#{h}#{m}#{s}" }
+}
+
+fn magnitude(n: Int64) -> Int64 {
+  if n < 0 { 0 - n } else { n }
+}
+
+## The milliseconds 1 to 999 as the digits of a fraction of a second, without trailing zeros (`5`,
+## `05`, `001`).
+fn fraction_of_second(milli: Int64) -> String {
+  if milli % 100 == 0 {
+    (milli / 100).to_string()
+  } else if milli % 10 == 0 {
+    pad(milli / 10, 2)
+  } else {
+    pad(milli, 3)
+  }
+}
+
+fn pad(n: Int64, width: Int) -> String {
+  pad_onto(n.to_string(), width)
+}
+
+# Digits are ASCII, so bytes count them.
+fn pad_onto(s: String, width: Int) -> String {
+  if s.byte_size() >= width { s } else { pad_onto("0#{s}", width) }
+}
+
+## The length of time written in `s`: numbers with units (`1h30m`, `1.5s`, `2h 30min`,
+## `30 seconds`, and `1500ms` as `to_string` writes it), or the time part of an ISO 8601 duration
+## (`PT1H30M`, `-PT1.5S`, as `to_iso8601` writes it). Days and longer units are not read. The digits
+## below the millisecond are dropped, which truncates toward 0. Fails with `ParseError(input: s)`
+## otherwise, and for a length outside the range of Duration. The grammar is in spec
+## `[api.std.duration]`.
+pub fn parse(s: String) -> Duration fails ParseError {
+  # The limit is 256 code points. A code point has at most 4 bytes, so a text of more than 1024
+  # bytes has more than 256 code points, and its code points are not listed.
+  if s.byte_size() > 1024 {
+    fail ParseError(input: s)
+  }
+  cs = s.code_points()
+  if cs.length() > 256 {
+    fail ParseError(input: s)
+  }
+  (negative, body) = cs match {
+    [43, ..rest] -> (False, rest)
+    [45, ..rest] -> (True, rest)
+    _            -> (False, cs)
+  }
+  # The length is accumulated negated, from 0 down to `limit`: the least Int64, whose magnitude is
+  # one more than the greatest, is then reached by a negative length, and no intermediate value
+  # wraps around.
+  limit = if negative { least() } else { 0 - greatest() }
+  total = body match {
+    [48] -> 0
+    [p, t, ..rest] if (p == 80 || p == 112) && (t == 84 || t == 116) -> {
+      components(s, rest, True, -1, 0, 0, limit)
+    }
+    _    -> components(s, body, False, -1, 0, 0, limit)
+  }
+  Duration(milliseconds: if negative { total } else { 0 - total })
+}
+
+fn greatest() -> Int64 {
+  9223372036854775807
+}
+
+# A literal is checked as a positive number, so the least Int64 is written as a difference.
+fn least() -> Int64 {
+  0 - 9223372036854775807 - 1
+}
+
+# The code points that `parse` reads, by value: the space 32, `+` 43, `-` 45, `.` 46, `0` to `9` 48
+# to 57, `H` 72, `M` 77, `P` 80, `S` 83, `T` 84, `h` 104, `m` 109, `p` 112, `s` 115, `t` 116.
+
+# The units are numbered from the longest: 0 the hour, 1 the minute, 2 the second, 3 the
+# millisecond, 4 the microsecond, 5 the nanosecond. `iso_form` has the first three.
+
+## The nanoseconds of a unit.
+fn unit_nanoseconds(unit: Int) -> Int64 {
+  if unit == 0 {
+    3600000000000
+  } else if unit == 1 {
+    60000000000
+  } else if unit == 2 {
+    1000000000
+  } else if unit == 3 {
+    1000000
+  } else if unit == 4 {
+    1000
+  } else {
+    1
+  }
+}
+
+## The milliseconds of a unit of a millisecond or longer, and 1 for a shorter one.
+fn unit_milliseconds(unit: Int) -> Int64 {
+  Int64.max(unit_nanoseconds(unit) / 1000000, 1)
+}
+
+## The number of units in a millisecond: 1 for a unit of a millisecond or longer.
+fn units_per_millisecond(unit: Int) -> Int64 {
+  Int64.max(1000000 / unit_nanoseconds(unit), 1)
+}
+
+## Reads the components from `cs` to the end, and returns the negated length in milliseconds.
+##
+## `total` is the negated sum of the whole milliseconds so far, and `below` the nanoseconds below the
+## millisecond, from 0 to 999999. Every component has the sign of the whole length, so `below` only
+## grows, and it is carried into `total` as it reaches a millisecond: the length is the exact sum of
+## the components, and dropping `below` at the end truncates it toward 0. Only the last component
+## has a fraction, and the part of it below a nanosecond cannot carry, so it is dropped.
+fn components(
+  s: String,
+  cs: List[Int],
+  iso: Bool,
+  previous: Int,
+  total: Int64,
+  below: Int64,
+  limit: Int64,
+) -> Int64 fails ParseError {
+  whole = cs
+  after_whole = skip_digits(s, cs)
+  (fraction, after_number) = after_whole match {
+    [46, ..rest] -> (Some(rest), skip_digits(s, rest))
+    _            -> (None, after_whole)
+  }
+  (unit, after_unit) = if iso {
+    iso_unit(s, after_number)
+  } else {
+    after_number match {
+      [32, ..rest] -> named_unit(s, rest)
+      _            -> named_unit(s, after_number)
+    }
+  }
+  if unit <= previous {
+    fail ParseError(input: s)
+  }
+  (whole_total, whole_below) = add_whole(s, whole, unit, 0, 0, limit)
+  (sum_total, sum_below) = carry(
+    s,
+    sum_of(s, total, whole_total, limit),
+    below + whole_below,
+    limit,
+  )
+  fraction match {
+    Some(digits) -> {
+      if !after_unit.is_empty() {
+        fail ParseError(input: s)
+      }
+      nanoseconds = fraction_nanoseconds(s, digits, unit, unit_nanoseconds(unit), 0, 0)
+      (last_total, _) = carry(s, sum_total, sum_below + nanoseconds, limit)
+      last_total
+    }
+    None -> after_unit match {
+      []                   -> sum_total
+      [32, ..rest] if !iso -> components(s, rest, iso, unit, sum_total, sum_below, limit)
+      _                    -> components(s, after_unit, iso, unit, sum_total, sum_below, limit)
+    }
+  }
+}
+
+fn is_digit(c: Int) -> Bool {
+  c >= 48 && c <= 57
+}
+
+## The rest of `cs` after one or more digits.
+fn skip_digits(s: String, cs: List[Int]) -> List[Int] fails ParseError {
+  cs match {
+    [c, ..rest] if is_digit(c) -> skip_more_digits(rest)
+    _                          -> fail ParseError(input: s)
+  }
+}
+
+fn skip_more_digits(cs: List[Int]) -> List[Int] {
+  cs match {
+    [c, ..rest] if is_digit(c) -> skip_more_digits(rest)
+    _                          -> cs
+  }
+}
+
+## The letter of a unit of `iso_form`, in either case.
+fn iso_unit(s: String, cs: List[Int]) -> (Int, List[Int]) fails ParseError {
+  cs match {
+    [c, ..rest] if c == 72 || c == 104 -> (0, rest)
+    [c, ..rest] if c == 77 || c == 109 -> (1, rest)
+    [c, ..rest] if c == 83 || c == 115 -> (2, rest)
+    _                                  -> fail ParseError(input: s)
+  }
+}
+
+## The names of the units of `unit_form`. `µs` is U+00B5 MICRO SIGN and `μs` U+03BC GREEK SMALL
+## LETTER MU.
+fn unit_names() -> List[(String, Int)] {
+  [
+    ("h", 0),
+    ("hr", 0),
+    ("hour", 0),
+    ("hours", 0),
+    ("m", 1),
+    ("min", 1),
+    ("minute", 1),
+    ("minutes", 1),
+    ("s", 2),
+    ("sec", 2),
+    ("second", 2),
+    ("seconds", 2),
+    ("ms", 3),
+    ("msec", 3),
+    ("millisecond", 3),
+    ("milliseconds", 3),
+    ("us", 4),
+    ("\u{b5}s", 4),
+    ("\u{3bc}s", 4),
+    ("usec", 4),
+    ("microsecond", 4),
+    ("microseconds", 4),
+    ("ns", 5),
+    ("nsec", 5),
+    ("nanosecond", 5),
+    ("nanoseconds", 5),
+  ]
+}
+
+## The unit whose name is at the start of `cs`, followed by a digit, a space or the end. At most one
+## name is followed by them, so the order of `unit_names` does not matter (`ms` is not `m`
+## followed by `s`).
+fn named_unit(s: String, cs: List[Int]) -> (Int, List[Int]) fails ParseError {
+  find_unit(cs, unit_names()) match {
+    Some(found) -> found
+    None        -> fail ParseError(input: s)
+  }
+}
+
+fn find_unit(cs: List[Int], names: List[(String, Int)]) -> Option[(Int, List[Int])] {
+  names match {
+    [] -> None
+    [(name, unit), ..others] -> strip_prefix(cs, name.code_points()) match {
+      Some(rest) if ends_a_unit(rest) -> Some((unit, rest))
+      _                               -> find_unit(cs, others)
+    }
+  }
+}
+
+fn ends_a_unit(cs: List[Int]) -> Bool {
+  cs match {
+    []      -> True
+    [c, ..] -> c == 32 || is_digit(c)
+  }
+}
+
+fn strip_prefix(cs: List[Int], prefix: List[Int]) -> Option[List[Int]] {
+  prefix match {
+    [] -> Some(cs)
+    [p, ..ps] -> cs match {
+      [c, ..rest] if c == p -> strip_prefix(rest, ps)
+      _                     -> None
+    }
+  }
+}
+
+## The negated whole milliseconds and the nanoseconds below the millisecond of the digits at the
+## start of `cs`, read as a number of `unit`. A unit shorter than a millisecond is divided as the
+## digits are read: `quotient` is the negated number of whole milliseconds read so far and
+## `remainder` the units left over, so no number of any length wraps around.
+fn add_whole(
+  s: String,
+  cs: List[Int],
+  unit: Int,
+  quotient: Int64,
+  remainder: Int64,
+  limit: Int64,
+) -> (Int64, Int64) fails ParseError {
+  cs match {
+    [c, ..rest] if is_digit(c) -> {
+      per = units_per_millisecond(unit)
+      shifted = remainder * 10 + Int64.from_int(c - 48)
+      next = multiply_subtract(s, quotient, 10, shifted / per, limit)
+      add_whole(s, rest, unit, next, shifted % per, limit)
+    }
+    _ -> {
+      ms = multiply_subtract(s, quotient, unit_milliseconds(unit), 0, limit)
+      (ms, remainder * unit_nanoseconds(unit))
+    }
+  }
+}
+
+## The nanoseconds of the digits of a fraction of `unit`, exactly to the nanosecond. `step` is the
+## nanoseconds of the next digit; once it is 0 the digits are only checked. An hour and a minute
+## have at most two digits.
+fn fraction_nanoseconds(
+  s: String,
+  cs: List[Int],
+  unit: Int,
+  step: Int64,
+  sum: Int64,
+  count: Int,
+) -> Int64 fails ParseError {
+  cs match {
+    [c, ..rest] if is_digit(c) -> {
+      if unit <= 1 && count >= 2 {
+        fail ParseError(input: s)
+      }
+      next = step / 10
+      fraction_nanoseconds(s, rest, unit, next, sum + next * Int64.from_int(c - 48), count + 1)
+    }
+    _ -> sum
+  }
+}
+
+## `a * m - b`, where `a` is 0 or negative and `m` and `b` are 0 or positive. Fails if it is below
+## `limit`; it is compared before it is computed, so nothing wraps around.
+fn multiply_subtract(s: String, a: Int64, m: Int64, b: Int64, limit: Int64) -> Int64
+  fails ParseError {
+  # `/` truncates toward 0, which rounds a negative quotient up: `a >= bound` is `a * m >= c`.
+  c = limit + b
+  if c > 0 || a < c / m {
+    fail ParseError(input: s)
+  }
+  a * m - b
+}
+
+## `total + more`, both 0 or negative. Fails if it is below `limit`.
+fn sum_of(s: String, total: Int64, more: Int64, limit: Int64) -> Int64 fails ParseError {
+  if total < limit - more {
+    fail ParseError(input: s)
+  }
+  total + more
+}
+
+## Moves the whole milliseconds of `below` nanoseconds into `total`.
+fn carry(s: String, total: Int64, below: Int64, limit: Int64) -> (Int64, Int64) fails ParseError {
+  (multiply_subtract(s, total, 1, below / 1000000, limit), below % 1000000)
 }
 
 ## Shown as `to_string` writes it (`1500ms`).

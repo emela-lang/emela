@@ -1,0 +1,96 @@
+import Std.Task.{Task}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+error Boom
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+## Resumes in place: a suspending call that yields to other tasks only every so many calls (the
+## fairness budget, `[task.basic]`), the same on every target.
+handler Ticks: Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Outer: Name {
+  fn name() { "outer" }
+}
+
+handler Inner: Name {
+  fn name() { "inner" }
+}
+
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+## Takes `ticks` hundred suspending calls, then prints and returns `n * 10`.
+fn fetch(n: Int, ticks: Int) -> Int uses { Tick } {
+  spin(ticks * 100)
+  print("fetched #{n}")
+  n * 10
+}
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn main() -> () uses { Async } {
+  with Ticks, Outer {
+    total = with tasks = Task.Group {
+      a = tasks.start(|| fetch(1, 60))
+      b = tasks.start(|| fetch(2, 10))
+      a.join() + b.join()
+    }
+    print("total #{total}")
+    with tasks = Task.Group {
+      outside = || print((use Name).name())
+      with Inner {
+        a = tasks.start(outside)
+        b = tasks.start(|| print((use Name).name()))
+        print("body #{(use Name).name()}")
+        a.join()
+        b.join()
+      }
+    }
+    with tasks = Task.Group {
+      a = tasks.start(|| {
+        b = tasks.start(|| fetch(2, 10))
+        print("child")
+        b.join()
+      })
+      print("joined #{a.join()}")
+    }
+    r = with outer = Task.Group {
+      late = outer.start(|| fetch(9, 50))
+      inner = with tasks = Task.Group {
+        tasks.start(|| {
+          h = tasks.start(|| boom())
+          h.join()
+        })
+        spin(100000)
+        0
+      } escape { Boom -> -1 }
+      print("inner #{inner}")
+      late.join()
+    }
+    print("outer #{r}")
+    floats = with tasks = Task.Group {
+      x = tasks.start(|| 1.5)
+      y = tasks.start(|| Int64.from_int(7))
+      u = tasks.start(|| print("unit child"))
+      u.join()
+      "#{x.join()} #{y.join()}"
+    }
+    print("values #{floats}")
+  }
+}
