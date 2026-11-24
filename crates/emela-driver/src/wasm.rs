@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use emela_codegen_wasm::{Entry, TestEntry, WasmError, WasmErrorKind, compile};
+use emela_codegen_wasm::{Entry, TestEntry, WasmError, WasmErrorKind, compile_with};
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
@@ -16,8 +16,25 @@ pub const WASM_ENTRY_FILE: &str = "main.wasm";
 
 /// Turns the Core IR into a WASI 0.3 component (`emela build --target wasm`), exporting
 /// `wasi:cli/run@0.3.0`. It is run with `wasmtime -S p3=y`.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct CoreWasm;
+#[derive(Debug, Clone, Copy)]
+pub struct CoreWasm {
+    /// Whether the LIR optimisation passes run (`emela_lir::to_heap_with`). On by default.
+    optimize: bool,
+}
+
+impl Default for CoreWasm {
+    fn default() -> Self {
+        CoreWasm { optimize: true }
+    }
+}
+
+impl CoreWasm {
+    /// Turns the LIR optimisation passes on or off (`emela build --no-opt`).
+    pub fn with_optimize(mut self, optimize: bool) -> Self {
+        self.optimize = optimize;
+        self
+    }
+}
 
 impl Backend<emela_core::Module> for CoreWasm {
     fn emit(
@@ -25,7 +42,7 @@ impl Backend<emela_core::Module> for CoreWasm {
         module: &emela_core::Module,
         _: &Analysis,
     ) -> Result<BuildOutput, Vec<Diagnostic>> {
-        let out = compile(module, &Entry::Main).map_err(diagnostics)?;
+        let out = compile_with(module, &Entry::Main, self.optimize).map_err(diagnostics)?;
         Ok(BuildOutput {
             files: vec![OutputFile::new(WASM_ENTRY_FILE, out.module)],
             entry: PathBuf::from(WASM_ENTRY_FILE),
@@ -55,7 +72,8 @@ impl TestBackend<TestModule> for CoreWasm {
                 function: program.tests[i].function,
             })
             .collect();
-        let out = compile(&program.module, &Entry::Tests(tests)).map_err(diagnostics)?;
+        let out = compile_with(&program.module, &Entry::Tests(tests), self.optimize)
+            .map_err(diagnostics)?;
         Ok(BuildOutput {
             files: vec![OutputFile::new(WASM_ENTRY_FILE, out.module)],
             entry: PathBuf::from(WASM_ENTRY_FILE),

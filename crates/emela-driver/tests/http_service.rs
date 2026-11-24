@@ -683,7 +683,7 @@ fn wasm_serves_the_same_as_js() {
         &fs,
         &input,
         &mut Lower::default().with_target(Target::Wasm),
-        &mut CoreWasm,
+        &mut CoreWasm::default(),
         &wasm,
     );
     // The programs still write `use E` as an expression (W0403, deprecated).
@@ -797,7 +797,7 @@ await show(new Request("http://example.com/ok"));
         &fs,
         &input,
         &mut Lower::default().with_target(Target::Wasm),
-        &mut CoreWasm,
+        &mut CoreWasm::default(),
         &wasm,
     );
     // The programs still write `use E` as an expression (W0403, deprecated).
@@ -935,7 +935,7 @@ fn wasm_answers_before_spawned_tasks() {
         &fs,
         &input,
         &mut Lower::default().with_target(Target::Wasm),
-        &mut CoreWasm,
+        &mut CoreWasm::default(),
         &wasm,
     );
     assert_eq!(analysis.diagnostics, []);

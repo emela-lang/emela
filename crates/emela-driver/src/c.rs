@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 
 use emela_codegen_c::{
     BUNDLED_DIR, CError, CErrorKind, COutput, EMELA_H, EMELA_H_FILE, Entry, RUNTIME_C,
-    RUNTIME_C_FILE, RUNTIME_H, RUNTIME_H_FILE, TestEntry, compile,
+    RUNTIME_C_FILE, RUNTIME_H, RUNTIME_H_FILE, TestEntry, compile_with,
 };
 
 use crate::code;
@@ -39,12 +39,24 @@ const CC_FLAGS: [&str; 5] = ["-std=c11", "-O2", "-fno-strict-aliasing", "-pthrea
 
 /// Turns the Core IR into C and builds it with the C compiler (`emela build --target native`).
 /// Host C files that external functions point to are compiled with it.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct CoreC {
     /// The C sources to compile, relative to the output directory or absolute: set by `emit`.
     sources: Vec<PathBuf>,
     /// The C compiler and the flags passed after the sources; [`cc_command`] if `None`.
     cc: Option<(PathBuf, Vec<String>)>,
+    /// Whether the LIR optimisation passes run (`emela_lir::to_heap_with`). On by default.
+    optimize: bool,
+}
+
+impl Default for CoreC {
+    fn default() -> Self {
+        CoreC {
+            sources: Vec::new(),
+            cc: None,
+            optimize: true,
+        }
+    }
 }
 
 impl CoreC {
@@ -54,7 +66,14 @@ impl CoreC {
         CoreC {
             sources: Vec::new(),
             cc: Some((cc.into(), flags.iter().map(|f| (*f).to_owned()).collect())),
+            optimize: true,
         }
+    }
+
+    /// Turns the LIR optimisation passes on or off (`emela build --no-opt`).
+    pub fn with_optimize(mut self, optimize: bool) -> Self {
+        self.optimize = optimize;
+        self
     }
 
     fn build(&self, out_dir: &Path) -> Result<PathBuf, Vec<Diagnostic>> {
@@ -90,7 +109,7 @@ impl Backend<emela_core::Module> for CoreC {
         module: &emela_core::Module,
         _: &Analysis,
     ) -> Result<BuildOutput, Vec<Diagnostic>> {
-        let out = compile(module, &Entry::Main).map_err(diagnostics)?;
+        let out = compile_with(module, &Entry::Main, self.optimize).map_err(diagnostics)?;
         Ok(self.output(out))
     }
 
@@ -121,7 +140,8 @@ impl TestBackend<TestModule> for CoreC {
                 function: program.tests[i].function,
             })
             .collect();
-        let out = compile(&program.module, &Entry::Tests(tests)).map_err(diagnostics)?;
+        let out = compile_with(&program.module, &Entry::Tests(tests), self.optimize)
+            .map_err(diagnostics)?;
         Ok(self.output(out))
     }
 

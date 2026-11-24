@@ -111,6 +111,19 @@ fn main() {
     assert_eq!(output.code, 1);
 }
 
+/// The optimisation switch reaches the LIR passes (`CoreC::with_optimize`): with them off, the
+/// program prints the same (T01).
+#[test]
+fn without_optimisation_runs_the_same_program() {
+    if !have_cc() {
+        return;
+    }
+    let main = "fn main() {\n  dbg(1 + 1)\n  ()\n}\n";
+    let (analysis, output) = run_c("no-opt", main, &mut CoreC::default().with_optimize(false));
+    assert_eq!(codes(&analysis), []);
+    assert_eq!(text(&output.unwrap().stderr), "2\n");
+}
+
 #[test]
 fn build_writes_the_executable() {
     if !have_cc() {

@@ -21,3 +21,11 @@ fn every_target_uses_the_target_agnostic_traits() {
     is_test_backend::<CoreC>();
     is_test_backend::<CoreWasm>();
 }
+
+/// Every target whose output runs the LIR optimisation passes has the switch for them, on by
+/// default (T01).
+#[test]
+fn every_optimized_target_has_an_optimize_switch() {
+    let _ = CoreC::default().with_optimize(false);
+    let _ = CoreWasm::default().with_optimize(false);
+}

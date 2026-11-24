@@ -55,9 +55,118 @@ static _Noreturn void em_out_of_memory(void) {
   abort();
 }
 
+/* ---- Allocation statistics (-DEMELA_ALLOC_STATS) ----
+ *
+ * A measurement build reports at exit, on standard error, how many objects it allocated for each
+ * descriptor name, the most numerous first and ties by name, and then the total. The report is
+ * printed once, after everything else, so that it does not mix with a program's own output or with
+ * the leak check. A normal build has neither the table nor a test in `em_alloc`: the report is a
+ * diagnostic for measurements, not part of the cost of the program. */
+#ifdef EMELA_ALLOC_STATS
+
+#define EM_STAT_NAMES 256
+
+typedef struct em_stat {
+  const char *name;
+  uint64_t count;
+} em_stat;
+
+static em_stat em_stats[EM_STAT_NAMES];
+static size_t em_stat_len = 0;
+static uint64_t em_stat_total = 0;
+/* Whether the report is registered, which happens on the first allocation. */
+static bool em_stat_registered = false;
+
+static int em_stat_order(const void *a, const void *b) {
+  const em_stat *x = a;
+  const em_stat *y = b;
+  if (x->count != y->count) return x->count > y->count ? -1 : 1;
+  return strcmp(x->name, y->name);
+}
+
+static void em_stat_report(void) {
+  /* Sorted in place: nothing else reads the table. */
+  qsort(em_stats, em_stat_len, sizeof(em_stats[0]), em_stat_order);
+  for (size_t i = 0; i < em_stat_len; i++) {
+    fprintf(stderr, "emela-alloc %s %" PRIu64 "\n", em_stats[i].name, em_stats[i].count);
+  }
+  fprintf(stderr, "emela-alloc-total %" PRIu64 "\n", em_stat_total);
+  fflush(stderr);
+}
+
+static void em_stat_count(const em_desc *desc) {
+  if (!em_stat_registered) {
+    em_stat_registered = true;
+    atexit(em_stat_report);
+  }
+  em_stat_total++;
+  const char *name = desc->name != NULL ? desc->name : "?";
+  for (size_t i = 0; i < em_stat_len; i++) {
+    if (em_stats[i].name == name || strcmp(em_stats[i].name, name) == 0) {
+      em_stats[i].count++;
+      return;
+    }
+  }
+  /* More names than the table holds: the total still counts them, and leaving the name out keeps
+   * the report bounded. */
+  if (em_stat_len < EM_STAT_NAMES) {
+    em_stats[em_stat_len].name = name;
+    em_stats[em_stat_len].count = 1;
+    em_stat_len++;
+  }
+}
+
+#endif
+
+/* ---- Size-class bins ----
+ *
+ * The header is 16 bytes with no room for a size class, and `aux` belongs to defects, so a block
+ * records its class only while it is free, in the first 8 bytes of the header (the reference
+ * count of a live object); `em_free` already links its free stack there. A block's class is the
+ * number of slots its descriptor has, because that is all `em_free` knows. Only fixed-size
+ * objects therefore come from a bin: strings, arrays, evidence tables, runtime objects and host
+ * boxes keep malloc and free.
+ *
+ * There is one bin per slot count from 0 to EM_BIN_MAX, so blocks of 16 to 256 bytes in steps of
+ * 8. A bin is LIFO, and blocks are neither split nor merged. em_live counts objects, not blocks,
+ * and does not change. */
+#define EM_BIN_MAX 30
+
+static em_ref em_bins[EM_BIN_MAX + 1];
+
+/* Returns the dead block `x` to its bin, or to malloc. */
+static void em_release_block(em_ref x) {
+  const em_desc *d = x->hdr.desc;
+  if (d->kind == EM_KIND_FIELDS && d->nfields <= EM_BIN_MAX) {
+    x->hdr.u.next = em_bins[d->nfields];
+    em_bins[d->nfields] = x;
+  } else {
+    free(x);
+  }
+}
+
 em_ref em_alloc(const em_desc *desc, size_t nslots) {
-  em_ref o = malloc(sizeof(em_hdr) + nslots * sizeof(em_word));
-  if (o == NULL) em_out_of_memory();
+#ifdef EMELA_ALLOC_STATS
+  em_stat_count(desc);
+#endif
+  /* A fixed-size object takes the bin of its descriptor's slot count. `em_alloc` is called for
+   * EM_KIND_FIELDS with nslots equal to nfields (cons cells, Some, boxes, records, tuples,
+   * closures, error values, frame shells, and the copy of a defect); a call that disagrees is not
+   * binned, and is allocated at least as large as the class it returns to. */
+  size_t slots = nslots;
+  bool binned = false;
+  if (desc->kind == EM_KIND_FIELDS && desc->nfields <= EM_BIN_MAX) {
+    binned = nslots == desc->nfields;
+    slots = nslots > desc->nfields ? nslots : desc->nfields;
+  }
+  em_ref o = NULL;
+  if (binned && em_bins[slots] != NULL) {
+    o = em_bins[slots];
+    em_bins[slots] = o->hdr.u.next;
+  } else {
+    o = malloc(sizeof(em_hdr) + slots * sizeof(em_word));
+    if (o == NULL) em_out_of_memory();
+  }
   o->hdr.u.h.rc = 1;
   o->hdr.u.h.aux = 0;
   o->hdr.desc = desc;
@@ -107,7 +216,7 @@ void em_free(em_ref o) {
         break;
     }
 #undef EM_RELEASE_CHILD
-    free(x);
+    em_release_block(x);
     em_live--;
   }
 }
@@ -132,6 +241,14 @@ static const em_desc em_desc_some_ref = {EM_KIND_FIELDS, 1, 0, -1, "Some", NULL,
 static const em_desc em_desc_none = {EM_KIND_FIELDS, 0, 1, -1, "None", NULL, em_refs_none};
 static em_hdr em_none_obj = EM_STATIC_HDR(&em_desc_none);
 #define EM_NONE ((em_ref)&em_none_obj)
+
+/* The empty evidence table: `em_ev_new(NULL, 0)` is the evidence of a call that needs none, and
+ * it costs no allocation. Static data (count 0) is never counted or freed, as `EM_NONE` is. */
+static struct {
+  em_hdr hdr;
+  em_word slots[1];
+} em_empty_evidence_obj = {EM_STATIC_HDR(&em_desc_evidence), {{0}}};
+#define EM_EMPTY_EVIDENCE ((em_ref)&em_empty_evidence_obj)
 
 static em_ref em_some(em_word w, bool ref) {
   em_ref o = em_alloc(ref ? &em_desc_some_ref : &em_desc_some_val, 1);
@@ -1125,6 +1242,12 @@ void em_const_release(em_const *c) {
 
 em_ref em_ev_new(em_ref base, int64_t n) {
   int64_t len = base == NULL ? 0 : base->slots[0].l;
+  if (len + n == 0) {
+    /* An empty table is one static object; consuming `base` drops nothing, since it is static
+     * (a count of 0) or empty too. */
+    em_drop(base);
+    return EM_EMPTY_EVIDENCE;
+  }
   em_ref ev = em_alloc(&em_desc_evidence, (size_t)(1 + 2 * (len + n)));
   ev->slots[0].l = len + n;
   for (int64_t k = 0; k < len; k++) {
@@ -1822,7 +1945,7 @@ void em_frame_push(em_ref fr) {
 }
 
 void em_frame_free(em_ref fr) {
-  free(fr);
+  em_release_block(fr);
   em_live--;
 }
 

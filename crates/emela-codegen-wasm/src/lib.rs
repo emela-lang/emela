@@ -114,6 +114,18 @@ impl std::fmt::Display for WasmError {
 
 /// Compiles lowered Core IR (self tail calls loopified, as `emela_core::lower` leaves it) to WASM.
 pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, Vec<WasmError>> {
+    compile_with(core, entry, true)
+}
+
+/// [`compile`] with the LIR optimisation passes (`emela_lir::to_heap_with`) switched on or off.
+///
+/// Optimisation never changes what the program prints, its exit status or the order of effects,
+/// failures and releases; a build uses this to compile the same program both ways.
+pub fn compile_with(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+) -> Result<WasmOutput, Vec<WasmError>> {
     let service = matches!(entry, Entry::Main) && core.http_service;
     let roots: Vec<FnId> = match entry {
         // An HTTP service starts from the fn `@entry(Http.serve)` made: its `wasm` export is
@@ -170,7 +182,7 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
     if !errors.is_empty() {
         return Err(errors);
     }
-    emela_lir::to_heap(&mut lir);
+    emela_lir::to_heap_with(&mut lir, optimize);
     if cfg!(debug_assertions)
         && let Err(errors) = emela_lir::verify(&lir)
     {

@@ -6,12 +6,13 @@ use crate::support;
 
 use emela_core::{Roots, monomorphize_from, verify_monomorphic};
 use emela_lir::{
-    Callee, ErrorKind, Module, Stage, Stmt, Value, dump_function, from_core, to_heap, verify,
+    Callee, ErrorKind, Module, Stage, Stmt, Value, dump_function, from_core, to_heap, to_heap_with,
+    verify,
 };
 use support::try_lower;
 
-/// Lowers (from `roots`), monomorphizes, converts, runs the Heap IR passes and verifies.
-fn convert(files: &[(&str, &str)], roots: Roots) -> Module {
+/// Lowers (from `roots`), monomorphizes and converts to the Flow IR (before the Heap IR passes).
+fn flow(files: &[(&str, &str)], roots: Roots) -> Module {
     let m = try_lower(files, roots).unwrap_or_else(|e| panic!("{e:#?}"));
     let fn_roots: Vec<_> = match roots {
         Roots::All => m.functions.iter().map(|(id, _)| id).collect(),
@@ -27,10 +28,15 @@ fn convert(files: &[(&str, &str)], roots: Roots) -> Module {
         let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
         panic!("not monomorphic:\n{}", lines.join("\n"));
     }
-    let mut lir = from_core(mono).unwrap_or_else(|errors| {
+    from_core(mono).unwrap_or_else(|errors| {
         let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
         panic!("conversion errors:\n{}", lines.join("\n"));
-    });
+    })
+}
+
+/// Lowers (from `roots`), monomorphizes, converts, runs the Heap IR passes and verifies.
+fn convert(files: &[(&str, &str)], roots: Roots) -> Module {
+    let mut lir = flow(files, roots);
     to_heap(&mut lir);
     assert!(lir.stage > Stage::Flow);
     if let Err(errors) = verify(&lir) {
@@ -100,6 +106,25 @@ fn every_example_converts() {
             std::fs::write(path, emela_lir::dump(&m)).unwrap();
         }
     }
+}
+
+/// The optimisation switch reaches the LIR passes (`to_heap_with`): with them switched off, the
+/// Heap IR is the same as the default while the passes are empty (T01).
+#[test]
+fn the_optimize_switch_keeps_the_heap_ir() {
+    let files = [(
+        "main.emel",
+        "\
+fn main() {
+  dbg(List.map([1, 2, 3], |x| x * 2))
+}
+",
+    )];
+    let mut off = flow(&files, Roots::Exported);
+    let mut on = flow(&files, Roots::Exported);
+    let _: emela_lir::opt::Stats = to_heap_with(&mut off, false);
+    let _: emela_lir::opt::Stats = to_heap_with(&mut on, true);
+    assert_eq!(emela_lir::dump(&off), emela_lir::dump(&on));
 }
 
 #[test]
