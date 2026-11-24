@@ -8,8 +8,7 @@
 //! saved reference) are scanned as controls, together with the two reasons a stale reference stays
 //! saved (a finalizer and a kept view of it).
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use std::path::{Path, PathBuf};
 

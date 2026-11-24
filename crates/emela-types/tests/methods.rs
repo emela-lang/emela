@@ -2,7 +2,7 @@
 //! module that defines the type of x, or as `Trait.f(x, a)` of a visible trait. The output is the
 //! inferred types of the fns (with their E and R) and the diagnostics.
 
-mod common;
+use crate::common;
 
 use common::render_bodies;
 

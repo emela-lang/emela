@@ -1,0 +1,743 @@
+# `Instant.parse` (`[api.std.instant]`): the grammar, the ranges of the fields, the offset, the
+# fraction, the range of Instant, the limit on the length, and `parse(to_string(t)) == t`.
+#
+# The expected values were computed apart from the implementation: the milliseconds with the
+# `datetime` of Python, and the ends of Int64 with whole cycles of 400 years moved into its range.
+
+import Brix.Pbt.Gen
+import Brix.Pbt.Gen.{Gen}
+import Brix.Pbt.Property
+import Std.Instant.{Instant}
+
+fn at(ms: Int64) -> Instant {
+  Instant.from_unix_milliseconds(ms)
+}
+
+# 2025-10-12T03:04:05.678Z
+fn t() -> Instant {
+  at(1760238245678)
+}
+
+fn int64_max() -> Int64 {
+  9223372036854775807
+}
+
+# A literal is checked as a positive number, so the least Int64 is written as a difference.
+fn int64_min() -> Int64 {
+  0 - 9223372036854775807 - 1
+}
+
+## The Instant written in `s`, or None if `parse` fails. A failure MUST carry the whole input.
+fn parsed(s: String) -> Option[Instant] {
+  Some(Instant.parse(s)) escape {
+    ParseError(input:) -> {
+      assert input == s
+      None
+    }
+  }
+}
+
+fn reads(s: String, expected: Instant) -> () {
+  assert parsed(s) == Some(expected)
+}
+
+fn rejects(s: String) -> () {
+  assert parsed(s) == None
+}
+
+## `count` copies of `s`, by doubling, so that a long text does not need a deep recursion.
+fn repeat(s: String, count: Int) -> String {
+  if count <= 0 {
+    ""
+  } else {
+    half = repeat(s, count / 2)
+    if count % 2 == 0 { "#{half}#{half}" } else { "#{half}#{half}#{s}" }
+  }
+}
+
+fn two(n: Int) -> String {
+  if n < 10 { "0#{n}" } else { "#{n}" }
+}
+
+# --- What `to_string` writes, and the forms of the table in the proposal ---
+
+@test
+fn reads_the_example_of_the_proposal() {
+  reads("2025-10-12T03:04:05.678Z", t())
+  reads("2025-10-12T12:04:05.678+09:00", t())
+  reads("2025-10-12 12:04:05.678+09", t())
+  assert Instant.parse(t().to_string()) == t()
+}
+
+@test
+fn reads_the_forms_that_common_writers_produce() {
+  # toISOString and toJSON of JS
+  reads("2025-10-12T03:04:05.678Z", t())
+  # isoformat() of Python, GNU date -Iseconds, %aI of git
+  reads("2025-10-12T12:04:05.678000+09:00", t())
+  # str() of a Python datetime, GNU date --rfc-3339
+  reads("2025-10-12 12:04:05.678000+09:00", t())
+  # timestamptz of PostgreSQL
+  reads("2025-10-12 12:04:05.678+09", t())
+  # datetimeoffset of SQL Server
+  reads("2025-10-12 12:04:05.6780000 +09:00", t())
+  # %ai of git, Time#to_s of Ruby
+  reads("2025-10-12 12:04:05 +0900", at(1760238245000))
+}
+
+# --- The separator between the date and the time ---
+
+@test
+fn the_date_and_the_time_are_separated_by_t_or_one_space() {
+  reads("2025-10-12T03:04:05.678Z", t())
+  reads("2025-10-12t03:04:05.678Z", t())
+  reads("2025-10-12 03:04:05.678Z", t())
+}
+
+@test
+fn no_other_separator_is_read() {
+  rejects("2025-10-1203:04:05.678Z")
+  rejects("2025-10-12  03:04:05.678Z")
+  rejects("2025-10-12T 03:04:05.678Z")
+  rejects("2025-10-12 T03:04:05.678Z")
+  rejects("2025-10-12TT03:04:05.678Z")
+  rejects("2025-10-12_03:04:05.678Z")
+  rejects("2025-10-12x03:04:05.678Z")
+  rejects("2025-10-12\t03:04:05.678Z")
+  rejects("2025-10-12\n03:04:05.678Z")
+  # NO-BREAK SPACE, IDEOGRAPHIC SPACE
+  rejects("2025-10-12\u{a0}03:04:05.678Z")
+  rejects("2025-10-12\u{3000}03:04:05.678Z")
+}
+
+@test
+fn no_whitespace_is_allowed_around_the_text() {
+  rejects(" 2025-10-12T03:04:05.678Z")
+  rejects("2025-10-12T03:04:05.678Z ")
+  rejects("2025-10-12T03:04:05.678Z\n")
+  rejects("\t2025-10-12T03:04:05.678Z")
+  rejects("\u{feff}2025-10-12T03:04:05.678Z")
+  rejects("")
+}
+
+# --- The offset ---
+
+@test
+fn the_offset_is_required() {
+  rejects("2025-10-12T03:04:05.678")
+  rejects("2025-10-12T03:04:05")
+  rejects("2025-10-12T03:04")
+  rejects("2025-10-12 03:04:05")
+  # A date alone, with or without an offset.
+  rejects("2025-10-12")
+  rejects("2025-10-12Z")
+  rejects("2025-10-12+09:00")
+}
+
+@test
+fn z_in_either_case_and_a_zero_offset_are_the_offset_0() {
+  reads("2025-10-12T03:04:05.678Z", t())
+  reads("2025-10-12T03:04:05.678z", t())
+  reads("2025-10-12T03:04:05.678+00:00", t())
+  reads("2025-10-12T03:04:05.678-00:00", t())
+  reads("2025-10-12T03:04:05.678+0000", t())
+  reads("2025-10-12T03:04:05.678-0000", t())
+  reads("2025-10-12T03:04:05.678+00", t())
+  reads("2025-10-12T03:04:05.678-00", t())
+}
+
+@test
+fn a_numeric_offset_has_three_forms() {
+  reads("2025-10-12T12:04:05.678+09:00", t())
+  reads("2025-10-12T12:04:05.678+0900", t())
+  reads("2025-10-12T12:04:05.678+09", t())
+  reads("2025-10-11T22:04:05.678-05:00", t())
+  reads("2025-10-11T22:04:05.678-0500", t())
+  reads("2025-10-11T22:04:05.678-05", t())
+  reads("2025-10-12T08:34:05.678+05:30", t())
+  reads("2025-10-12T08:34:05.678+0530", t())
+  reads("2025-10-11T23:34:05.678-03:30", t())
+}
+
+@test
+fn the_point_in_time_is_the_date_and_time_minus_the_offset() {
+  # Across the day, the month and the year.
+  reads("2026-01-01T08:59:59.999+09:00", at(1767225599999))
+  reads("2025-12-31T23:59:59.999Z", at(1767225599999))
+  reads("2025-12-31T14:59:59.999-09:00", at(1767225599999))
+  reads("2026-01-01T00:00:00.000+23:59", at(1767139260000))
+  reads("2025-12-31T00:00:00.000-23:59", at(1767225540000))
+  # Across a leap day.
+  reads("2024-03-01T05:00+09:00", at(1709236800000))
+  reads("2024-02-29T20:00Z", at(1709236800000))
+}
+
+@test
+fn the_offset_is_read_with_either_separator() {
+  # The separator and the form of the offset are chosen independently.
+  reads("2025-10-12T12:04:05.678+09", t())
+  reads("2025-10-12t12:04:05.678+09", t())
+  reads("2025-10-12 12:04:05.678+09", t())
+  reads("2025-10-12T12:04:05.678 +09:00", t())
+  reads("2025-10-12t12:04:05.678 +0900", t())
+  reads("2025-10-12 12:04:05.678 +09", t())
+  reads("2025-10-11 22:04:05.678 -05:00", t())
+}
+
+@test
+fn one_space_may_come_only_before_a_numeric_offset() {
+  reads("2025-10-12T12:04:05.678 +09:00", t())
+  rejects("2025-10-12T03:04:05.678 Z")
+  rejects("2025-10-12T03:04:05.678 z")
+  rejects("2025-10-12T12:04:05.678  +09:00")
+  rejects("2025-10-12T12:04:05.678\t+09:00")
+  rejects("2025-10-12T12:04:05.678\u{a0}+09:00")
+  rejects("2025-10-12T12:04:05.678+ 09:00")
+  rejects("2025-10-12T12:04:05.678+09 :00")
+  rejects("2025-10-12T12:04:05.678+09: 00")
+}
+
+@test
+fn a_malformed_offset_is_not_read() {
+  rejects("2025-10-12T12:04:05.678+9")
+  rejects("2025-10-12T12:04:05.678+9:00")
+  rejects("2025-10-12T12:04:05.678+900")
+  rejects("2025-10-12T12:04:05.678+09:0")
+  rejects("2025-10-12T12:04:05.678+090")
+  rejects("2025-10-12T12:04:05.678+09:")
+  rejects("2025-10-12T12:04:05.678+09:000")
+  rejects("2025-10-12T12:04:05.678+09000")
+  rejects("2025-10-12T12:04:05.678+0900:")
+  rejects("2025-10-12T12:04:05.678+09.00")
+  rejects("2025-10-12T12:04:05.678+")
+  rejects("2025-10-12T12:04:05.678++09:00")
+  rejects("2025-10-12T12:04:05.678\u{2212}09:00")
+  rejects("2025-10-12T03:04:05.678ZZ")
+  rejects("2025-10-12T03:04:05.678Z+00:00")
+  rejects("2025-10-12T12:04:05.678+09:00Z")
+}
+
+@test
+fn an_offset_with_seconds_is_not_read() {
+  rejects("2025-10-12T12:04:05.678+09:00:00")
+  rejects("2025-10-12T12:04:05.678+090000")
+  rejects("1900-01-01T00:00:00+09:18:59")
+}
+
+@test
+fn names_of_time_zones_are_not_read() {
+  rejects("2025-10-12T03:04:05.678UTC")
+  rejects("2025-10-12T03:04:05.678 UTC")
+  rejects("2025-10-12T03:04:05.678GMT")
+  rejects("2025-10-12T12:04:05.678 JST")
+  rejects("2025-10-12T12:04:05.678+0900 JST")
+  rejects("2025-10-12T12:04:05.678+09:00[Asia/Tokyo]")
+  rejects("2025-10-12T03:04:05.678Z[UTC]")
+}
+
+@test
+fn the_hour_of_the_offset_is_00_to_23_and_its_minute_is_00_to_59() {
+  reads("2025-10-13T03:03:05.678+23:59", t())
+  reads("2025-10-11T03:05:05.678-23:59", t())
+  reads("2025-10-13T03:03:05.678+2359", t())
+  reads("2025-10-13T02:04:05.678+23", t())
+  rejects("2025-10-12T03:04:05.678+24:00")
+  rejects("2025-10-12T03:04:05.678-24:00")
+  rejects("2025-10-12T03:04:05.678+2400")
+  rejects("2025-10-12T03:04:05.678+24")
+  rejects("2025-10-12T03:04:05.678+99")
+  rejects("2025-10-12T03:04:05.678+09:60")
+  rejects("2025-10-12T03:04:05.678-0960")
+  rejects("2025-10-12T03:04:05.678+00:99")
+}
+
+@test
+fn every_offset_gives_the_same_point_in_time() {
+  same_point_at_every_offset(int64s())
+}
+
+@test
+fn every_offset_gives_the_same_point_in_time_in_the_years_0_to_9999() {
+  same_point_at_every_offset(int64s_in_years_0_to_9999())
+}
+
+fn same_point_at_every_offset(instants: Gen[Int64]) -> () {
+  # Instants away from the ends of Int64, so that the date and time written stays in range.
+  margin: Int64 = 86400000
+  points = Gen.pair(instants, Gen.int_between(-1439, 1439))
+  Property.check(points, |(raw, minutes)| {
+    ms = Int64.max(int64_min() + margin, Int64.min(raw, int64_max() - margin))
+    local = at(ms + Int64.from_int(minutes) * 60000).to_string()
+    written = String.split(local, "Z") match {
+      [date_time, ..] -> date_time
+      []              -> local
+    }
+    sign = if minutes < 0 { "-" } else { "+" }
+    hh = two(Int.abs(minutes) / 60)
+    mm = two(Int.abs(minutes) % 60)
+    reads("#{written}#{sign}#{hh}:#{mm}", at(ms))
+    reads("#{written}#{sign}#{hh}#{mm}", at(ms))
+    reads("#{written} #{sign}#{hh}:#{mm}", at(ms))
+  })
+}
+
+# --- The time ---
+
+@test
+fn the_second_may_be_left_out_and_is_then_00() {
+  reads("2025-10-12T03:04Z", at(1760238240000))
+  reads("2025-10-12T12:04+09:00", at(1760238240000))
+  reads("2025-10-12 12:04 +0900", at(1760238240000))
+  reads("2025-10-12T03:04:00Z", at(1760238240000))
+}
+
+@test
+fn the_hour_and_the_minute_are_required() {
+  rejects("2025-10-12T03Z")
+  rejects("2025-10-12T03+09:00")
+  rejects("2025-10-12T03 +09:00")
+  rejects("2025-10-12TZ")
+}
+
+@test
+fn each_field_of_the_time_has_two_digits() {
+  rejects("2025-10-12T3:04:05.678Z")
+  rejects("2025-10-12T03:4:05.678Z")
+  rejects("2025-10-12T03:04:5.678Z")
+  rejects("2025-10-12T003:04:05.678Z")
+  rejects("2025-10-12T03:004:05.678Z")
+  rejects("2025-10-12T03:04:005.678Z")
+  rejects("2025-10-12T0304Z")
+  rejects("2025-10-12T030405Z")
+  rejects("2025-10-12T03:0405Z")
+  rejects("2025-10-12T03:04:Z")
+  rejects("2025-10-12T03:Z")
+}
+
+@test
+fn the_hour_is_00_to_23_the_minute_and_the_second_00_to_59() {
+  reads("2025-10-12T00:00:00Z", at(1760227200000))
+  reads("2025-10-12T23:59:59Z", at(1760313599000))
+  rejects("2025-10-12T24:00Z")
+  rejects("2025-10-12T24:00:00Z")
+  rejects("2025-10-12T24:00:00.000Z")
+  rejects("2025-10-12T25:00Z")
+  rejects("2025-10-12T03:60Z")
+  rejects("2025-10-12T03:99Z")
+  rejects("2025-10-12T03:04:99Z")
+}
+
+@test
+fn a_leap_second_is_not_read() {
+  rejects("2016-12-31T23:59:60Z")
+  rejects("2016-12-31T23:59:60.000Z")
+  rejects("2017-01-01T08:59:60+09:00")
+}
+
+@test
+fn the_fraction_needs_the_second_and_at_least_one_digit() {
+  rejects("2025-10-12T03:04.678Z")
+  rejects("2025-10-12T03:04:05.Z")
+  rejects("2025-10-12T03:04:05..678Z")
+  rejects("2025-10-12T03:04:05.678.9Z")
+  rejects("2025-10-12T03:04:05.67a8Z")
+  rejects("2025-10-12T03:04:05.+09:00")
+}
+
+@test
+fn a_comma_is_not_read() {
+  rejects("2025-10-12T03:04:05,678Z")
+  rejects("2025-10-12T12:04:05,678+09:00")
+  rejects("2025-10-12T03:04:05,6Z")
+  rejects("2025-10-12T03:04:05.678,9Z")
+  rejects("2025-10-12T03:04,5Z")
+  rejects("2025-10-12T12:04:05.678+09,00")
+}
+
+# --- The fraction of a second ---
+
+@test
+fn the_first_three_digits_are_the_milliseconds() {
+  reads("2025-10-12T03:04:05.6Z", at(1760238245600))
+  reads("2025-10-12T03:04:05.67Z", at(1760238245670))
+  reads("2025-10-12T03:04:05.678Z", at(1760238245678))
+  reads("2025-10-12T03:04:05.06Z", at(1760238245060))
+  reads("2025-10-12T03:04:05.006Z", at(1760238245006))
+  reads("2025-10-12T03:04:05.0Z", at(1760238245000))
+  reads("2025-10-12T03:04:05.000Z", at(1760238245000))
+}
+
+@test
+fn the_digits_after_the_third_are_dropped() {
+  reads("2025-10-12T03:04:05.6789Z", t())
+  reads("2025-10-12T03:04:05.678999999Z", t())
+  reads("2025-10-12T03:04:05.0009Z", at(1760238245000))
+  # Not the next day.
+  reads("2025-12-31T23:59:59.9999Z", at(1767225599999))
+  reads("2025-12-31T23:59:59.999999999999999999999999Z", at(1767225599999))
+}
+
+@test
+fn dropping_goes_toward_the_past_before_the_epoch_too() {
+  reads("1969-12-31T23:59:59.9999Z", at(-1))
+  reads("1969-12-31T23:59:59.9990Z", at(-1))
+  reads("1969-12-31T23:59:59.9989Z", at(-2))
+}
+
+@test
+fn the_milliseconds_depend_only_on_the_first_three_digits() {
+  nines = repeat("9", 200)
+  zeros = repeat("0", 200)
+  reads("2025-10-12T03:04:05.678#{nines}Z", t())
+  reads("2025-10-12T03:04:05.678#{zeros}Z", t())
+  reads("2025-10-12T03:04:05.67800000000000000001Z", t())
+  reads("2025-10-12T03:04:05.67899999999999999999Z", t())
+}
+
+@test
+fn fractions_are_read_exactly() {
+  # Seconds with fractions that a binary Float does not hold exactly: the product of the Float and
+  # 1000, truncated, is one millisecond short for each of these.
+  reads("1970-01-01T00:00:01.001Z", at(1001))
+  reads("1970-01-01T00:00:01.003Z", at(1003))
+  reads("1970-01-01T00:00:02.002Z", at(2002))
+  reads("1970-01-01T00:00:02.006Z", at(2006))
+}
+
+# --- The date ---
+
+@test
+fn the_month_is_01_to_12() {
+  reads("2025-01-01T00:00Z", at(1735689600000))
+  reads("2025-12-01T00:00Z", at(1764547200000))
+  rejects("2025-00-01T00:00Z")
+  rejects("2025-13-01T00:00Z")
+  rejects("2025-99-01T00:00Z")
+}
+
+@test
+fn the_day_is_01_to_the_number_of_days_of_the_month() {
+  rejects("2025-01-00T00:00Z")
+  lengths = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  List.range(0, 12).zip(lengths).each(|(i, last)| {
+    month = two(i + 1)
+    assert parsed("2025-#{month}-#{two(last)}T00:00Z") != None
+    rejects("2025-#{month}-#{two(last + 1)}T00:00Z")
+  })
+  rejects("2025-01-32T00:00Z")
+  rejects("2025-01-99T00:00Z")
+}
+
+@test
+fn the_last_days_of_the_months_of_a_leap_year() {
+  lengths = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  List.range(0, 12).zip(lengths).each(|(i, last)| {
+    month = two(i + 1)
+    assert parsed("2024-#{month}-#{two(last)}T00:00Z") != None
+    rejects("2024-#{month}-#{two(last + 1)}T00:00Z")
+  })
+}
+
+@test
+fn february_has_29_days_in_a_leap_year() {
+  reads("2024-02-29T00:00Z", at(1709164800000))
+  reads("2000-02-29T00:00:00.000Z", at(951782400000))
+  rejects("2025-02-29T00:00Z")
+  rejects("1900-02-29T00:00Z")
+  rejects("2100-02-29T00:00Z")
+  rejects("2024-02-30T00:00Z")
+  # The years 0 and -4 are leap years; the year -1 is not.
+  reads("0000-02-29T00:00Z", at(-62162121600000))
+  reads("-000004-02-29T00:00Z", at(-62288352000000))
+  rejects("-000001-02-29T00:00Z")
+  # A year divisible by 100 is a leap year only if divisible by 400, before the year 0 too, and
+  # near the end of Instant.
+  reads("-000400-02-29T00:00Z", at(-74784902400000))
+  rejects("-000100-02-29T00:00Z")
+  reads("+292278992-02-29T00:00Z", at(9223371959068800000))
+  rejects("+292278994-02-29T00:00Z")
+}
+
+@test
+fn the_calendar_is_proleptic_gregorian() {
+  # A day that the change of calendar in 1582 skipped.
+  reads("1582-10-10T00:00Z", at(-12219724800000))
+}
+
+@test
+fn a_date_that_does_not_exist_is_not_read() {
+  rejects("2025-02-29T03:04:05.678Z")
+  rejects("2025-04-31T00:00Z")
+  rejects("2025-06-31T12:00+09:00")
+}
+
+@test
+fn each_field_of_the_date_has_its_digits_and_its_separators() {
+  rejects("2025-1-12T03:04Z")
+  rejects("2025-10-2T03:04Z")
+  rejects("2025-010-12T03:04Z")
+  rejects("2025-10-012T03:04Z")
+  rejects("2025/10/12T03:04Z")
+  rejects("2025.10.12T03:04Z")
+  rejects("20251012T03:04Z")
+  rejects("20251012T030405Z")
+  rejects("2025-10T03:04Z")
+}
+
+@test
+fn only_ascii_digits_are_read() {
+  # FULLWIDTH DIGIT, ARABIC-INDIC DIGIT
+  rejects("\u{ff12}025-10-12T03:04Z")
+  rejects("2025-10-12T03:04:05.\u{ff16}Z")
+  rejects("2025-10-12T03:04:0\u{665}Z")
+  rejects("2025-10-12T12:04+0\u{669}:00")
+  rejects("+00202\u{665}-10-12T03:04Z")
+  rejects("2025-1\u{665}-12T03:04Z")
+  rejects("2025-10-1\u{665}T03:04Z")
+  rejects("2025-10-12T0\u{663}:04Z")
+  rejects("2025-10-12T03:0\u{664}Z")
+  # The digits after the third of the fraction are checked too, though they are not read.
+  rejects("2025-10-12T03:04:05.678\u{669}Z")
+  rejects("2025-10-12T03:04:05.6789xZ")
+  # MINUS SIGN
+  rejects("\u{2212}000001-01-01T00:00Z")
+}
+
+# --- The year ---
+
+@test
+fn a_year_of_four_digits_is_0000_to_9999() {
+  reads("0000-01-01T00:00Z", at(-62167219200000))
+  reads("9999-12-31T23:59:59.999Z", at(253402300799999))
+  reads("1970-01-01T00:00Z", at(0))
+}
+
+@test
+fn a_year_without_a_sign_has_exactly_four_digits() {
+  rejects("025-10-12T03:04Z")
+  rejects("20250-10-12T03:04Z")
+  rejects("02025-10-12T03:04Z")
+  rejects("010000-01-01T00:00Z")
+}
+
+@test
+fn a_year_with_a_sign_has_at_least_six_digits() {
+  rejects("+2025-10-12T03:04Z")
+  rejects("-2025-10-12T03:04Z")
+  rejects("+02025-10-12T03:04Z")
+  rejects("+10000-01-01T00:00Z")
+  rejects("-00001-01-01T00:00Z")
+}
+
+@test
+fn a_year_with_a_sign_is_counted_from_the_year_0() {
+  reads("+002025-10-12T03:04:05.678Z", t())
+  reads("+010000-01-01T00:00Z", at(253402300800000))
+  reads("+000000-01-01T00:00Z", at(-62167219200000))
+  reads("-000001-01-01T00:00Z", at(-62198755200000))
+  reads("-000001-12-31T23:59:59.999Z", at(-62167219200001))
+  reads("+0002025-10-12T03:04:05.678Z", t())
+  reads("-0000001-01-01T00:00Z", at(-62198755200000))
+}
+
+@test
+fn an_offset_crosses_the_year_0() {
+  reads("0000-01-01T08:59:59.999+09:00", at(-62167219200001))
+  reads("-000001-12-31T23:00-01:00", at(-62167219200000))
+}
+
+@test
+fn the_sign_minus_with_the_value_0_is_not_read() {
+  rejects("-000000-01-01T00:00Z")
+  rejects("-0000000-01-01T00:00Z")
+  rejects("-000000-12-31T23:59:59.999Z")
+  rejects("-#{repeat("0", 200)}-01-01T00:00Z")
+}
+
+@test
+fn a_year_with_many_leading_zeros_is_read() {
+  zeros = repeat("0", 200)
+  reads("+#{zeros}2025-10-12T03:04:05.678Z", t())
+  reads("-#{zeros}1-01-01T00:00Z", at(-62198755200000))
+  reads("+#{zeros}-01-01T00:00Z", at(-62167219200000))
+}
+
+@test
+fn a_year_outside_the_range_fails_however_many_digits_it_has() {
+  rejects("+292278995-01-01T00:00Z")
+  rejects("-292275056-12-31T23:59Z")
+  rejects("+999999999-12-31T23:59Z")
+  rejects("-999999999-01-01T00:00Z")
+  rejects("+1000000000-01-01T00:00Z")
+  rejects("+99999999999999999999-01-01T00:00Z")
+  rejects("+#{repeat("9", 200)}-01-01T00:00Z")
+  rejects("-#{repeat("9", 200)}-01-01T00:00Z")
+}
+
+@test
+fn a_year_does_not_wrap_around() {
+  # 2^64 + 2025, and 2^64 - 2025 with the sign minus: read with the arithmetic of Int64, these
+  # would wrap around to the year 2025.
+  rejects("+18446744073709553641-10-12T03:04:05.678Z")
+  rejects("-18446744073709549591-10-12T03:04:05.678Z")
+  # 2^63 + 2025
+  rejects("+9223372036854777833-10-12T03:04:05.678Z")
+}
+
+# --- The range of Instant ---
+
+@test
+fn the_ends_of_instant_are_read() {
+  reads("+292278994-08-17T07:12:55.807Z", at(int64_max()))
+  reads("-292275055-05-16T16:47:04.192Z", at(int64_min()))
+  reads("+292278994-08-17T07:12:55.807999Z", at(int64_max()))
+  reads("-292275055-05-16T16:47:04.192999Z", at(int64_min()))
+}
+
+@test
+fn the_points_just_outside_the_ends_fail() {
+  rejects("+292278994-08-17T07:12:55.808Z")
+  rejects("-292275055-05-16T16:47:04.191Z")
+  rejects("+292278994-08-17T07:12:56Z")
+  rejects("-292275055-05-16T16:47:04Z")
+  # Dropping the digits after the third goes toward the past, out of the range.
+  rejects("-292275055-05-16T16:47:04.1919Z")
+}
+
+@test
+fn the_range_is_checked_after_the_offset_is_applied() {
+  # The date and time as written lie outside the range, the point in time inside it, and the
+  # other way round.
+  ends = [
+    ("+00:01", "+292278994-08-17T07:13:55.807", "+292278994-08-17T07:13:55.808"),
+    ("+09:00", "+292278994-08-17T16:12:55.807", "+292278994-08-17T16:12:55.808"),
+    ("+23:59", "+292278994-08-18T07:11:55.807", "+292278994-08-18T07:11:55.808"),
+    ("-00:01", "+292278994-08-17T07:11:55.807", "+292278994-08-17T07:11:55.808"),
+    ("-09:00", "+292278994-08-16T22:12:55.807", "+292278994-08-16T22:12:55.808"),
+    ("-23:59", "+292278994-08-16T07:13:55.807", "+292278994-08-16T07:13:55.808"),
+  ]
+  ends.each(|(offset, inside, outside)| {
+    reads("#{inside}#{offset}", at(int64_max()))
+    rejects("#{outside}#{offset}")
+  })
+  starts = [
+    ("+00:01", "-292275055-05-16T16:48:04.192", "-292275055-05-16T16:48:04.191"),
+    ("+09:00", "-292275055-05-17T01:47:04.192", "-292275055-05-17T01:47:04.191"),
+    ("+23:59", "-292275055-05-17T16:46:04.192", "-292275055-05-17T16:46:04.191"),
+    ("-00:01", "-292275055-05-16T16:46:04.192", "-292275055-05-16T16:46:04.191"),
+    ("-09:00", "-292275055-05-16T07:47:04.192", "-292275055-05-16T07:47:04.191"),
+    ("-23:59", "-292275055-05-15T16:48:04.192", "-292275055-05-15T16:48:04.191"),
+  ]
+  starts.each(|(offset, inside, outside)| {
+    reads("#{inside}#{offset}", at(int64_min()))
+    rejects("#{outside}#{offset}")
+  })
+  # The offset with the hour only.
+  reads("+292278994-08-17T16:12:55.807+09", at(int64_max()))
+  rejects("+292278994-08-17T16:12:55.808+09")
+  reads("-292275055-05-16T07:47:04.192-09", at(int64_min()))
+  rejects("-292275055-05-16T07:47:04.191-09")
+}
+
+# --- The length of the text ---
+
+@test
+fn a_text_of_256_code_points_is_read() {
+  # 23 code points before the fraction's fourth digit and `Z` after it.
+  s = "2025-10-12T03:04:05.678#{repeat("9", 232)}Z"
+  assert s.code_points().length() == 256
+  reads(s, t())
+  year = "+#{repeat("0", 231)}2025-10-12T03:04:05.678Z"
+  assert year.code_points().length() == 256
+  reads(year, t())
+}
+
+@test
+fn a_text_of_257_code_points_fails() {
+  s = "2025-10-12T03:04:05.678#{repeat("9", 233)}Z"
+  assert s.code_points().length() == 257
+  rejects(s)
+  year = "+#{repeat("0", 232)}2025-10-12T03:04:05.678Z"
+  assert year.code_points().length() == 257
+  rejects(year)
+}
+
+@test
+fn a_very_long_text_fails() {
+  # Each is in the form; only the length is wrong.
+  rejects("2025-10-12T03:04:05.678#{repeat("9", 100000)}Z")
+  rejects("+#{repeat("0", 100000)}2025-10-12T03:04:05.678Z")
+}
+
+# --- parse(to_string(t)) == t ---
+
+@test
+fn reads_back_what_to_string_writes_at_chosen_points() {
+  points: List[Int64] = [
+    0,
+    -1,
+    1,
+    1760238245678,
+    951782400000,
+    1709164800000,
+    -62167219200000,
+    -62167219200001,
+    -62198755200000,
+    253402300799999,
+    253402300800000,
+    int64_max(),
+    int64_min(),
+    int64_max() - 1,
+    int64_min() + 1,
+    int64_min() + 86399998,
+    int64_min() + 86399999,
+    int64_min() + 86400000,
+  ]
+  points.each(|ms| assert Instant.parse(at(ms).to_string()) == at(ms))
+}
+
+@test
+fn to_string_writes_the_ends_as_expected() {
+  # Every value of Instant is written without a range limit; the first day of Instant must not
+  # wrap around while it is split into days and milliseconds.
+  assert at(int64_max()).to_string() == "+292278994-08-17T07:12:55.807Z"
+  assert at(int64_min()).to_string() == "-292275055-05-16T16:47:04.192Z"
+  assert at(int64_min() + 86399998).to_string() == "-292275055-05-17T16:47:04.190Z"
+  assert at(int64_min() + 86399999).to_string() == "-292275055-05-17T16:47:04.191Z"
+  assert at(int64_min() + 86400000).to_string() == "-292275055-05-17T16:47:04.192Z"
+}
+
+# Every Int64: the high and the low 32 bits from two Ints.
+fn int64s() -> Gen[Int64] {
+  Gen.pair(Gen.int(), Gen.int())
+    |> Gen.map(|(high, low)| {
+      Int64.bit_or(
+        Int64.shift_left(Int64.from_int(high), 32),
+        Int64.bit_and(Int64.from_int(low), 4294967295),
+      )
+    })
+}
+
+# Instants in the years 0 to 9999: `Gen.int` favours -1, 0 and 1 for the high bits, so `int64s`
+# gives few of them besides the days around the epoch.
+fn int64s_in_years_0_to_9999() -> Gen[Int64] {
+  Gen.pair(Gen.int_between(-14474, 58998), Gen.int())
+    |> Gen.map(|(high, low)| {
+      Int64.bit_or(
+        Int64.shift_left(Int64.from_int(high), 32),
+        Int64.bit_and(Int64.from_int(low), 4294967295),
+      )
+    })
+}
+
+@test
+fn reads_back_what_to_string_writes_for_every_instant() {
+  Property.check(int64s(), |ms| assert Instant.parse(at(ms).to_string()) == at(ms))
+}
+
+@test
+fn reads_back_what_to_string_writes_in_the_years_0_to_9999() {
+  Property.check(int64s_in_years_0_to_9999(), |ms| {
+    assert Instant.parse(at(ms).to_string()) == at(ms)
+  })
+}

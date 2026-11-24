@@ -1,0 +1,17 @@
+---
+source: crates/emela-types/tests/task.rs
+expression: "render(r#\"\nimport Std.Task.{TaskGroup, Spawn}\n\neffect Log {\n  fn info(msg: String) -> ()\n}\n\nerror Boom\n\nfn takes_group(f: fn() -> () uses { TaskGroup[{}, { Async }] }) { () }\n\nfn takes_spawn[F](f: fn() -> () uses { Spawn[F, { Async }] }) { () }\n\nfn more_effects() uses { TaskGroup[{}, { Async, Log }] } { () }\n\nfn more_errors() uses { TaskGroup[Boom, { Async }] } { () }\n\nfn fewer() uses { TaskGroup[{}, {}] } { () }\n\nfn spawns_boom() uses { Spawn[Boom, { Async }] } { () }\n\nfn spawns_log() uses { Spawn[{}, { Log }] } { () }\n\nfn main() {\n  takes_group(more_effects)\n  takes_group(more_errors)\n  takes_group(fewer)\n  takes_spawn(spawns_boom)\n  takes_spawn(spawns_log)\n}\n\"#)"
+---
+takes_group: ∀ E(f). fn(fn() -> () fails E(f) uses { TaskGroup[{}, Async] }) -> ()
+  f: fn() -> () fails '0 uses { TaskGroup[{}, Async] }
+takes_spawn: ∀ F, E(f). fn(fn() -> () fails E(f) uses { Spawn[F, Async] }) -> ()
+  f: fn() -> () fails '1 uses { Spawn['0, Async] }
+more_effects: fn() -> () uses { TaskGroup[{}, { Async, Log }] }
+more_errors: fn() -> () uses { TaskGroup[Boom, Async] }
+fewer: fn() -> () uses { TaskGroup[{}, {}] }
+spawns_boom: fn() -> () uses { Spawn[Boom, Async] }
+spawns_log: fn() -> () uses { Spawn[{}, Log] }
+main: fn() -> ()
+`more_effects` effect set mismatch: expected `uses { Async }`, found `uses { Async, Log }`
+`more_errors` error set mismatch: expected `fails {}`, found `fails Boom`
+`spawns_log` effect set mismatch: expected `uses { Async }`, found `uses { Log }`

@@ -1600,18 +1600,17 @@ impl<'m> Emitter<'m> {
             None => cx.w.stmt(&format!("(void){expr}")),
         };
         match op {
-            FiberOp::Scope { .. } => {
+            FiberOp::Scope { background, .. } => {
                 let repr = arg_ty(0).map_or(Repr::Void, |t| self.inner_repr(t));
-                word(cx, op_call("em_fiber_scope", repr));
+                let flag = if background { "true" } else { "false" };
+                word(
+                    cx,
+                    call("em_fiber_scope", [a[0].as_str(), repr_code(repr), flag]),
+                );
             }
             FiberOp::Fork => Self::assign(cx, dst, &call("em_fiber_fork", &a[..2])),
-            FiberOp::Deferred => Self::assign(cx, dst, &call("em_fiber_deferred", &a[..1])),
+            FiberOp::Deferred => Self::assign(cx, dst, &call("em_fiber_deferred", &a[..0])),
             FiberOp::Join => word(cx, op_call("em_fiber_join", dst_repr)),
-            FiberOp::Await { .. } => {
-                let repr = dst_ty.map_or(Repr::Void, |t| self.inner_repr(t));
-                Self::assign(cx, dst, &op_call("em_fiber_await", repr));
-            }
-            FiberOp::Interrupt => cx.w.stmt(&call("em_fiber_interrupt", &a[..1])),
             FiberOp::Attempt { .. } => {
                 let repr = arg_ty(0).map_or(Repr::Void, |t| self.inner_repr(t));
                 Self::assign(cx, dst, &op_call("em_fiber_attempt", repr));
@@ -1640,8 +1639,8 @@ impl<'m> Emitter<'m> {
                 Self::assign(cx, dst, &call("em_cause_to_string", &a[..1]));
             }
             FiberOp::CauseRaise { .. } => cx.w.stmt(&call("em_cause_raise", &a[..1])),
-            FiberOp::Semaphore => Self::assign(cx, dst, &call("em_fiber_semaphore", &a[..2])),
-            FiberOp::Queue => Self::assign(cx, dst, &call("em_fiber_queue", &a[..2])),
+            FiberOp::Semaphore => Self::assign(cx, dst, &call("em_fiber_semaphore", &a[..1])),
+            FiberOp::Queue => Self::assign(cx, dst, &call("em_fiber_queue", &a[..1])),
             FiberOp::Acquire => cx.w.stmt(&call("em_semaphore_acquire", &a[..2])),
             FiberOp::TryAcquire => {
                 Self::assign(cx, dst, &call("em_semaphore_try_acquire", &a[..2]));
@@ -1754,7 +1753,7 @@ impl<'m> Emitter<'m> {
                 let ret = self.ct(def.ret);
                 let h = var(*handler);
                 let closure = format!("{h}->slots[{}].p", op + 1);
-                cx.w.if_begin(&call("em_handler_ok", [&h]));
+                cx.w.block_begin();
                 if def.suspend {
                     // The implementation takes a resume function value last and returns
                     // nothing; the value to continue with comes from `em_perform_end`.
@@ -1779,25 +1778,6 @@ impl<'m> Emitter<'m> {
                 } else {
                     let e = self.closure_call(&closure, ret, f, args, &a);
                     Self::assign(cx, dst, &e);
-                }
-                // A released handler takes none of the arguments: they are given up here.
-                let given: Vec<String> = args
-                    .iter()
-                    .filter_map(|o| match o {
-                        Operand::Var(v)
-                            if f.vars[*v].repr == Repr::Ref
-                                && self.values.index(f.vars[*v].ty).is_none() =>
-                        {
-                            Some(var(*v))
-                        }
-                        _ => None,
-                    })
-                    .collect();
-                if !given.is_empty() {
-                    cx.w.else_begin();
-                    for v in given {
-                        cx.w.stmt(&call("em_drop", [v]));
-                    }
                 }
                 cx.w.end();
             }

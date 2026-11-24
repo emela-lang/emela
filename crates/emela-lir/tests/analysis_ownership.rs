@@ -5,8 +5,7 @@
 //! builds functions by hand for the shapes lowering does not produce on demand (a suspension frame,
 //! a second binding, a parameter).
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::{Roots, TypeId, monomorphize_from, verify_monomorphic};
 use emela_lir::opt::analysis::Fact;

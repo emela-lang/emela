@@ -1,0 +1,11 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: diagnostics
+---
+warning src/main.emel@206..216 `use Logger`: `use Logger` as an expression is deprecated
+warning src/main.emel@235..247 `use LogStore`: `use LogStore` as an expression is deprecated
+warning src/main.emel@266..276 `use Logger`: `use Logger` as an expression is deprecated
+warning src/main.emel@309..319 `use Logger`: `use Logger` as an expression is deprecated
+warning src/main.emel@358..368 `use Logger`: `use Logger` as an expression is deprecated
+warning src/main.emel@407..417 `use Logger`: `use Logger` as an expression is deprecated
+warning src/main.emel@458..468 `use Logger`: `use Logger` as an expression is deprecated
