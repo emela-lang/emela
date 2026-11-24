@@ -1,7 +1,7 @@
 /* Host functions for SystemFileSystem on C (`@external(c, "./file_system.c", ...)` in
  * file_system.emel), the counterpart of file_system.mjs.
  *
- * The operations are `suspend fn`s (spec 12.6). They do their work synchronously inside the
+ * The operations are `suspend fn`s (`[ext.c-host]`). They do their work synchronously inside the
  * host function with POSIX calls and complete the task at once, so a slow disk stops every
  * fiber for the time of the call (moving the work to a thread is left for later).
  *
@@ -201,7 +201,7 @@ void emela_fs_read_text(const char *path, em_task *task) {
     return;
   }
   if (memchr(buf, '\0', len) != NULL) {
-    /* A C string cannot carry U+0000 across the host boundary (spec 12.4). */
+    /* A C string cannot carry U+0000 across the host boundary (`[ext.boundary]`). */
     free(buf);
     size_t n = strlen(path) + 64;
     char *message = emela_fs_alloc(n);
@@ -259,7 +259,7 @@ void emela_fs_is_directory(const char *path, em_task *task) {
   em_complete_bool(task, stat(path, &st) == 0 && S_ISDIR(st.st_mode));
 }
 
-/* UTF-8 byte order is code point order (spec 10.6). */
+/* UTF-8 byte order is code point order (`[trait.builtin]`). */
 static int emela_fs_by_name(const void *a, const void *b) {
   return strcmp(*(char *const *)a, *(char *const *)b);
 }
@@ -380,7 +380,7 @@ char *emela_fs_outcome_name_at(void *o, int32_t i) {
   return emela_fs_strdup(out->names[i]);
 }
 
-/* Emela does not free host values (spec 12.3): the handler releases each outcome. */
+/* Emela does not free host values (`[ext.host-type]`): the handler releases each outcome. */
 void emela_fs_outcome_release(void *o) {
   emela_fs_outcome *out = o;
   free(out->message);

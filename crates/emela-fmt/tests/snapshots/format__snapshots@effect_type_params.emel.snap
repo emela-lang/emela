@@ -19,7 +19,7 @@ fn count() -> Int uses { State[Int], Log } {
   st.get()
 }
 
-pub effect Scope[E, R] {
-  fn fork[A](f: fn() -> A fails E uses { R }) -> Fiber[A]
+pub effect TaskGroup[E, R] {
+  fn start[A](f: fn() -> A fails E uses { R }) -> Task[A]
   fn deferred[A, B]() -> Deferred[A]
 }

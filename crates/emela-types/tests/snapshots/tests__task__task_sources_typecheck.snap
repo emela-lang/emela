@@ -1,0 +1,33 @@
+---
+source: crates/emela-types/tests/task.rs
+expression: out
+---
+kind: ∀ E. fn(Cause[E]) -> CauseKind
+to_string: ∀ E. fn(Cause[E]) -> String
+raise: ∀ A, E. fn(Cause[E]) -> A fails E
+complete: ∀ A. fn(A) -> Bool
+await: ∀ A. fn() -> A
+poll: ∀ A. fn() -> Option[A]
+available: fn() -> Int
+Permits: fn(Int) -> use Permit uses { Semaphore }
+TryPermits: fn(Int) -> use Permit fails NoPermits uses { Semaphore }
+count: fn() -> Int
+with_permit: ∀ A, E, R. fn(use Semaphore, fn() -> A fails E uses { R }) -> A fails E uses { Async, R, s }
+with_permits: ∀ A, E, R. fn(use Semaphore, Int, fn() -> A fails E uses { R }) -> A fails E uses { Async, R, s }
+try_with_permit: ∀ A, E, R. fn(use Semaphore, fn() -> A fails E uses { R }) -> Option[A] fails E uses { R, s }
+try_with_permits: ∀ A, E, R. fn(use Semaphore, Int, fn() -> A fails E uses { R }) -> Option[A] fails E uses { R, s }
+offer: ∀ A. fn(A) -> () fails QueueClosed
+take: ∀ A. fn() -> A fails QueueClosed
+try_offer: ∀ A. fn(A) -> Bool
+poll: ∀ A. fn() -> Option[A]
+size: ∀ A. fn() -> Int
+close: ∀ A. fn() -> ()
+attempt: ∀ A, E, R. fn(fn() -> A fails E uses { R }) -> Exit[A, E] uses { R }
+start: ∀ E, R, A. fn(fn() -> A fails E uses { TaskGroup[E, R], R }) -> Task[A]
+start: ∀ E, R. fn(fn() -> () fails E uses { Spawn[E, R], R }) -> ()
+join: ∀ A. fn(Task[A]) -> A uses { Async, task }
+all: ∀ A, E, R. fn(List[fn() -> A fails E uses { R }]) -> List[A] fails E uses { Async, R }
+race: ∀ A, E, R. fn(List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R }
+both: ∀ A, B, E, R. fn(fn() -> A fails E uses { R }, fn() -> B fails E uses { R }) -> (A, B) fails E uses { Async, R }
+map: ∀ A, B, E, R. fn(List[A], fn(A) -> B fails E uses { R }) -> List[B] fails E uses { Async, R }
+timeout: ∀ A, E, R. fn(Int, fn() -> A fails E uses { R }) -> Option[A] fails E uses { Async, Clock, R }

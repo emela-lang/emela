@@ -46,15 +46,21 @@ jobs:
           QUEUE_BASE: ${{ github.event.merge_group.base_sha }}
         run: scripts/ci/changes.sh
 
+  # The compiler and its tests for Linux, built once for `rust` and `emela`.
+  build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    uses: ./.github/workflows/ci-build.yml
+
   # The compiler's Rust code: lint and the test suite.
   rust:
-    needs: changes
+    needs: [changes, build]
     if: needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/ci-rust.yml
 
   # Emela programs run by the compiler: the examples, the laws, the playground, Windows.
   emela:
-    needs: changes
+    needs: [changes, build]
     if: needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/ci-emela.yml
 
@@ -78,7 +84,7 @@ jobs:
   # counts as passed; a failed or cancelled one does not.
   ci-ok:
     if: always()
-    needs: [changes, rust, emela, spec]
+    needs: [changes, build, rust, emela, spec]
     runs-on: ubuntu-latest
     steps:
       - name: Sum up the jobs

@@ -1,7 +1,7 @@
 //! Semantic tokens (LSP `textDocument/semanticTokens`).
 //!
-//! Only capability values (locals bound to `use X`, spec 8.2) are marked, where they are bound
-//! and where they are used. Other names are left to the editor's syntax highlighting.
+//! Only capability values (locals bound to `use X`, spec 8.2) and effect aliases (`x <- X`) are
+//! marked, where they are bound and where they are used. Other names are left to the editor's syntax highlighting.
 
 use std::collections::HashSet;
 
@@ -21,7 +21,8 @@ pub struct SemanticToken {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
-    /// A local holding a capability value (`log = use Logger`).
+    /// A local holding a capability value (`log = use Logger`), or an effect alias
+    /// (`log <- Logger`).
     Capability,
 }
 
@@ -47,7 +48,7 @@ pub(crate) fn semantic_tokens(
         .types
         .locals
         .iter()
-        .filter(|(_, ty)| matches!(ty, Ty::Cap(_)))
+        .filter(|(_, ty)| matches!(ty, Ty::Cap(..)))
         .map(|(local, _)| local)
         .collect();
     for (_, expr) in hir.exprs.iter() {
@@ -63,13 +64,26 @@ pub(crate) fn semantic_tokens(
             }
         }
     }
+    capabilities.extend(
+        hir.locals
+            .iter()
+            .filter(|(_, l)| l.kind == emela_resolve::hir::LocalKind::EffectAlias)
+            .map(|(local, _)| local),
+    );
     let bindings = capabilities.iter().filter_map(|&local| {
         let span = hir.locals[local].span;
         (span.module == module).then_some(span.range)
     });
-    let uses = hir.exprs.iter().filter_map(|(_, expr)| match expr.kind {
+    let uses = hir.exprs.iter().filter_map(|(id, expr)| match expr.kind {
         ExprKind::Path(Res::Local(local))
             if expr.span.module == module && capabilities.contains(&local) =>
+        {
+            Some(expr.span.range)
+        }
+        // A reference to an effect alias is lowered to its own `use X`.
+        ExprKind::Use { .. }
+            if expr.span.module == module
+                && hir.alias_uses.get(id).copied().flatten().is_some() =>
         {
             Some(expr.span.range)
         }

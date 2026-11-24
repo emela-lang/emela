@@ -1,0 +1,30 @@
+---
+source: crates/emela-types/tests/builtin_handlers.rs
+expression: "render(r#\"\nimport Std.Deferred.{Deferred}\n\nfn filled() -> Int uses { Async } {\n  with d = Deferred {\n    first = d.complete(1)\n    second = d.complete(2)\n    polled = d.poll()\n    d.await()\n  }\n}\n\nfn written() -> Bool {\n  with d = Deferred[String] { d.complete(\"a\") }\n}\n\nfn passed(d: use Deferred[Int]) -> Option[Int] { d.poll() }\n\nfn through() -> Option[Int] {\n  with d = Deferred { passed(d) }\n}\n\"#)"
+---
+filled: fn() -> Int uses { Async }
+  d: use Deferred[Int]
+  first: Bool
+  second: Bool
+  polled: Option[Int]
+written: fn() -> Bool
+  d: use Deferred[String]
+passed: fn(use Deferred[Int]) -> Option[Int] uses { d }
+  d: use Deferred[Int]
+through: fn() -> Option[Int]
+  d: use Deferred[Int]
+item Deferred: [Int]
+item Deferred: [String]
+item Deferred: [Int]
+--- R
+{     first = d.complete(1)     second = d.complete(2)     polled = d.poll()     d.await()   }: d
+d.complete(1): d
+d.complete(2): d
+d.poll(): d
+d.await(): d
+{ d.complete("a") }: d
+d.complete("a"): d
+{ d.poll() }: '0
+d.poll(): '0
+{ passed(d) }: d
+passed(d): d

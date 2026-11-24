@@ -1,7 +1,7 @@
 //! The emitted `main.wasm` is a WASI 0.3 component exporting `wasi:cli/run@0.3.0`, and its
 //! process outcomes are unchanged (0 on success, 1 for an error reaching main, 101 for a defect).
 
-mod common;
+use crate::common;
 
 use common::*;
 use wasmparser::{ComponentExternalKind, Encoding, Parser, Payload};

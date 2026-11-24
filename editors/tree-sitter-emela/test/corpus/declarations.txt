@@ -753,3 +753,224 @@ fn copy(src: use ReadFile, dst: use ReadFile + WriteFile) -> () {
     (unit_type)
     (block
       (unit))))
+
+==================
+Capability-bound types and borrowed parameters
+==================
+type Task[A] uses TaskGroup
+
+type Conn(id: Int) uses Db[Int] derive Show
+
+enum Cursor uses Db {
+  Open(id: Int)
+  Closed
+}
+
+@external
+fn each(xs: List[Int], @borrowed f: fn(Int) -> Int) uses { Db }
+
+---
+
+(source_file
+  (type_declaration
+    (type_identifier)
+    (type_parameters
+      (type_parameter
+        (constant_identifier)))
+    (bound_clause
+      (type_reference
+        (type_identifier))))
+  (type_declaration
+    (type_identifier)
+    (field_list
+      (field
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (bound_clause
+      (generic_type
+        (type_reference
+          (type_identifier))
+        (type_arguments
+          (type_reference
+            (type_identifier)))))
+    (derive_clause
+      (type_reference
+        (type_identifier))))
+  (enum_declaration
+    (type_identifier)
+    (bound_clause
+      (type_reference
+        (type_identifier)))
+    (variant_list
+      (variant
+        (type_identifier)
+        (field_list
+          (field
+            (identifier)
+            (type_reference
+              (type_identifier)))))
+      (variant
+        (type_identifier))))
+  (function_declaration
+    (annotation
+      (identifier))
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (generic_type
+          (type_reference
+            (type_identifier))
+          (type_arguments
+            (type_reference
+              (type_identifier)))))
+      (parameter
+        (annotation
+          (identifier))
+        (identifier)
+        (function_type
+          (parameter_types
+            (type_reference
+              (type_identifier)))
+          (type_reference
+            (type_identifier)))))
+    (uses_clause
+      (effect_set
+        (type_reference
+          (type_identifier))))))
+
+=======
+Handlers with type parameters
+=======
+handler Memory[S: Eq](value: S): State[S] {
+  fn get() { self.value }
+}
+
+layer App {
+  Memory[Int](value: 0)
+}
+
+fn main() {
+  with Memory[Int](value: 1), Hits by Memory[Int](value: 2) { () }
+}
+
+---
+
+(source_file
+  (handler_declaration
+    (type_identifier)
+    (type_parameters
+      (type_parameter
+        (constant_identifier)
+        (type_reference
+          (type_identifier))))
+    (field_list
+      (field
+        (identifier)
+        (type_variable
+          (constant_identifier))))
+    (type_reference
+      (type_identifier))
+    (type_arguments
+      (type_variable
+        (constant_identifier)))
+    (declaration_list
+      (function_declaration
+        (identifier)
+        (parameters)
+        (block
+          (field_expression
+            (self)
+            (identifier))))))
+  (layer_declaration
+    (type_identifier)
+    (supply_list
+      (supply
+        (type_reference
+          (type_identifier))
+        (type_arguments
+          (type_reference
+            (type_identifier)))
+        (arguments
+          (named_argument
+            (identifier)
+            (integer))))))
+  (function_declaration
+    (identifier)
+    (parameters)
+    (block
+      (with_expression
+        (with_item
+          (supply
+            (type_reference
+              (type_identifier))
+            (type_arguments
+              (type_reference
+                (type_identifier)))
+            (arguments
+              (named_argument
+                (identifier)
+                (integer)))))
+        (with_item
+          (supply
+            (type_reference
+              (type_identifier)))
+          (type_reference
+            (type_identifier))
+          (type_arguments
+            (type_reference
+              (type_identifier)))
+          (arguments
+            (named_argument
+              (identifier)
+              (integer))))
+        (block
+          (unit))))))
+
+==================
+Built-in handlers without a body
+==================
+@intrinsic
+pub handler Queue[A](capacity: Int): Queue[A]
+
+@intrinsic
+pub handler Background: Spawn {
+  init(on_failure: Int)
+}
+
+---
+
+(source_file
+  (handler_declaration
+    (annotation
+      (identifier))
+    (visibility)
+    (type_identifier)
+    (type_parameters
+      (type_parameter
+        (constant_identifier)))
+    (field_list
+      (field
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (type_reference
+      (type_identifier))
+    (type_arguments
+      (type_variable
+        (constant_identifier))))
+  (handler_declaration
+    (annotation
+      (identifier))
+    (visibility)
+    (type_identifier)
+    (type_reference
+      (type_identifier))
+    (declaration_list
+      (handler_init
+        (parameters
+          (parameter
+            (identifier)
+            (type_reference
+              (type_identifier))))))))

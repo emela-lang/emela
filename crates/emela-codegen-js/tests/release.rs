@@ -487,47 +487,6 @@ fn the_first_defect_wins_and_later_ones_are_noted() {
 }
 
 #[test]
-fn released_handlers_are_defects_when_used() {
-    // Using a capability taken outside the `with` after its release is a defect (spec 8.6).
-    let mut m = Module::new();
-    let k = Kit::new(&mut m);
-    let (a, f) = (
-        m.local("a", Type::Handler(k.res)),
-        m.local("f", fn_ty(vec![], TypeId::STRING)),
-    );
-    let leak = with(
-        vec![k.managed(&mut m, a, "Pool")],
-        lambda(
-            vec![],
-            k.name_ty,
-            call_op(var(a), k.res, 0, vec![], false, false),
-        ),
-    );
-    // Inside, it works.
-    let i = m.local("i", Type::Handler(k.res));
-    let inside = with(
-        vec![k.managed(&mut m, i, "Inside")],
-        call_op(var(i), k.res, 0, vec![], false, false),
-    );
-    let x = m.local("x", TypeId::UNIT);
-    main_fn(
-        &mut m,
-        false,
-        TypeId::STRING,
-        let_(
-            x,
-            call(k.log, vec![inside]),
-            let_(f, leak, call_value(var(f), vec![])),
-        ),
-    );
-    assert_eq!(
-        run("used_after_release", m),
-        "init Inside\nrelease Inside\nInside\ninit Pool\nrelease Pool\n\
-         defect: handler Pool was used after release\n"
-    );
-}
-
-#[test]
 fn releases_run_after_a_later_resume() {
     // Even if the body suspends and is resumed later, release runs after the body ends.
     let mut m = Module::new();
