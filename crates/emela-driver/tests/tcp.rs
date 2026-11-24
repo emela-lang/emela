@@ -15,7 +15,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -59,34 +60,40 @@ fn refused_port() -> u16 {
     listener.local_addr().unwrap().port()
 }
 
-/// The first client of the watch server, and whether it has closed.
-#[derive(Default)]
-struct Watch {
-    first_taken: bool,
-    first_closed: bool,
-}
-
+/// Tells each later client `closed` once its first client has closed. The first client is the
+/// first connection accepted, not the first thread to run: the threads of the two connections may
+/// run in either order.
 fn watch_server() -> u16 {
-    let state = Arc::new(Mutex::new(Watch::default()));
-    server(move |mut s| {
-        let first = {
-            let mut w = state.lock().unwrap();
-            !std::mem::replace(&mut w.first_taken, true)
-        };
-        if first {
-            drain(s);
-            state.lock().unwrap().first_closed = true;
-        } else {
-            for _ in 0..200 {
-                if state.lock().unwrap().first_closed {
-                    let _ = s.write_all(b"closed");
-                    break;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let first_closed = Arc::new(AtomicBool::new(false));
+    thread::spawn(move || {
+        let mut incoming = listener.incoming().flatten();
+        let Some(first) = incoming.next() else { return };
+        let closed = Arc::clone(&first_closed);
+        thread::spawn(move || {
+            drain(first);
+            closed.store(true, Ordering::SeqCst);
+        });
+        for mut s in incoming {
+            let closed = Arc::clone(&first_closed);
+            thread::spawn(move || {
+                // Answers `open` if the first client is still open after 10 seconds, so that the
+                // test fails instead of waiting.
+                let mut answer: &[u8] = b"open  ";
+                for _ in 0..1000 {
+                    if closed.load(Ordering::SeqCst) {
+                        answer = b"closed";
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(10));
                 }
-                thread::sleep(Duration::from_millis(10));
-            }
-            drain(s);
+                let _ = s.write_all(answer);
+                drain(s);
+            });
         }
-    })
+    });
+    port
 }
 
 /// The TLS echo server on node, and its port. It ends when the child's standard input closes.

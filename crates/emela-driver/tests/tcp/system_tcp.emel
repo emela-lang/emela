@@ -30,7 +30,7 @@ const HELLO: Int = __HELLO__
 const SPLIT: Int = __SPLIT__
 ## Answers the first byte it receives with `Sx`.
 const EARLY: Int = __EARLY__
-## Tells its second client `closed` once its first client has closed.
+## Tells each later client `closed` once its first client has closed, or `open  ` after 10 seconds.
 const WATCH: Int = __WATCH__
 ## Nothing listens there.
 const REFUSED: Int = __REFUSED__
