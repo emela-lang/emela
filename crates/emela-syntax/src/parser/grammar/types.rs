@@ -214,7 +214,7 @@ pub(crate) fn old_uses_clause_on_next_line(p: &mut Parser<'_>) {
     uses_clause(p);
 }
 
-fn uses_clause(p: &mut Parser<'_>) {
+pub(crate) fn uses_clause(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump();
     effect_set(p);

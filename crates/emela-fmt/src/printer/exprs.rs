@@ -105,7 +105,7 @@ impl Printer {
             DERIVE_CLAUSE => self.seq(node, |_, cur| cur != COMMA),
             // Effect type arguments (`handler H: State[Int]`, `use State[Int]`, `of State[Int]`)
             // attach to the name.
-            HANDLER_EFFECT | USE_EXPR | EFFECT_LABEL => {
+            HANDLER_EFFECT | USE_EXPR | EFFECT_LABEL | EFFECT_ALIAS => {
                 self.seq(node, |_, cur| cur != TYPE_ARG_LIST)
             }
             WITH_BY => self.seq(node, |_, cur| cur != TYPE_ARG_LIST),
@@ -940,7 +940,13 @@ impl Printer {
                 }
                 rowan::NodeOrToken::Node(set) if set.kind() == EFFECT_SET => {
                     out = out.append(self.space());
-                    if child_token(&set, L_BRACE).is_some() {
+                    // `uses E` of a capability-bound type names one effect, without braces.
+                    let bound = node
+                        .parent()
+                        .is_some_and(|p| matches!(p.kind(), TYPE_DECL | ENUM_DECL));
+                    if bound && child_token(&set, L_BRACE).is_none() {
+                        out = out.append(self.seq(&set, |_, _| true));
+                    } else if child_token(&set, L_BRACE).is_some() {
                         out = out.append(self.node(&set));
                     } else {
                         // The same document as the braced set `{ X }` gives, so that the

@@ -61,13 +61,14 @@ const SOURCES: &[(&str, &str)] = &[
         "Std.FileSystem",
         include_str!("../lib/std/file_system.emel"),
     ),
+    ("Std.Tcp", include_str!("../lib/std/tcp.emel")),
     ("Std.Platform", include_str!("../lib/std/platform.emel")),
     ("Std.Cause", include_str!("../lib/std/cause.emel")),
     ("Std.Deferred", include_str!("../lib/std/deferred.emel")),
     ("Std.Semaphore", include_str!("../lib/std/semaphore.emel")),
     ("Std.Queue", include_str!("../lib/std/queue.emel")),
     ("Std.Exit", include_str!("../lib/std/exit.emel")),
-    ("Std.Fiber", include_str!("../lib/std/fiber.emel")),
+    ("Std.Task", include_str!("../lib/std/task.emel")),
 ];
 
 /// Bundled host files as (path relative to `lib/`, contents) pairs. These are the files that
@@ -84,6 +85,7 @@ const HOST_FILES: &[(&str, &str)] = &[
         "std/file_system.mjs",
         include_str!("../lib/std/file_system.mjs"),
     ),
+    ("std/tcp.mjs", include_str!("../lib/std/tcp.mjs")),
     ("std/console.c", include_str!("../lib/std/console.c")),
     ("std/random.c", include_str!("../lib/std/random.c")),
     ("std/env.c", include_str!("../lib/std/env.c")),
@@ -93,6 +95,7 @@ const HOST_FILES: &[(&str, &str)] = &[
         "std/file_system.c",
         include_str!("../lib/std/file_system.c"),
     ),
+    ("std/tcp.c", include_str!("../lib/std/tcp.c")),
 ];
 
 /// The directory under `lib/` holding a bundled source: `std` for std modules, `core` otherwise.
@@ -187,29 +190,14 @@ mod tests {
         }
     }
 
-    /// Fiber intrinsics (spec chapter 11). Lowering maps them to `Expr::Fiber` in the Core IR
+    /// Task intrinsics (spec chapter 11). Lowering maps them to `Expr::Fiber` in the Core IR
     /// (`FiberFn` in `lower/fiber.rs`), so they have no row in the builtin table.
     const FIBER_INTRINSICS: &[(&str, &str)] = &[
-        ("Std.Fiber", "scope"),
-        ("Std.Fiber", "join"),
-        ("Std.Fiber", "await"),
-        ("Std.Fiber", "interrupt"),
+        ("Std.Task", "join"),
         ("Std.Exit", "attempt"),
         ("Std.Cause", "kind"),
         ("Std.Cause", "to_string"),
         ("Std.Cause", "raise"),
-        ("Std.Deferred", "complete"),
-        ("Std.Deferred", "await"),
-        ("Std.Deferred", "poll"),
-        ("Std.Semaphore", "with_permits"),
-        ("Std.Semaphore", "try_with_permits"),
-        ("Std.Semaphore", "available"),
-        ("Std.Queue", "offer"),
-        ("Std.Queue", "take"),
-        ("Std.Queue", "try_offer"),
-        ("Std.Queue", "poll"),
-        ("Std.Queue", "size"),
-        ("Std.Queue", "close"),
     ];
 
     /// Every row is declared exactly once, with the table's parameter and return types and number
@@ -304,6 +292,7 @@ mod tests {
             "Std.Env",
             "Std.Clock",
             "Std.FileSystem",
+            "Std.Tcp",
             "Std.Path",
             "Std.State",
             "Std.Platform",
@@ -318,12 +307,14 @@ mod tests {
             ("Std.Random", &["SystemRandom"]),
             ("Std.Env", &["SystemEnv"]),
             ("Std.FileSystem", &["SystemFileSystem", "TestFileSystem"]),
+            ("Std.Tcp", &["SystemTcp"]),
         ] {
             for h in handlers {
+                // `pub handler H: E`, or `pub handler H(fields): E` for a handler with state.
+                let source = core_source(module).unwrap();
                 assert!(
-                    core_source(module)
-                        .unwrap()
-                        .contains(&format!("pub handler {h}: ")),
+                    source.contains(&format!("pub handler {h}: "))
+                        || source.contains(&format!("pub handler {h}(")),
                     "{module} has no {h}"
                 );
             }

@@ -124,15 +124,21 @@ pub const OPAQUE_DERIVE: &str = "E0336";
 pub const DUPLICATE_KEY: &str = "E0337";
 pub const MISPLACED_KEY_TAG: &str = "E0338";
 pub const OBJECT_KEY_FORM: &str = "E0339";
+// Built-in traits determined automatically (`[trait.builtin]`).
+pub const CAPABILITY_ON_SET: &str = "E0340";
+pub const AUTO_TRAIT_IMPL: &str = "E0341";
 pub const UNREACHABLE_MATCH_ARM: &str = "W0301";
 pub const UNRAISED_ERROR: &str = "W0302";
 pub const UNUSED_DERIVE: &str = "W0303";
 /// `[dyn.error]`: the entry's `main` returns a type other than `()`, `ExitCode` and Never.
 pub const MAIN_VALUE_DISCARDED: &str = "W0304";
+/// `[fn.decl]`: a type parameter of a fn does not appear in the type of the fn.
+pub const UNUSED_TYPE_PARAM: &str = "W0305";
 pub const UNUSED_LABEL_PROVIDER: &str = "W0401";
-/// `[effect.escape]`, `[fiber.escape]`: a value that holds a root leaves the `with` or the
-/// `Fiber.scope` that provides it. E0444 with the experimental feature `capture-checking`.
-pub const CAPTURE_ESCAPE: &str = "W0402";
+// W0402 is retired: a capability that leaves the `with` that made it is E0455
+// (`[effect.escape]`).
+/// `[effect.use]`: `use E` written as an expression is deprecated.
+pub const DEPRECATED_USE: &str = "W0403";
 
 // E04xx: effects and handlers (spec chapter 8)
 pub const UNKNOWN_OPERATION: &str = "E0401";
@@ -163,8 +169,8 @@ pub const LAYER_CYCLE: &str = "E0422";
 // Effect type parameters (spec 8.1)
 pub const MISSING_EFFECT_TYPE_ARGS: &str = "E0423";
 pub const EFFECT_PARAM_NOT_TYPE: &str = "E0424";
-// fiber（11.2，11.8）
-pub const ESCAPING_FROM_SCOPE: &str = "E0425";
+// E0425 is retired: a task is a capability-bound type of its group, so one that leaves the with
+// of its group is E0455 (`[effect.escape]`).
 pub const OP_TYPE_PARAMS: &str = "E0426";
 // External functions the native target does not support yet (spec 12.4). E0428 is retired: `suspend
 // fn` external functions on C complete their task later (spec 12.6).
@@ -190,8 +196,7 @@ pub const SUSPENDING_EXPORT: &str = "E0441";
 pub const HTTP_SERVICE_ON_C: &str = "E0442";
 // Bytes and Arrays at the boundary on the native target (`[ext.boundary]`)
 pub const BOUNDARY_TYPE_ON_C: &str = "E0443";
-// Capture sets with the experimental feature `capture-checking` (`[effect.escape]`)
-pub const CAPTURE_ESCAPE_ERROR: &str = "E0444";
+// E0444 is retired with the experimental feature `capture-checking` (`[effect.escape]`).
 // Host effects (`[effect.host]`): the uses of an external function (`[ext.call]`) and effects
 // without operations (`[effect.decl]`)
 pub const EXTERNAL_USES: &str = "E0445";
@@ -204,6 +209,21 @@ pub const INNER_HANDLER_MISMATCH: &str = "E0449";
 pub const SHARED_OPERATION_NAME: &str = "E0450";
 pub const REPEATED_HANDLER_EFFECT: &str = "E0451";
 pub const MISSING_CAPABILITY_EFFECTS: &str = "E0452";
+// Effect aliases (`[effect.use]`) and callbacks to the host (`[ext.boundary]`)
+pub const EFFECT_ALIAS_MISUSE: &str = "E0453";
+pub const CALLBACK_EFFECT: &str = "E0454";
+// Capabilities told apart in types and in R (`[effect.escape]`, `[effect.handler]`,
+// `[ext.boundary]`, `[type.rules]`)
+pub const CAPABILITY_LEAK: &str = "E0455";
+pub const CAPABILITY_IN_OP_RESULT: &str = "E0456";
+pub const BORROWED_POSITION: &str = "E0457";
+pub const BOUND_TYPE_OUTSIDE_HANDLER: &str = "E0458";
+// Handlers with type parameters (`[effect.handler]`, `[effect.with]`)
+pub const HANDLER_ARGS_UNKNOWN: &str = "E0459";
+pub const INNER_HANDLER_TYPE_PARAMS: &str = "E0460";
+// No suspension after resume (`[effect.handler]`, `[dyn.suspend]`)
+pub const SUSPEND_AFTER_RESUME: &str = "E0461";
+pub const UNUSED_HANDLER_PARAM: &str = "E0462";
 
 // E09xx: tooling
 pub const PATH_NOT_FOUND: &str = "E0901";
@@ -221,5 +241,4 @@ pub const CC_FAILED: &str = "E0908";
 pub const WASMTIME_UNAVAILABLE: &str = "E0909";
 /// `EMELA_NODE` was read to choose the JS host (`[cmd.build]`).
 pub const NODE_ENV_DEPRECATED: &str = "W0902";
-/// The build target `c`, a deprecated name of `native` (`[target.native]`).
-pub const DEPRECATED_TARGET: &str = "W0903";
+// W0903 is retired with the build target `c` in 0.29 (`[target.native]`).

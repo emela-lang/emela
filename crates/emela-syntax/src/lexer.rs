@@ -370,6 +370,9 @@ enum RawToken {
     Lt,
     #[token("<=")]
     LtEq,
+    /// `<-` is one token (`[grammar.lex]`): `a<-1` is not `a < -1`.
+    #[token("<-")]
+    LeftArrow,
     #[token(">")]
     Gt,
     #[token(">=")]
@@ -421,6 +424,7 @@ impl From<RawToken> for SyntaxKind {
             R::Neq => K::NEQ,
             R::Lt => K::LT,
             R::LtEq => K::LTEQ,
+            R::LeftArrow => K::LEFT_ARROW,
             R::Gt => K::GT,
             R::GtEq => K::GTEQ,
             R::Amp2 => K::AMP2,

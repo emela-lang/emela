@@ -1,0 +1,10 @@
+@intrinsic
+pub handler Deferred[A]: Deferred[A]
+
+@intrinsic
+pub handler Queue[A](capacity: Int): Queue[A]
+
+@intrinsic
+pub handler Background[E, R]: Spawn[E, R] {
+  init(on_failure: fn(Cause[E]) -> () uses { R })
+}
