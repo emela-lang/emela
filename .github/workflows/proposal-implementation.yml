@@ -1,12 +1,14 @@
 name: Proposal implementation issue
 
-# When a proposal's pull request (label `proposal`) is merged, opens an issue for implementing it,
-# with no assignee. Whoever implements it assigns themselves; the implementing pull request closes
-# it with `Closes #<issue>` (proposals/README.md, "Implementation").
+# When the record of a proposal's adoption (label `proposal-record`, opened by the `Proposal record`
+# workflow) is merged, opens an issue for implementing the proposal, with no assignee. Whoever
+# implements it assigns themselves; the implementing pull request closes it with `Closes #<issue>`
+# (proposals/README.md, "Implementation"). The record of a rejection opens nothing.
 
 on:
-  # `pull_request_target` so that a merged pull request from a fork can open the issue too. The job
-  # checks out only the default branch after the merge, never code chosen by the pull request.
+  # The record is a pull request of this repository opened by the App, so `pull_request` would do;
+  # `pull_request_target` keeps the job on the default branch's code all the same. The job checks out
+  # only the default branch after the merge, never code chosen by the pull request.
   pull_request_target:
     types: [closed]
 
@@ -14,7 +16,7 @@ jobs:
   open-issue:
     if: >-
       github.event.pull_request.merged &&
-      contains(github.event.pull_request.labels.*.name, 'proposal')
+      contains(github.event.pull_request.labels.*.name, 'proposal-record')
     runs-on: ubuntu-latest
     permissions:
       contents: read

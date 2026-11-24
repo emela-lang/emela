@@ -1,13 +1,15 @@
-# The Console effect and its handlers (the platform and test layers of spec 15.2).
+# The Console effect and its handlers (the platform and test layers of `[lib.layers]`).
 #
-# Use it as `(use Console).print_line("hi")` and provide it with `with SystemConsole { ... }`, or
+# Use it as `console <- Console` and `console.print_line("hi")` and provide it with `with SystemConsole { ... }`, or
 # with `with Platform { ... }` from `Std.Platform`.
 
 import Std.State.{State}
 
 ## Writes a line to standard output (`print_line`) or standard error (`print_error_line`).
 pub effect Console {
+  ## Writes `text` and a line ending to standard output.
   fn print_line(text: String) -> ()
+  ## Writes `text` and a line ending to standard error.
   fn print_error_line(text: String) -> ()
 }
 
@@ -29,8 +31,8 @@ pub handler SystemConsole: Console {
   fn print_error_line(text) { console_error(text) }
 }
 
-## The test handler (spec 8.8). It keeps the printed lines in `State[List[String]]`, so use it
-## inside `State.run`:
+## The test handler (`[effect.state]`). It keeps the printed lines in `State[List[String]]`, so
+## use it inside `State.run`:
 ##
 ## ```emela
 ## (_, lines) = State.run([], || with TestConsole { greet(1) })
@@ -40,7 +42,8 @@ pub handler SystemConsole: Console {
 ## `print_line` appends the line in the printed order. `print_error_line` drops the line.
 pub handler TestConsole: Console {
   fn print_line(text) {
-    (use State[List[String]]).update(|lines| lines.append([text]))
+    st <- State[List[String]]
+    st.update(|lines| lines.append([text]))
   }
   fn print_error_line(text) { () }
 }

@@ -1,7 +1,7 @@
 //! Diagnostic-linked edits. All locations refer to the current analysis snapshot.
 
 use emela_resolve::ModuleId;
-use emela_resolve::hir::{DefId, DefModule, ExprKind, Item};
+use emela_resolve::hir::{DefId, DefKind, DefModule, ExprKind, Item, RefTarget, Span};
 use emela_syntax::ast::{self, AstNode};
 use emela_syntax::{DiagnosticCode, SyntaxKind, SyntaxNode, rewrite};
 use emela_types::{DiagnosticKind, EffectContext, Ty};
@@ -52,6 +52,10 @@ pub(super) fn quickfixes(
             }
             Some(c) if c == DiagnosticCode::OldUseClause.as_str() => {
                 old_uses_clause(tree.syntax(), span.range)
+            }
+            Some(code::DEPRECATED_USE) => deprecated_use(tree.syntax(), diagnostic, span.range),
+            Some(code::UNUSED_TYPE_PARAM) => {
+                unused_type_param(program, module, span.range, tree.syntax())
             }
             _ => None,
         };
@@ -133,6 +137,157 @@ fn old_uses_clause(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
         format!("Rewrite as `{uses}`"),
         vec![(clause.text_range(), uses)],
     ))
+}
+
+/// A type parameter that does not appear in the type of its fn (W0305, `[lsp.code-action]`) is
+/// removed with its bound and the `,` next to it, and the brackets with it when it is the only
+/// one. Not offered when it is named in the body of the fn: removing it would make that annotation
+/// E0211.
+fn unused_type_param(
+    program: &TypedProgram,
+    module: ModuleId,
+    range: TextRange,
+    root: &SyntaxNode,
+) -> Option<Fix> {
+    let hir = &program.hir;
+    let span = Span { module, range };
+    let (param, data) = hir
+        .defs
+        .iter()
+        .find(|(_, d)| d.kind == DefKind::TypeParam && d.span == Some(span))?;
+    let body = hir.defs.iter().find_map(|(def, _)| match hir.item(def) {
+        Some(Item::Fn(item) | Item::TraitFn(item))
+            if item.sig.type_params.iter().any(|tp| tp.def == param) =>
+        {
+            Some(item.body)
+        }
+        _ => None,
+    })?;
+    if let Some(body) = body {
+        let body = hir.exprs[body].span;
+        let named_in_body = hir.refs.iter().any(|r| {
+            r.target == RefTarget::Def(param)
+                && r.span.module == body.module
+                && body.range.contains_range(r.span.range)
+        });
+        if named_in_body {
+            return None;
+        }
+    }
+    let node = root
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::TYPE_PARAM && n.text_range().start() == range.start())?;
+    let list = node
+        .parent()
+        .filter(|n| n.kind() == SyntaxKind::TYPE_PARAM_LIST)?;
+    let params: Vec<SyntaxNode> = list
+        .children()
+        .filter(|n| n.kind() == SyntaxKind::TYPE_PARAM)
+        .collect();
+    let at = params.iter().position(|n| *n == node)?;
+    let removed = if params.len() == 1 {
+        list.text_range()
+    } else if let Some(next) = params.get(at + 1) {
+        TextRange::new(node.text_range().start(), next.text_range().start())
+    } else {
+        TextRange::new(params[at - 1].text_range().end(), node.text_range().end())
+    };
+    Some((
+        format!("Remove type parameter `{}`", data.name),
+        vec![(removed, String::new())],
+    ))
+}
+
+/// `use E` written as an expression (W0403, `[effect.use]`), rewritten to an effect alias when
+/// the help names one: name resolution gives that help only where the alias means the same.
+///
+/// - `x = use E` -> `x <- E`.
+/// - `(use E).op(...)` -> `a.op(...)`, with `a <- E` inserted before the statement of the
+///   innermost block that contains it. An effect alias resolves at the call, so the call reaches
+///   the same handler wherever the alias is declared in the function. If the name is taken in the
+///   function, a number is added to it.
+fn deprecated_use(root: &SyntaxNode, diagnostic: &Diagnostic, range: TextRange) -> Option<Fix> {
+    let help = diagnostic
+        .notes
+        .iter()
+        .find_map(|n| n.strip_prefix("help: "))?;
+    let use_expr = root
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::USE_EXPR && n.text_range() == range)?;
+    let effect = use_expr
+        .text()
+        .to_string()
+        .trim_start_matches("use")
+        .trim()
+        .to_owned();
+    if !help.contains(" before the statement") {
+        // `write `x <- E``: the binding `x = use E`.
+        let binding = use_expr
+            .parent()
+            .filter(|p| p.kind() == SyntaxKind::BINDING)?;
+        let name = ast::Binding::cast(binding.clone())?
+            .lhs()?
+            .syntax()
+            .text()
+            .to_string();
+        if help != format!("write `{name} <- {effect}`") {
+            return None;
+        }
+        let text = format!("{name} <- {effect}");
+        return Some((
+            format!("Rewrite as `{text}`"),
+            vec![(binding.text_range(), text)],
+        ));
+    }
+    let paren = use_expr
+        .parent()
+        .filter(|p| p.kind() == SyntaxKind::PAREN_EXPR)?;
+    let stmt = paren.ancestors().find(|n| {
+        n.parent()
+            .is_some_and(|p| p.kind() == SyntaxKind::BLOCK_EXPR)
+    })?;
+    let base = help
+        .strip_prefix("write `")?
+        .split(" <- ")
+        .next()?
+        .to_owned();
+    let function = stmt
+        .ancestors()
+        .find(|n| matches!(n.kind(), SyntaxKind::FN_DECL | SyntaxKind::LOCAL_FN))
+        .unwrap_or_else(|| root.clone());
+    let taken: std::collections::HashSet<String> = function
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|t| t.kind() == SyntaxKind::LOWER_NAME)
+        .map(|t| t.text().to_owned())
+        .collect();
+    let name = std::iter::once(base.clone())
+        .chain((2..).map(|i| format!("{base}{i}")))
+        .find(|n| !taken.contains(n))?;
+    let text = root.text().to_string();
+    let at = stmt.text_range().start();
+    let line = indent(&text, at);
+    // A statement that does not start its line (`with H { (use E).op() }`) gets the alias on the
+    // same line, and the statement moves to the next.
+    let starts_line = text[..usize::from(at)]
+        .rsplit('\n')
+        .next()
+        .is_some_and(|before| before.chars().all(|c| matches!(c, ' ' | '\t')));
+    let inserted = if starts_line {
+        format!("{name} <- {effect}\n{line}")
+    } else {
+        format!("{name} <- {effect}\n{line}  ")
+    };
+    // When the statement starts with `(use E)`, one edit does both, so that they do not touch.
+    let edits = if paren.text_range().start() == at {
+        vec![(paren.text_range(), format!("{inserted}{name}"))]
+    } else {
+        vec![
+            (TextRange::empty(at), inserted),
+            (paren.text_range(), name.clone()),
+        ]
+    };
+    Some((format!("Rewrite as `{name} <- {effect}`"), edits))
 }
 
 fn nearby_name(

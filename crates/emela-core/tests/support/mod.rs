@@ -55,9 +55,12 @@ pub fn resolve_files<'s>(
     let (program, diagnostics) = resolve(&modules, &trees, &NoBuiltins);
     // E0130 is still allowed: it used to be reported on the `@intrinsic` declarations of the
     // bundled sources. The syntax check exempts them now (`emela_syntax` validation).
+    // W0403 (`use E` written as an expression is deprecated, `[effect.use]`) is checked by the
+    // tests of diagnostics; the programs here still use the deprecated forms.
     let diagnostics: Vec<_> = diagnostics
         .iter()
         .filter(|d| !d.to_string().contains("E0130"))
+        .filter(|d| !matches!(d.kind, emela_resolve::DiagnosticKind::DeprecatedUse { .. }))
         .collect();
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
     (program, modules, entry, texts)
@@ -228,12 +231,12 @@ fn try_lower_rooted_lowered_lang(
 ) -> Result<emela_core::Lowered, Vec<String>> {
     let (program, modules, entry, texts) = resolve_files(files, core);
     let types = check_program(&program);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // A program that tests how a type parameter that no call determines is instantiated gets
+    // W0305 (`[fn.decl]`).
     let diags: Vec<_> = types
         .diags
         .iter()
-        .filter(|d| !matches!(d.kind, emela_types::DiagnosticKind::CaptureEscape { .. }))
+        .filter(|d| !matches!(d.kind, emela_types::DiagnosticKind::UnusedTypeParam { .. }))
         .collect();
     assert!(diags.is_empty(), "{diags:?}");
     // The files under `src`, as diagnostics would show them (the bundled sources have none).

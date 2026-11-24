@@ -1,0 +1,121 @@
+## `[effect.use]`, `[effect.with]`, `[type.rules]`: an effect alias `x <- E` and `(use E).op(...)`
+## reach the innermost handler of E at the time of the call. The R of an anonymous function or a
+## local fn is provided by the side that calls it, not by the withs around the place where it is
+## made. A capability value keeps referring to its handler.
+
+effect Greeter {
+  fn greet(s: String) -> String
+}
+
+handler Plain: Greeter {
+  fn greet(s) { "plain #{s}" }
+}
+
+handler Shout: Greeter {
+  fn greet(s) { "SHOUT #{s}" }
+}
+
+effect Config {
+  fn name() -> String
+}
+
+handler Fixed: Config {
+  fn name() { "fixed" }
+}
+
+handler Named(name: String): Greeter {
+  init {
+    config <- Config
+    Named(name: config.name())
+  }
+
+  fn greet(s) { "#{self.name} #{s}" }
+}
+
+## A closure made inside a with: the with does not provide Greeter to it.
+fn made_inside() -> fn(String) -> String uses { Greeter } {
+  with Plain { |s| (use Greeter).greet(s) }
+}
+
+fn made_inside_alias() -> fn(String) -> String uses { Greeter } {
+  with Plain {
+    g <- Greeter
+    |s| g.greet(s)
+  }
+}
+
+## `use E` written as a value inside the closure is provided by the caller too.
+fn made_inside_value() -> fn(String) -> String uses { Greeter } {
+  with Plain {
+    |s| {
+      v = use Greeter
+      v.greet(s)
+    }
+  }
+}
+
+## A closure that calls a closure.
+fn calls_a_closure() -> fn() -> String uses { Greeter } {
+  with Plain {
+    h = |s| (use Greeter).greet(s)
+    || h("nested")
+  }
+}
+
+## A local fn, used as a value.
+fn local_fn_value() -> fn(String) -> String uses { Greeter } {
+  with Plain {
+    fn go(s: String) -> String { (use Greeter).greet(s) }
+    go
+  }
+}
+
+## A function value of an effect alias resolves when it is called.
+fn alias_op_value() -> fn(String) -> String uses { Greeter } {
+  with Plain {
+    g <- Greeter
+    g.greet
+  }
+}
+
+fn in_place_op_value() -> fn(String) -> String uses { Greeter } {
+  with Plain { (use Greeter).greet }
+}
+
+fn main() {
+  with Plain {
+    g <- Greeter
+    _ = dbg(g.greet("1"))
+    fixed = use Greeter
+    fixed_op = fixed.greet
+    alias_op = g.greet
+    with Shout {
+      # resolved at the call: Shout; the capability value stays Plain
+      _ = dbg(g.greet("2"))
+      _ = dbg((use Greeter).greet("3"))
+      _ = dbg(fixed.greet("4"))
+      _ = dbg(alias_op("5"))
+      _ = dbg(fixed_op("6"))
+    }
+    # a closure called inside the with that it is made in
+    _ = dbg(List.map(["7", "8"], |s| g.greet(s)))
+  }
+  with Shout {
+    _ = dbg(made_inside()("a"))
+    _ = dbg(made_inside_alias()("b"))
+    _ = dbg(made_inside_value()("c"))
+    _ = dbg(calls_a_closure()())
+    _ = dbg(local_fn_value()("d"))
+    _ = dbg(alias_op_value()("e"))
+    _ = dbg(in_place_op_value()("f"))
+  }
+  # a named item captured by a closure keeps referring to its handler
+  with p = Plain {
+    with Shout {
+      k = |s| p.greet(s)
+      _ = dbg(k("g"))
+    }
+  }
+  # the effect aliases inside an init are requirements of the handler
+  with Fixed, Named { _ = dbg((use Greeter).greet("h")) }
+}

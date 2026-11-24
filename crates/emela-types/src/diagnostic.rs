@@ -7,6 +7,7 @@ use emela_resolve::hir::Span;
 use smol_str::SmolStr;
 
 use crate::error::TypeError;
+use crate::row::SetKind;
 use crate::ty::Ty;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +60,9 @@ pub enum DiagnosticKind {
     /// The entry's `main` returns `ty`, which is none of `()`, `ExitCode` and Never (W0304,
     /// `[dyn.error]`). A warning: the value is discarded.
     MainValueDiscarded { ty: SmolStr },
+    /// A type parameter `param` of the fn `function` does not appear in the type of the fn
+    /// (W0305, `[fn.decl]`). A warning: no call can determine it.
+    UnusedTypeParam { param: SmolStr, function: SmolStr },
     /// A trait is its own supertrait (E0329, spec 10.1). `cycle` starts and ends with the same
     /// trait.
     SupertraitCycle { cycle: Vec<SmolStr> },
@@ -190,21 +194,28 @@ pub enum DiagnosticKind {
     UnknownOperation { effect: SmolStr, op: SmolStr },
     /// The body's R not contained in the R allowed by the declaration or context (E0402, spec
     /// 8.3, 9.3, 13.3). `effects` lists the effects not contained (tags or names of set type
-    /// parameters). `scope` names the scope function (`Fiber.scope`) when some of the effects are
-    /// required by fibers forked inside it; those must be provided outside it (spec 11.2).
+    /// parameters). `in_task` is true when the effects are required by a task started in a group
+    /// or a background, at whose `start` it points; those must be provided outside the `with` of
+    /// the group (`[task.group]`).
     /// `hosts` lists the host effects among `effects` (`[effect.host]`), which only the entry
     /// provides. `process` is true when one of `effects` is provided by the layer `Process` of
     /// `Std.Process` and not by `Platform`, and a with on the way to it lists `Platform`.
     UnhandledEffects {
         effects: Vec<SmolStr>,
         context: EffectContext,
-        scope: Option<SmolStr>,
+        in_task: bool,
         hosts: Vec<SmolStr>,
         process: bool,
     },
     /// A function value's R not contained in the expected function type's R (E0403, spec 9.2).
     /// `expected` and `found` are displayed effect sets (`{ Logger, Clock }`, or `{}` if empty).
-    EffectSetMismatch { expected: SmolStr, found: SmolStr },
+    EffectSetMismatch {
+        expected: SmolStr,
+        found: SmolStr,
+        /// Whether a capability in `found` does not fit only because its effect is expected: a
+        /// capability is not widened to its effect (`[effect.use]`).
+        widened: bool,
+    },
     /// E0404, spec 8.4. `ops` lists the missing operations and `members` the missing handler
     /// members (`[effect.handler]`), each in declaration order.
     MissingHandlerOps {
@@ -312,7 +323,7 @@ pub enum DiagnosticKind {
     /// cycle, repeating the first one at the end.
     LayerCycle { cycle: Vec<SmolStr> },
     /// The base of a label cannot be used (E0429, issue #255): another label, or a built-in
-    /// effect (Async, Scope).
+    /// effect (Async, TaskGroup).
     LabelBase {
         label: SmolStr,
         base: SmolStr,
@@ -340,25 +351,12 @@ pub enum DiagnosticKind {
     },
     /// A handler written for a host effect (E0413, `[effect.host]`).
     HostEffectHandler { handler: SmolStr, effect: SmolStr },
-    /// A handler written for a built-in effect such as Scope (E0413, spec 11.2). `provider` names
-    /// the function that provides it (`Fiber.scope`).
+    /// A handler written for a built-in effect such as TaskGroup (E0413, `[task.group]`). `provider` names
+    /// the function that provides it (`Task.Group`).
     IntrinsicHandler {
         handler: SmolStr,
         effect: SmolStr,
         provider: SmolStr,
-    },
-    /// The value type of a scope function (`Fiber.scope`) contains a fiber handle or a Deferred
-    /// (E0425, spec 11.8). `ty` names the type (`Fiber`, `Deferred`); `scope` names the function.
-    EscapingFromScope { ty: SmolStr, scope: SmolStr },
-    /// W0402 (E0444 with the experimental feature `capture-checking`, decided by the driver). The
-    /// value of a `with` body or of a scope function holds a root that it provides
-    /// (`[effect.escape]`, `[fiber.escape]`). The span is the value of the body. `root` names the
-    /// root; `scope` is the scope function (`Fiber.scope`), `None` for a `with`; `provided_at` is
-    /// the `with` item or the callee of the scope function.
-    CaptureEscape {
-        root: SmolStr,
-        scope: Option<SmolStr>,
-        provided_at: Span,
     },
     /// Type parameters on an operation of a user effect (E0426, spec 8.1). Only built-in effects
     /// may have them.
@@ -390,6 +388,15 @@ pub enum DiagnosticKind {
         effect: SmolStr,
         call: SuspendingCall,
     },
+    /// In the implementation of a suspend fn, a call that may suspend can be evaluated after
+    /// resume may have been called (E0461, `[effect.handler]`). `resume` is where it may have
+    /// been called: a direct call of it, or another use (`passed`) that lets a callback or another
+    /// fiber call it (`[effect.async]`). Reported once per call.
+    SuspendAfterResume {
+        call: SuspendingCall,
+        resume: Span,
+        passed: bool,
+    },
     /// An effect set required to be `Immediate` contains an effect that may suspend, or a set not
     /// known to be Immediate (E0416, spec 9.5). `effects` lists the effects that may suspend
     /// (those with a suspend fn, or Async); `sets` names set type parameters without an
@@ -399,8 +406,47 @@ pub enum DiagnosticKind {
         sets: Vec<SmolStr>,
         required: ImmediateSource,
     },
+    /// The R of a callback passed to or returned from an external function contains effects
+    /// (E0454, `[ext.boundary]`): the host calls it without handlers. `callee` is the external
+    /// function, `None` at the declaration.
+    CallbackEffects {
+        effects: Vec<SmolStr>,
+        callee: Option<SmolStr>,
+    },
+    /// The R of a callback passed to an external function contains capabilities, and the
+    /// parameter is not `@borrowed` (E0454, `[ext.boundary]`): the host may call it after their
+    /// withs have ended.
+    CallbackCapabilities { caps: Vec<SmolStr>, callee: SmolStr },
+    /// `@borrowed` on something other than a parameter of function type of an external function
+    /// (E0457, `[ext.boundary]`).
+    BorrowedPosition,
+    /// A capability leaves what made it (E0455, `[effect.escape]`): the value or the error type
+    /// of a `with` body, or the R of the `with`, contains it, or it goes into a type fixed
+    /// outside. `cap` is how the language server names it; `made_at` is where it is made.
+    CapabilityLeak {
+        cap: SmolStr,
+        from: LeakFrom,
+        made_at: Option<Span>,
+    },
+    /// The capability set of a capability type does not fit the set expected there, for a
+    /// reason other than a leak (`[type.rules]`): a name of an effect or the set of a parameter
+    /// where the result type of a function records other parameters (E0301).
+    CapabilitySetMismatch { expected: SmolStr, found: SmolStr },
+    /// The result type of an operation contains a capability type, or a capability-bound type of
+    /// another effect than the operation's own (E0456, `[effect.handler]`). `ty` is what is
+    /// written there (`use Conn`).
+    CapabilityInOpResult { op: SmolStr, ty: SmolStr },
+    /// A value of a capability-bound type is constructed outside a handler of its effect (E0458,
+    /// `[type.rules]`).
+    BoundTypeOutsideHandler { ty: SmolStr, effect: SmolStr },
     /// `Immediate` on a type parameter that is not an effect set (E0322, spec 9.5).
     ImmediateOnNonEffect { param: SmolStr },
+    /// `Capability` on an error set or effect set type parameter (E0340, `[trait.builtin]`).
+    /// `set` is the clause the parameter is used in.
+    CapabilityOnSet { param: SmolStr, set: SetKind },
+    /// An impl of a built-in trait that is determined automatically, Immediate or Capability
+    /// (E0341, `[trait.builtin]`).
+    AutoTraitImpl { trait_name: SmolStr },
     /// A set (`{ Db }`, `A | B`) in a non-set type argument position (E0324, spec 9.2).
     SetAsType,
     /// An effect name in a non-set type argument position (E0221, spec 8.2). Name resolution lets
@@ -417,6 +463,22 @@ pub enum DiagnosticKind {
     /// An effect type parameter used as a set (E0424, spec 8.1). Effect type parameters are
     /// ordinary types only.
     EffectParamNotType { effect: SmolStr, param: SmolStr },
+    /// A handler type parameter used as a set (E0424, `[effect.handler]`). At the type
+    /// parameter.
+    HandlerParamNotType { handler: SmolStr, param: SmolStr },
+    /// A handler type parameter that appears neither in the effects after its colon, nor in the
+    /// type of a field, nor in the type of a parameter of its init (E0462, `[effect.handler]`).
+    /// At the type parameter.
+    UnusedHandlerParam { handler: SmolStr, param: SmolStr },
+    /// Type parameters on an inner handler (E0460, `[effect.handler]`). At the first one.
+    InnerHandlerTypeParams { handler: SmolStr },
+    /// The type arguments of a handler with type parameters at an item of a `with`, of a layer
+    /// or on the right of `by` are not determined (E0459, `[effect.with]`, `[effect.layer]`,
+    /// `[effect.label]`). `handler` is shown with its type parameters (`Memory[S]`).
+    HandlerArgsUnknown {
+        handler: SmolStr,
+        reason: HandlerArgsReason,
+    },
     /// Something other than a tag of the right kind or a set type parameter in a set type
     /// argument of a named type (the `E` of `Handler[E, R]`) (E0323, spec 9.2). `effects` is
     /// whether it is an effect-set position; `found` describes what was written.
@@ -425,6 +487,26 @@ pub enum DiagnosticKind {
         ty: SmolStr,
         effects: bool,
         found: SmolStr,
+    },
+}
+
+/// Why the type arguments of an item are not determined (E0459).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HandlerArgsReason {
+    /// Nothing determines them, at an item of a `with` or on the right of `by`.
+    Unknown,
+    /// Nothing determines them at an item of a layer, which infers them only from the arguments
+    /// of init (`[effect.layer]`).
+    Layer,
+    /// Two or more effects of the body, or of the requirements of the other items, fit. The
+    /// first two, displayed.
+    Several { first: SmolStr, second: SmolStr },
+    /// The item may override an effect of another item of the same `with`: the effect, that
+    /// item's handler, and where that item is written.
+    Overrides {
+        effect: SmolStr,
+        other: SmolStr,
+        at: Span,
     },
 }
 
@@ -539,6 +621,21 @@ impl DiagnosticKind {
                 | DiagnosticKind::UnusedLabelProvider { .. }
                 | DiagnosticKind::UnusedDerive { .. }
                 | DiagnosticKind::MainValueDiscarded { .. }
+                | DiagnosticKind::UnusedTypeParam { .. }
         )
     }
+}
+
+/// What a leaking capability leaves (E0455, [`DiagnosticKind::CapabilityLeak`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LeakFrom {
+    /// The `with` that made it.
+    With,
+    /// A function that provides its effect, or the capability, to the function passed to it
+    /// (`Task.Group`).
+    Call(SmolStr),
+    /// An operation, the init or the release of the handler whose `self` it is.
+    Handler(SmolStr),
+    /// A function placed at a quantified function type, which receives the capability.
+    Quantified,
 }
