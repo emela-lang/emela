@@ -4,7 +4,13 @@
 //! `List.map(List.range(lo, hi), f)` builds the result list directly (in reverse) and reverses it
 //! once at the end. The range's cons cells and its recursion are gone; the result, the order in
 //! which `f` is called and every failure, effect and drop point stay the same.
+//!
+//! `Array.from_list(List.map(List.range(lo, hi), f))` builds neither the range nor the mapped
+//! list: it becomes the internal `ArrayMapRange(lo, hi, f)`, which makes the array in one pass
+//! ([`map_array`]). A defect from `f` is not in its type; the loop stops at the first one and
+//! releases the array with the elements already written.
 
+use crate::intrinsics::Builtin;
 use crate::ir::{BinOp, Callee, Expr, FnId, Lit, Local, Module, OpTy, Type, TypeId};
 use crate::opt::{CoreFn, CoreFns, PassStats, each_body};
 
@@ -31,6 +37,37 @@ pub(super) fn fold(m: &mut Module, core_fns: &CoreFns) -> PassStats {
     }
 }
 
+/// Removes the list from `Array.from_list(List.map(List.range(lo, hi), f))`.
+///
+/// Preconditions: the argument is a direct `List.map(List.range(lo, hi), f)` of the bundled core
+/// [`CoreFn::ListMap`] with its four type arguments and three arguments (`xs`, `f`, `ev`); the
+/// element type is `Int`, the map's result type is the array's element type, that type is neither
+/// `()` nor `Never`, and `f`'s type is a pure function of one `Int` (no failure, no suspension, no
+/// evidence table), so the map call neither fails nor suspends.
+/// Postconditions: the result is an array of `max(0, hi - lo)` elements whose element `i` is
+/// `f(lo + i)`, in ascending order. `lo`, `hi` and `f` are evaluated once each, in that order;
+/// `f` is evaluated even when the range is empty. Neither the range's cons cells nor the mapped
+/// list are made, and the array is made once.
+/// Preserves: evaluation order, the calls of `f` and their failures, effects and suspension
+/// points, and drop points. A defect is not part of `f`'s type: it stops the loop at the first
+/// one, and the array, which is made before the first call, is released with the elements already
+/// written. The array holds the values `f` returns, owned as the list's elements were.
+/// Deopt: a call that is not this shape is left alone, as in [`fold`]; so is an effectful,
+/// failing or suspending `f` (the internal builtin has no failure edge and takes no evidence
+/// table), and an element type without a representation.
+/// Measures: `matmul`, `spectral` and `k-nucleotide` (the mapped list's cons cells and the second
+/// traversal `Array.from_list` made).
+pub(super) fn map_array(m: &mut Module, core_fns: &CoreFns) -> PassStats {
+    let mut changed = 0;
+    each_body(m, &mut |m, e| {
+        rewrite_map_array(m, e, core_fns, &mut changed)
+    });
+    PassStats {
+        map_range: changed,
+        ..PassStats::default()
+    }
+}
+
 /// Removes the `List.range` from `List.map(List.range(lo, hi), f)`.
 ///
 /// Preconditions: the callee is the bundled core `List.map` ([`CoreFn::ListMap`]) with its four
@@ -44,7 +81,9 @@ pub(super) fn fold(m: &mut Module, core_fns: &CoreFns) -> PassStats {
 /// points, and drop points. The range's cons cells and its recursion are no longer made; the
 /// result list and the reverse still are.
 /// Deopt: a call that is not this shape is left alone, as in [`fold`].
-/// Measures: `matmul` and `spectral` (the range part of their cons cells; the result list stays).
+/// Measures: the list forms of the range fusion. An `Array.from_list(List.map(List.range(…), f))`
+/// is [`map_array`]'s case, which this pass sees only when that fusion gave up (an effectful `f`,
+/// or an element type without a representation).
 pub(super) fn map(m: &mut Module, core_fns: &CoreFns) -> PassStats {
     let mut changed = 0;
     each_body(m, &mut |m, e| rewrite_map(m, e, core_fns, &mut changed));
@@ -70,6 +109,69 @@ fn rewrite_map(m: &mut Module, e: &mut Expr, core_fns: &CoreFns, changed: &mut u
         *changed += 1;
     }
     crate::tail::for_each_child_mut(e, &mut |c| rewrite_map(m, c, core_fns, changed));
+}
+
+fn rewrite_map_array(m: &mut Module, e: &mut Expr, core_fns: &CoreFns, changed: &mut u32) {
+    if let Some(fused) = fuse_map_array(m, e, core_fns) {
+        *e = fused;
+        *changed += 1;
+    }
+    crate::tail::for_each_child_mut(e, &mut |c| rewrite_map_array(m, c, core_fns, changed));
+}
+
+/// `Array.from_list(List.map(List.range(lo, hi), f))` as the internal `ArrayMapRange(lo, hi, f)`.
+fn fuse_map_array(m: &mut Module, e: &Expr, core_fns: &CoreFns) -> Option<Expr> {
+    let Expr::Builtin {
+        op: Builtin::ArrayFromList,
+        ty_args: array_ty_args,
+        args: array_args,
+    } = e
+    else {
+        return None;
+    };
+    let [b] = array_ty_args[..] else {
+        return None;
+    };
+    if array_args.len() != 1 {
+        return None;
+    }
+    let mapped = &array_args[0];
+    let Expr::Call {
+        callee: Callee::Direct { f, ty_args },
+        args,
+        fails: false,
+        suspends: false,
+    } = mapped
+    else {
+        return None;
+    };
+    if core_fns.get(f) != Some(&CoreFn::ListMap)
+        || ty_args.len() != 4
+        || ty_args[0] != TypeId::INT
+        || ty_args[1] != b
+        || args.len() != 3
+    {
+        return None;
+    }
+    let (lo, hi) = range_args(&args[0], core_fns)?;
+    if matches!(m.ty(b), Type::Unit | Type::Never) {
+        return None;
+    }
+    let f_ty = param_type(m, *f, 1, ty_args);
+    // A pure `f` takes no evidence table and cannot fail or suspend. The builtin has no failure
+    // edge, so anything else is left to the list form, which keeps it. A defect is not part of a
+    // function type, so the builtin may raise one too; the loop stops at the first.
+    let Type::Fn(ft) = m.ty(f_ty) else {
+        return None;
+    };
+    if ft.fails || ft.suspends || ft.ev || ft.params != [TypeId::INT] || ft.ret != b {
+        return None;
+    }
+    Some(Expr::Builtin {
+        op: Builtin::ArrayMapRange,
+        ty_args: vec![b, f_ty],
+        args: vec![lo.clone(), hi.clone(), args[1].clone()],
+    })
 }
 
 fn fuse_fold(m: &mut Module, e: &Expr, core_fns: &CoreFns) -> Option<Expr> {

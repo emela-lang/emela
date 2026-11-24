@@ -116,7 +116,10 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
         | Builtin::ArraySet
         // Target c splits by grapheme clusters only ASCII text so far, and an empty separator
         // that turns up at run time on other text is a defect there.
-        | Builtin::StringSplit => true,
+        | Builtin::StringSplit
+        // Calls the user's function once per element. A defect is not part of the function's
+        // type, so a pure `f` can still raise one (spec 16), as it can through a closure call.
+        | Builtin::ArrayMapRange => true,
         Builtin::StringLength
         | Builtin::StringByteSize
         | Builtin::StringAppend

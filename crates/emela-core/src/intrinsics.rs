@@ -172,6 +172,14 @@ pub enum Builtin {
     /// `match Array.get(a, index) { … }` makes (`opt::option`); the caller has checked that
     /// `index` is in range. A reference result is owned once more.
     ArrayLoadUnchecked,
+    /// `$Array.map_range(lo, hi, f)`: the array of `f(i)` for each `i` in `lo..hi`, in ascending
+    /// order. What the Core IR pass that fuses
+    /// `Array.from_list(List.map(List.range(lo, hi), f))` makes (`opt::range`); it builds neither
+    /// the range nor the mapped list. `f` is pure (no evidence table, no failure, no suspension)
+    /// and is called `max(0, hi - lo)` times, unless it raises a defect: a defect is not part of
+    /// its type, so it stops the call at the first one, and the array is released with the
+    /// elements already written. The type arguments are the element type and the type of `f`.
+    ArrayMapRange,
 }
 
 /// `@intrinsic` declarations (module name, function name) that lowering maps as runtime handlers.
@@ -476,6 +484,17 @@ impl Builtin {
             Builtin::ArrayLoadUnchecked => BuiltinInfo {
                 ty_params: 1,
                 ..info(Some("$Array"), "load_unchecked", &[ARR, Int], Param(0))
+            },
+            // The type arguments are the element type `A` and the type of `f`: `Sig` cannot write a
+            // function parameter, so it is a type parameter of this row.
+            Builtin::ArrayMapRange => BuiltinInfo {
+                ty_params: 2,
+                ..info(
+                    Some("$Array"),
+                    "map_range",
+                    &[Int, Int, Param(1)],
+                    Array(&Param(0)),
+                )
             },
         }
     }
