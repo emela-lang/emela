@@ -1363,6 +1363,7 @@ fn is_process_effect(program: &Program, effect: DefId) -> bool {
         .any(|name| is_std_def(program, effect, "Process", name))
         || is_std_def(program, effect, "Env", "Env")
         || is_std_def(program, effect, "FileSystem", "FileSystem")
+        || is_std_def(program, effect, "Tcp", "Tcp")
 }
 
 /// Capabilities that do not fit (E0455, `[effect.escape]`).

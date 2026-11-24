@@ -165,6 +165,56 @@ fn main() {
     );
 }
 
+/// `Process` bundles `SystemTcp`, whose init and release are reached by every `with Process`
+/// (`[ext.decl]`): they have a C binding even though the operations do not yet.
+#[test]
+fn process_with_system_tcp_runs_natively() {
+    if !have_cc() {
+        return;
+    }
+    let main = r##"import Std.Console.{Console}
+import Std.Process.{Process}
+
+fn main() {
+  with Process {
+    console <- Console
+    console.print_line("ok")
+  }
+}
+"##;
+    let (analysis, output) = run_c("process-tcp", main, &mut CoreC::default());
+    assert_eq!(codes(&analysis), []);
+    let output = output.unwrap();
+    assert_eq!(output.code, 0);
+    assert_eq!(text(&output.stdout), "ok\n");
+}
+
+/// The operations of `SystemTcp` have no C binding yet (`[api.std.tcp]`): calling one is E0412.
+#[test]
+fn tcp_operations_are_e0412_natively() {
+    let main = r##"import Std.Tcp.{Tcp, SystemTcp}
+
+fn main() {
+  with SystemTcp {
+    tcp <- Tcp
+    tcp.close(tcp.connect("localhost", 80))
+  } escape {
+    _ -> ()
+  }
+}
+"##;
+    let (analysis, output) = run_c("tcp-e0412", main, &mut CoreC::default());
+    assert!(output.is_none());
+    let found = codes(&analysis);
+    assert!(
+        found.contains(&(
+            Some("E0412"),
+            "external function `host_connect` has no `@external(c, ...)` for target `native`"
+        )),
+        "{found:?}"
+    );
+}
+
 #[test]
 fn callbacks_are_rejected() {
     let main = r##"@external(c, "take")

@@ -61,6 +61,7 @@ const SOURCES: &[(&str, &str)] = &[
         "Std.FileSystem",
         include_str!("../lib/std/file_system.emel"),
     ),
+    ("Std.Tcp", include_str!("../lib/std/tcp.emel")),
     ("Std.Platform", include_str!("../lib/std/platform.emel")),
     ("Std.Cause", include_str!("../lib/std/cause.emel")),
     ("Std.Deferred", include_str!("../lib/std/deferred.emel")),
@@ -84,6 +85,7 @@ const HOST_FILES: &[(&str, &str)] = &[
         "std/file_system.mjs",
         include_str!("../lib/std/file_system.mjs"),
     ),
+    ("std/tcp.mjs", include_str!("../lib/std/tcp.mjs")),
     ("std/console.c", include_str!("../lib/std/console.c")),
     ("std/random.c", include_str!("../lib/std/random.c")),
     ("std/env.c", include_str!("../lib/std/env.c")),
@@ -93,6 +95,7 @@ const HOST_FILES: &[(&str, &str)] = &[
         "std/file_system.c",
         include_str!("../lib/std/file_system.c"),
     ),
+    ("std/tcp.c", include_str!("../lib/std/tcp.c")),
 ];
 
 /// The directory under `lib/` holding a bundled source: `std` for std modules, `core` otherwise.
@@ -292,6 +295,7 @@ mod tests {
             "Std.Env",
             "Std.Clock",
             "Std.FileSystem",
+            "Std.Tcp",
             "Std.Path",
             "Std.State",
             "Std.Platform",
@@ -306,12 +310,14 @@ mod tests {
             ("Std.Random", &["SystemRandom"]),
             ("Std.Env", &["SystemEnv"]),
             ("Std.FileSystem", &["SystemFileSystem", "TestFileSystem"]),
+            ("Std.Tcp", &["SystemTcp"]),
         ] {
             for h in handlers {
+                // `pub handler H: E`, or `pub handler H(fields): E` for a handler with state.
+                let source = core_source(module).unwrap();
                 assert!(
-                    core_source(module)
-                        .unwrap()
-                        .contains(&format!("pub handler {h}: ")),
+                    source.contains(&format!("pub handler {h}: "))
+                        || source.contains(&format!("pub handler {h}(")),
                     "{module} has no {h}"
                 );
             }

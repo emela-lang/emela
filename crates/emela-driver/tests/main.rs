@@ -21,6 +21,7 @@ mod library_project;
 mod navigation;
 mod run;
 mod suspend_parity;
+mod tcp;
 mod test_runner;
 mod trait_calls;
 mod traits;

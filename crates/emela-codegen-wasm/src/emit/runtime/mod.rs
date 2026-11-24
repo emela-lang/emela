@@ -64,6 +64,7 @@ mod random;
 mod sched;
 mod show;
 mod string;
+mod tcp;
 mod unicode;
 mod unicode_tables;
 
@@ -221,6 +222,13 @@ const MODULES: &[RuntimeModule] = &[
         setup: no_setup,
         emit: fs::emit,
         used: fs::used,
+    },
+    RuntimeModule {
+        funcs: tcp::FUNCS,
+        locals: tcp::locals,
+        setup: no_setup,
+        emit: tcp::emit,
+        used: tcp::used,
     },
     RuntimeModule {
         funcs: attempt::FUNCS,

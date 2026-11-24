@@ -132,6 +132,22 @@ fn runs_under_wasmtime() {
     assert_eq!(text(&output.stderr), "5\n\"hi\"\n");
 }
 
+/// `Process` bundles `SystemTcp`, whose init and release are reached by every `with Process`
+/// (`[ext.decl]`): the runtime implements its registry, and the output imports no
+/// `wasi:sockets`.
+#[test]
+fn process_with_system_tcp_runs_under_wasmtime() {
+    if !have_wasmtime() {
+        return;
+    }
+    let main = "import Std.Console.{Console}\nimport Std.Process.{Process}\n\nfn main() {\n  with Process {\n    console <- Console\n    console.print_line(\"ok\")\n  }\n}\n";
+    let (analysis, output) = run_wasm("process-tcp", main);
+    assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
+    let output = output.unwrap();
+    assert_eq!(output.code, 0);
+    assert_eq!(text(&output.stdout), "ok\n");
+}
+
 #[test]
 fn examples_run_on_wasm() {
     if !have_wasmtime() {
