@@ -7,6 +7,7 @@ mod support;
 
 mod beta;
 mod dump;
+mod eta;
 mod fold;
 mod fusion_laws;
 mod fusion_registry;
