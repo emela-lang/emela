@@ -295,7 +295,10 @@ fn main() {{
 /// which reports it and aborts. This fixes what the current implementation does, not a promise of
 /// the language: `[dyn.memory]` leaves the behaviour of an allocation failure to the
 /// implementation, so only the message and that it ends abnormally are checked here.
-#[cfg(all(unix, target_pointer_width = "64"))]
+///
+/// Linux only: macOS accepts `RLIMIT_AS` but does not enforce it, so the 1 TiB request succeeds
+/// there and the program exits normally.
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 #[test]
 fn an_allocation_failure_ends_the_program() {
     use std::os::unix::process::ExitStatusExt;
