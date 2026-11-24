@@ -15,6 +15,7 @@ mod devirt;
 mod dump;
 mod from_core;
 mod heap;
+mod rc_borrow;
 mod sra;
 mod sra_records;
 mod verify;
