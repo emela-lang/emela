@@ -5,8 +5,8 @@
 //! `Intl.Segmenter` on Node 24 (Unicode 17.0), and check `String.length`, `String.chars` and
 //! `String.split(s, "")`. Wasmtime and node are optional, like in the other run tests.
 
-mod common;
-mod grapheme_break_test;
+use crate::common;
+use crate::grapheme_break_test;
 
 use std::process::{Command, Stdio};
 

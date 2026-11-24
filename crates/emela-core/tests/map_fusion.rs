@@ -28,7 +28,7 @@
 //! pipeline (they are new), so the pair checks today that the two hand-written programs agree and
 //! becomes a direct check of the law's output when the law is turned on.
 
-mod support;
+use crate::support;
 
 use emela_core::opt::fusion::{self, LawId, Laws};
 use emela_core::opt::{CoreFn, CoreFns, Options, Rules, Stats};

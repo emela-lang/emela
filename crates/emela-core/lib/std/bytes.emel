@@ -8,7 +8,7 @@
 # the bytes, slicing, joining, and the step between text and bytes. The rest is written in Emela
 # over them, so it behaves the same on every target: the UTF-8 validation of `decode_utf8`
 # (Unicode 17.0, Table 3-7), the hexadecimal digits, and the impls. Loops are self tail calls
-# (spec 6.8), so long sequences do not use the stack.
+# (`[fn.loop]`), so long sequences do not use the stack.
 
 ## An immutable sequence of bytes.
 @intrinsic
@@ -31,6 +31,7 @@ pub fn to_list(b: Bytes) -> List[Int]
 @intrinsic
 pub fn size(b: Bytes) -> Int
 
+## Whether there are no bytes.
 pub fn is_empty(b: Bytes) -> Bool {
   size(b) == 0
 }

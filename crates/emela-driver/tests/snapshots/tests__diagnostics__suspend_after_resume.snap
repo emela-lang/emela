@@ -1,0 +1,30 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+assertion_line: 3123
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0461]: call to `send` may suspend after `resume` has been called
+    ╭─[ src/main.emel:16:5 ]
+    │
+ 15 │     resume(())
+    │     ─────┬────  
+    │          ╰────── the caller resumes here
+ 16 │     net.send(msg)
+    │     ──────┬──────  
+    │           ╰──────── 
+────╯
+   = help: start the rest with `Spawn` before calling `resume`
+
+error[E0461]: call to `send` may suspend after `resume` has been passed on
+    ╭─[ src/main.emel:24:5 ]
+    │
+ 23 │     set_timeout(|| resume(()), 0)
+    │                    ───┬──  
+    │                       ╰──── the caller may resume from here
+ 24 │     net.send(msg)
+    │     ──────┬──────  
+    │           ╰──────── 
+────╯
+   = help: start the rest with `Spawn` before calling `resume`
+
+2 errors

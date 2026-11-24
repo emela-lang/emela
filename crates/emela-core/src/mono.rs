@@ -379,6 +379,7 @@ impl<'a> Mono<'a> {
             args: new_args,
             ops: Vec::new(),
             label_of: None,
+            display: def.display,
         });
         self.effects.insert(key, id);
         if !generic {
