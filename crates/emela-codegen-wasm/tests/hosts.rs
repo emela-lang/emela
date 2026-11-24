@@ -2,7 +2,7 @@
 //! Clock sleeps have their own tests in `tests/clock.rs`; the file system and HTTP are not part of
 //! this target yet.
 
-mod common;
+use crate::common;
 
 use common::*;
 

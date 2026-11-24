@@ -5,13 +5,13 @@ import Std.Console.{Console, SystemConsole}
 
 # `greet` uses Console, so its caller has to provide one with `with`.
 fn greet(name: String) {
-  console = use Console
+  console <- Console
   console.print_line("Hello, #{name}!")
 }
 
 fn main() {
   with SystemConsole {
-    console = use Console
+    console <- Console
     console.print_line("hi")
     List.each(["Emela", "world"], greet)
     console.print_error_line("done")
