@@ -185,7 +185,6 @@ impl<'a> Typer<'a> {
                 let first = match op {
                     FiberOp::Scope { .. }
                     | FiberOp::Join
-                    | FiberOp::Await { .. }
                     | FiberOp::Attempt { .. }
                     | FiberOp::DeferredAwait
                     | FiberOp::Poll
@@ -345,7 +344,7 @@ impl<'a> Typer<'a> {
         Some(self.subst(field, &args))
     }
 
-    /// The `i`th type argument of an enum type (`A` of `Fiber[A]`); `Any` if it is not one.
+    /// The `i`th type argument of an enum type (`A` of `Task[A]`); `Any` if it is not one.
     pub fn enum_arg(&self, ty: TypeId, i: usize) -> TypeId {
         match self.ty(ty) {
             Type::Enum(_, args) => args.get(i).copied().unwrap_or(TypeId::ANY),
@@ -355,29 +354,22 @@ impl<'a> Typer<'a> {
     }
 
     /// The type of a concurrency operation. `first` is the type of its first argument, needed by
-    /// `Scope`, `Join`, `Await`, `Attempt`, `DeferredAwait`, `Poll`, `Take` and `QueuePoll`.
+    /// `Scope`, `Join`, `Attempt`, `DeferredAwait`, `Poll`, `Take` and `QueuePoll`.
     pub fn fiber_result(&mut self, op: FiberOp, first: Option<TypeId>) -> TypeId {
         let first = first.unwrap_or(TypeId::ANY);
         match op {
-            // `Fiber.scope(body: fn(scope) -> A) -> A`.
+            // `body: fn(scope) -> A` → `A`.
             FiberOp::Scope { .. } => self.fn_ret(first),
             // Handles whose types differ per use (`Type::Any`).
             FiberOp::Fork | FiberOp::Deferred | FiberOp::Semaphore | FiberOp::Queue => TypeId::ANY,
-            // `Fiber[A] -> A`, `Deferred[A] -> A`.
+            // `Task[A] -> A`, `Deferred[A] -> A`.
             FiberOp::Join | FiberOp::DeferredAwait => self.enum_arg(first, 0),
-            // `Fiber[A] -> Exit[A, {}]`.
-            FiberOp::Await { exit } => {
-                let a = self.enum_arg(first, 0);
-                self.exit_type(exit, a)
-            }
             // `fn() -> A fails E` → `Exit[A, E]`.
             FiberOp::Attempt { exit, .. } => {
                 let a = self.fn_ret(first);
                 self.exit_type(exit, a)
             }
-            FiberOp::Interrupt | FiberOp::Acquire | FiberOp::Release | FiberOp::Close => {
-                TypeId::UNIT
-            }
+            FiberOp::Acquire | FiberOp::Release | FiberOp::Close => TypeId::UNIT,
             FiberOp::Complete | FiberOp::TryAcquire | FiberOp::Offer | FiberOp::TryOffer => {
                 TypeId::BOOL
             }

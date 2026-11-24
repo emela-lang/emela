@@ -2,8 +2,7 @@
 //! interprocedural parameter summary that borrow inference (C2/PR-026), reuse (C4/PR-042) and the
 //! records and closures of SRA (C5/PR-043) consume.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::{Roots, monomorphize_from, verify_monomorphic};
 use emela_lir::opt::analysis::escape;

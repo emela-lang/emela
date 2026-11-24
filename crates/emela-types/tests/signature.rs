@@ -3,7 +3,7 @@
 //! Prints the types and parameter labels of fns, constructors and consts. Examples come from spec
 //! chapter 5, 6.2 and 7.1.
 
-mod common;
+use crate::common;
 
 use common::render_signatures;
 

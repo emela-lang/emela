@@ -1,7 +1,7 @@
 ---
 title: Release the compiler for Windows
 authors: [Alliana]
-status: accepted
+status: implemented
 pr: 576
 issue:
 decided: 2026-11-14

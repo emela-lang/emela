@@ -21,7 +21,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | `language/08-effects.md` | 8. Effects | `effect` |
 | `language/09-types.md` | 9. Types and effects | `type` |
 | `language/10-traits.md` | 10. Traits and deriving | `trait` |
-| `language/11-concurrency.md` | 11. Concurrency | `fiber` |
+| `language/11-concurrency.md` | 11. Concurrency | `task` |
 | `language/12-external.md` | 12. External functions | `ext` |
 | `language/13-testing.md` | 13. Testing | `test` |
 | `language/14-dynamics.md` | 14. Dynamic semantics | `dyn` |
@@ -60,7 +60,7 @@ Besides its number, every section has a stable name: the `` `[effect.handler]` `
 
 ## Changing the specification
 
-- A change that alters meaning (syntax, typing rules, semantics, adding or removing diagnostics, the commitments of the standard library, observable behavior of targets and tools) is made through a proposal: a draft is refined locally and reviewed in a pull request that adds it to `proposals/`; merging the pull request adopts it, and the specification changes are applied to `spec/`. The process is in `proposals/README.md`.
+- A change that alters meaning (syntax, typing rules, semantics, adding or removing diagnostics, the commitments of the standard library, observable behavior of targets and tools) is made through a proposal: a draft is refined locally and reviewed in a pull request that adds it to `proposals/` together with its changes to `spec/`; merging the pull request adopts it. The process is in `proposals/README.md`.
 - A change that does not alter meaning (typos, wording, added examples, reordering sections, resolving an inconsistency whose answer is fixed by the rest of the specification) can be made directly without a proposal. It is not recorded in `history.md`.
 - A change made through a proposal is recorded in `history.md` with the proposal's id and the names of the sections it changed.
 - Run `scripts/spec.py check` after any change.

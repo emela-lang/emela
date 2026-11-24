@@ -1,0 +1,21 @@
+exit: 0
+--- stdout
+--- stderr
+"held 2, 1 free"
+"held 3, 0 free"
+"given back, 3 free"
+"tried 3"
+"tried while held 0"
+Some("ran")
+Some("ran")
+0
+"defect: `Permits` asked for 4 permits of a semaphore with 3"
+"defect: semaphore needs at least 1 permit, but got 0"
+"defect: queue needs a capacity of at least 1, but got 0"
+"defect: `TryPermits` needs at least 1 permit, but got 0"
+"defect: `TryPermits` asked for 4 permits of a semaphore with 3"
+"body: the holder holds, the waiter waits, 0 free"
+"after the scope, 1 free"
+<deferred>
+<queue>
+<semaphore>

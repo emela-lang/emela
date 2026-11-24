@@ -5,7 +5,7 @@
 //! edge cases that a well-typed source cannot produce (a match without a catch-all) are hand-built
 //! IR.
 
-mod support;
+use crate::support;
 
 use emela_core::opt::analysis::effect::{self, EffectSummary};
 use emela_core::{
