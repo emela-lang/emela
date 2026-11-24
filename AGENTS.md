@@ -12,14 +12,14 @@ The entry point for coding agents (Claude Code, Codex, Copilot, Cursor and other
 
 ## Changing the specification
 
-- A change that alters meaning goes through a proposal: refine a draft in `proposals/drafts/` (not committed), then open a draft pull request (title `proposal: ...`, label `proposal`) that adds it as `proposals/<slug>.md`. Review happens in the pull request; merging it adopts the proposal, closing it rejects the proposal. The process is in `proposals/README.md`.
+- A change that alters meaning goes through a proposal: refine a draft in `proposals/drafts/` (not committed), then open a draft pull request (title `proposal: ...`) that adds it as `proposals/<slug>.md` together with its changes to `spec/`. Review happens in the pull request; the author decides with `/accept` (merged) or `/reject` (closed), and a bot records the decision. The process is in `proposals/README.md`.
 - Only the language's author adopts or rejects a proposal. An agent opens or merges a pull request only when asked.
 - A change that does not alter meaning (typos, wording, an inconsistency whose answer is fixed) is made directly and is not recorded in `spec/history.md`.
 - Run `scripts/spec.py check` after any change.
 
 ## Writing
 
-- The specification, `proposals/` and code comments are in English. Discussions (local drafts, pull request descriptions and review comments) may be in Japanese, but the "Specification changes" section of a proposal is written in English, ready to paste into `spec/`.
+- The specification, `proposals/` and code comments are in English. Discussions (local drafts, pull request descriptions and review comments) may be in Japanese, but the changes to `spec/` in a proposal's pull request are in English, and the proposal is in English by the time it is accepted.
 - Do not explain behavior by analogy with other languages or implementations ("the same as X", "like X"). Name the concept and state the rule.
 - Code examples in the specification match the output of `emela fmt`.
 

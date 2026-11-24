@@ -6,13 +6,19 @@ import Std.Process.{Process, Stderr, Stdout}
 
 fn lines(i: Int, n: Int) -> () uses { Console, Stdout, Stderr } {
   if i < n {
-    (use Stdout).print("out #{i}")
-    (use Stdout).print_line("")
-    (use Console).print_line("console #{i}")
+    stdout <- Stdout
+    stdout.print("out #{i}")
+    stdout <- Stdout
+    stdout.print_line("")
+    console <- Console
+    console.print_line("console #{i}")
     if i % 100 == 0 {
-      (use Stderr).print("err ")
-      (use Stderr).print_line("#{i}")
-      (use Console).print_error_line("console error #{i}")
+      stderr <- Stderr
+      stderr.print("err ")
+      stderr <- Stderr
+      stderr.print_line("#{i}")
+      console <- Console
+      console.print_error_line("console error #{i}")
       _ = dbg(i)
     }
     lines(i + 1, n)
