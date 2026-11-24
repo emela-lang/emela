@@ -7,6 +7,7 @@ mod suspend;
 mod wasm_common;
 
 mod actions;
+mod algebra;
 mod backends;
 mod c;
 mod dependencies;

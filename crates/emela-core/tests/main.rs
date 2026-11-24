@@ -5,6 +5,7 @@
 
 mod support;
 
+mod algebra;
 mod beta;
 mod dump;
 mod eta;
