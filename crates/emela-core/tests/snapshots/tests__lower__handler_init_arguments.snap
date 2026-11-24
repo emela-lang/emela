@@ -1,0 +1,52 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "mine.join(\"\\n\\n\")"
+---
+export fn main() -> String {
+  let _%0: String = with {
+    let arg%1: Int = port()
+    let arg%2: String = "a"
+    let self%3: Env = Env$init(arg%2)
+    let h%4: handler Config = Env(self%3) release Env {
+      ()
+    }
+    let ev%5: evidence = provide(; Config = h%4)
+    let self%6: Pool = Pool$init(arg%1, ev%5)
+    let h%7: handler Users = Pool(self%6, ev%5) release Pool {
+      ()
+    }
+  } {
+    @dbg[String](h%7.Users#find(1))
+  }
+  let _%8: String = with {
+    let arg%9: Int = 2
+    let self%10: Env = Env$init(AppLive$arg0())
+    let h%11: handler Config = Env(self%10) release Env {
+      ()
+    }
+    let ev%12: evidence = provide(; Config = h%11)
+    let self%13: Pool = Pool$init(arg%9, ev%12)
+    let h%14: handler Users = Pool(self%13, ev%12) release Pool {
+      ()
+    }
+  } {
+    @dbg[String](h%14.Users#find(2))
+  }
+  with {
+    let h%15: handler Users = Spare()
+  } {
+    @dbg[String](h%15.Users#find(3))
+  }
+}
+
+fn Env$init(url%0: String) -> Env {
+  Env.Env(url: url%0)
+}
+
+fn Pool$init(n%0: Int, ev%1: evidence) -> Pool {
+  Pool.Pool(url: (use[Config](ev%1)).Config#url())
+}
+
+const fn AppLive$arg0() -> String {
+  "db"
+}

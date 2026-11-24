@@ -33,11 +33,7 @@ fn run_moved(project: &Path) -> String {
     let moved = tempfile::tempdir().unwrap();
     let target = moved.path().join("out");
     std::fs::rename(project.join("target/emela/js"), &target).unwrap();
-    // The entry exports `main`; `emela run` calls it the same way.
-    let call = "const { pathToFileURL } = await import(\"node:url\"); \
-                const m = await import(pathToFileURL(process.argv[1]).href); m.main();";
     let out = Command::new("node")
-        .args(["--input-type=module", "-e", call])
         .arg(target.join("main.mjs"))
         .output()
         .unwrap();

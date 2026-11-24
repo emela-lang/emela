@@ -1,0 +1,80 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "mine.join(\"\\n\\n\")"
+---
+enum Pool {
+  Pool(url: String, n: Int)
+}
+
+enum Spare {
+  Spare
+}
+
+export fn main() -> String {
+  let _%0: String = @dbg[String]({
+    with {
+      let h%1: handler Config = Env()
+      let ev%2: evidence = provide(; Config = h%1)
+      let self%3: Pool = Pool$init(ev%2)?
+      let h%4: handler Users = Pool(self%3, ev%2) release Pool {
+        Pool$release(self%3, ev%2)
+      }
+    } {
+      h%4.Users#find(1)
+    }
+  } escape {
+    Down.Down -> "down"
+  })
+  with {
+    let h%5: handler Config = Env()
+    let self%6: Spare = Spare$init()
+    let h%7: handler Users = Spare(self%6) release Spare {
+      ()
+    }
+  } {
+    @dbg[String](h%7.Users#find(2))
+  }
+}
+
+fn Env() -> handler Config {
+  handler Env: Config {
+    url: fn() -> String {
+      "db"
+    }
+  }
+}
+
+fn Pool(self%0: Pool, ev%1: evidence) -> handler Users {
+  handler Pool: Users {
+    find: fn(id%2: Int) -> String {
+      self%0.url#0
+    }
+  }
+}
+
+fn Pool$init(ev%0: evidence) -> Pool fails {
+  let u%1: String = (use[Config](ev%0)).Config#url()
+  let _%2: () = if (u%1 ==[String] "") {
+    fail Down.Down
+  } else {
+    ()
+  }
+  let base%3: Pool = Pool.Pool(url: u%1, n: 0)
+  Pool.Pool(url: base%3.url#0, n: 1)
+}
+
+fn Pool$release(self%0: Pool, ev%1: evidence) -> String {
+  @dbg[String](self%0.url#0)
+}
+
+fn Spare(self%0: Spare) -> handler Users {
+  handler Spare: Users {
+    find: fn(id%1: Int) -> String {
+      "spare"
+    }
+  }
+}
+
+fn Spare$init() -> Spare {
+  Spare.Spare
+}

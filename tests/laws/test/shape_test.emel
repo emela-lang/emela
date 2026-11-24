@@ -217,7 +217,8 @@ effect Orders {
 }
 
 fn handle(order: Order) -> Int uses { Orders } {
-  (use Orders).save(order)
+  orders <- Orders
+  orders.save(order)
   1
 }
 

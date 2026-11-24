@@ -5,7 +5,7 @@
 //! the same source gives the same IR, `--no-opt` skips every pass, and the Option fusions fire
 //! exactly where they should.
 
-mod support;
+use crate::support;
 
 use emela_core::opt::{CoreFn, CoreFns};
 use emela_core::{dump, opt};

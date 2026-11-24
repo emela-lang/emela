@@ -1,6 +1,4 @@
-import Std.Fiber.{Fiber}
-import Std.Exit.{Exit, Success, Failure}
-import Std.Cause.{Cause}
+import Std.Task.{Task}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
@@ -30,22 +28,16 @@ fn fail_late() -> String fails Empty uses { Tick } {
   fail Empty
 }
 
-fn show[A, E](e: Exit[A, E]) -> String {
-  e match {
-    Success(_) -> "Success"
-    Failure(c) -> Cause.to_string(c)
-  }
-}
-
 ## An interruption is not an error, so an arm `_` does not handle it (`[error.escape]`,
-## `[fiber.cause]`).
+## `[task.cause]`).
 fn main() -> () uses { Async } {
   with Ticks {
-    Fiber.scope(|| {
-      h = Fiber.fork(|| fail_late() escape { _ -> "caught" })
-      spin(1000)
-      Fiber.interrupt(h)
-      print("await #{show(Fiber.await(h))}")
-    })
+    with tasks = Task.Group {
+      with stop = Task.Group {
+        stop.start(|| print(fail_late() escape { _ -> "caught" }))
+        spin(1000)
+      }
+      print("interrupted")
+    }
   }
 }
