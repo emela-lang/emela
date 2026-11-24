@@ -13,7 +13,8 @@ error NotANumber(text: String) derive Show
 @entry(Http.serve)
 pub fn app(request: Request) -> Response fails NotANumber {
   with Platform {
-    (use Console).print_line("#{request.method} #{Request.path(request)}")
+    console <- Console
+    console.print_line("#{request.method} #{Request.path(request)}")
     route(request)
   }
 }

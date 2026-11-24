@@ -1,6 +1,6 @@
 ---
 source: crates/emela-syntax/src/parser/grammar/tests.rs
-expression: "dump_all(&[\"use Db\", \"use Std.Fiber.Scope\", \"use State[Int]\", \"use R\",\n\"List[use Db]\", \"(use Db, Int)\", \"fn(use Db) -> use Logger uses { Db }\",\n\"use\", \"use 1\",], types::type_,)"
+expression: "dump_all(&[\"use Db\", \"use Std.Task.TaskGroup\", \"use State[Int]\", \"use R\",\n\"List[use Db]\", \"(use Db, Int)\", \"fn(use Db) -> use Logger uses { Db }\",\n\"use\", \"use 1\",], types::type_,)"
 ---
 === use Db
 ROOT@0..6
@@ -9,17 +9,17 @@ ROOT@0..6
     WHITESPACE@3..4 " "
     PATH@4..6
       TYPE_NAME@4..6 "Db"
-=== use Std.Fiber.Scope
-ROOT@0..19
-  CAP_TYPE@0..19
+=== use Std.Task.TaskGroup
+ROOT@0..22
+  CAP_TYPE@0..22
     USE_KW@0..3 "use"
     WHITESPACE@3..4 " "
-    PATH@4..19
+    PATH@4..22
       TYPE_NAME@4..7 "Std"
       DOT@7..8 "."
-      TYPE_NAME@8..13 "Fiber"
-      DOT@13..14 "."
-      TYPE_NAME@14..19 "Scope"
+      TYPE_NAME@8..12 "Task"
+      DOT@12..13 "."
+      TYPE_NAME@13..22 "TaskGroup"
 === use State[Int]
 ROOT@0..14
   CAP_TYPE@0..14

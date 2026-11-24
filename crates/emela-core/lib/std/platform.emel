@@ -9,6 +9,9 @@ import Std.Console.{SystemConsole}
 import Std.Http.{SystemHttp}
 import Std.Random.{SystemRandom}
 
+## The System handlers that every host has: SystemConsole, SystemClock, SystemRandom and
+## SystemHttp. Requires no host effect other than Async. To replace some of them, list the
+## replacements after it, as in `with Platform, TestClock { ... }`.
 pub layer Platform {
   SystemConsole
   SystemClock

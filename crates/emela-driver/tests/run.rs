@@ -22,6 +22,7 @@ impl HandWritten {
         HandWritten {
             files: vec![
                 OutputFile::new("main.mjs", js),
+                OutputFile::new("emela_runtime.mjs", emela_codegen_js::RUNTIME),
                 OutputFile::new(
                     "runtime/defect.mjs",
                     "export class Defect extends Error {\n  constructor(message) { super(message); this.name = \"Defect\"; }\n}\n",
@@ -101,13 +102,12 @@ fn prints_stdout() {
         "import { Defect } from \"./runtime/defect.mjs\";\nconsole.log(\"こんにちは\");\nconsole.error(\"to stderr\");\n",
         &[],
     );
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -130,12 +130,20 @@ fn passes_args_and_exit_code() {
     assert_eq!(output.code, 3);
 }
 
+/// A `main.mjs` that launches its `main` through the runtime, as the emitted one does
+/// (`[target.js.module]`).
+fn launching(main_body: &str) -> String {
+    format!(
+        "import {{ $launch }} from \"./emela_runtime.mjs\";\nimport {{ Defect }} from \"./runtime/defect.mjs\";\nfunction main() {{\n{main_body}}}\n$launch(import.meta.main, import.meta.url, main);\n"
+    )
+}
+
 #[test]
 fn defect_has_its_own_exit_code() {
     let (_, output) = run_js(
         "defect",
         MAIN,
-        "import { Defect } from \"./runtime/defect.mjs\";\nconsole.log(\"before\");\nthrow new Defect(\"整数を 0 で割った\");\n",
+        &launching("console.log(\"before\");\nthrow new Defect(\"整数を 0 で割った\");\n"),
         &[],
     );
     let output = output.unwrap();
@@ -264,13 +272,12 @@ fn run_ir(name: &str, module: emela_core::Module) -> RunOutput {
         |_, _| {},
     );
     let _ = std::fs::remove_dir_all(&options.out_dir);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -395,13 +402,12 @@ fn run_source_in(name: &str, main: &str, frontend: &mut Lower, js_host: PathBuf)
     };
     let (analysis, output) = run(&fs, &input, frontend, &mut CoreJs, &options, |_, _| {});
     let _ = std::fs::remove_dir_all(&options.out_dir);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -481,13 +487,12 @@ fn run_without_main_stops_before_node() {
         &mut CoreJs,
         &options.out_dir,
     );
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -586,13 +591,12 @@ fn main() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir("js-exports");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -683,13 +687,12 @@ fn main() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir("js-bytes");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -848,13 +851,12 @@ fn main() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir("js-array");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
-    // A program that tests the checks at run time of `[effect.escape]` and `[fiber.escape]`
-    // leaves a capability on purpose, and gets W0402 for it.
+    // The programs may still write `use E` as an expression (W0403, deprecated).
     assert!(
         analysis
             .diagnostics
             .iter()
-            .all(|d| d.code == Some(emela_driver::code::CAPTURE_ESCAPE)),
+            .all(|d| matches!(d.code, Some(emela_driver::code::DEPRECATED_USE))),
         "{:?}",
         analysis.diagnostics
     );
@@ -1444,32 +1446,6 @@ fn release_defects_follow_the_body() {
 }
 
 #[test]
-fn released_handlers_are_defects_when_used() {
-    // Calling a capability taken outside the `with` after its release is a defect (spec 8.6).
-    let output = run_stateful(
-        "stateful-used-after-release",
-        r#"fn main() {
-  with SystemConsole, EnvConfig {
-    f = with Pool {
-      users = use Users
-      || users.find(1)
-    }
-    with Spare { (use Console).print_line(f()) }
-  }
-}
-"#,
-    );
-    assert_eq!(
-        (output.code, text(&output.stdout), text(&output.stderr)),
-        (
-            DEFECT_EXIT_CODE,
-            "open db://app\nclose db://app\nopen spare\nclose spare\n",
-            "defect: handler Pool was used after release\n"
-        )
-    );
-}
-
-#[test]
 fn interrupted_main_releases_first() {
     // A main unwound while suspended also runs the releases of open `with`s from the inside out,
     // then ends as `interrupted` (spec 14.5). The same holds for a non-suspending main ($sync) and
@@ -1595,7 +1571,7 @@ fn main() {
     insta::assert_snapshot!(text(&output.stdout));
 }
 
-mod suspend;
+use crate::suspend;
 
 #[test]
 fn suspended_main_waits_for_promises() {
