@@ -164,15 +164,9 @@ void em_raise_at(em_ref msg, em_ref at);
 /* RuntimeOp::DefectTake and DefectResume. */
 em_ref em_defect_take(void);
 void em_defect_resume(em_ref d);
-/* RuntimeOp::Retire. */
+/* RuntimeOp::Retire: remembers the name of the handler released last, for the note of a
+ * release that fails while another defect unwinds (14.4). */
 void em_retire(em_ref handler, em_ref name);
-void em_handler_used_after_release(em_ref h);
-/* Whether the handler may be used; raises `handler X was used after release` otherwise. */
-static inline bool em_handler_ok(em_ref h) {
-  if (h->slots[0].i == 0) return true;
-  em_handler_used_after_release(h);
-  return false;
-}
 
 _Noreturn void em_unreachable(void);
 
@@ -462,18 +456,16 @@ em_word em_perform_end(em_ref resume);
  *
  * Arguments are borrowed. `repr` is the representation of the value type `A`. */
 
-em_word em_fiber_scope(em_ref body, int32_t repr);
+em_word em_fiber_scope(em_ref body, int32_t repr, bool background);
 em_ref em_fiber_fork(em_ref scope, em_ref f);
-em_ref em_fiber_deferred(em_ref scope);
+em_ref em_fiber_deferred(void);
 em_word em_fiber_join(em_ref fiber, int32_t repr);
-em_ref em_fiber_await(em_ref fiber, int32_t repr);
-void em_fiber_interrupt(em_ref fiber);
 em_ref em_fiber_attempt(em_ref f, int32_t repr);
 int32_t em_deferred_complete(em_ref d, em_word value, int32_t repr);
 em_word em_deferred_await(em_ref d, int32_t repr);
 em_ref em_deferred_poll(em_ref d, int32_t repr);
-em_ref em_fiber_semaphore(em_ref scope, int32_t permits);
-em_ref em_fiber_queue(em_ref scope, int32_t capacity);
+em_ref em_fiber_semaphore(int32_t permits);
+em_ref em_fiber_queue(int32_t capacity);
 void em_semaphore_acquire(em_ref s, int32_t n);
 int32_t em_semaphore_try_acquire(em_ref s, int32_t n);
 void em_semaphore_release(em_ref s, int32_t n);

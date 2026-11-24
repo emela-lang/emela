@@ -87,7 +87,7 @@ pub use run::{
 pub use signature::SignatureInfo;
 pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};
 pub use structure::{FoldKind, FoldRange, folding_ranges, selection_ranges};
-pub use target::{Target, deprecated_target_warning, enclosing_project_target, project_target};
+pub use target::{Target, enclosing_project_target, project_target};
 pub use testing::{
     AGENT_ENV_VARS, JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, NATIVE_TEST_OUT_DIR, Reporter,
     TEST_ANNOTATION, TEST_FAILURE_EXIT_CODE, TestBackend, TestCase, TestDef, TestFn, TestModule,

@@ -13,7 +13,7 @@
 //! The per-rule tests (`tests/zeta.rs`, `tests/beta.rs`, …) still run one rule at a time; this
 //! file is about the default combination.
 
-mod support;
+use crate::support;
 
 use emela_core::opt::{CoreFn, CoreFns, Options, Rules, Stats, run_with};
 use emela_core::{Module, opt};

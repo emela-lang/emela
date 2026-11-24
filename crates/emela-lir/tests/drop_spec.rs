@@ -5,8 +5,7 @@
 //! of its measured size cost, so these tests turn it on explicitly; a test that needs the default
 //! sets the flag off explicitly.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::{
     Module as CoreModule, Roots, Type, TypeId, monomorphize_from, verify_monomorphic,
