@@ -298,31 +298,31 @@ fn main() {
     insta::assert_snapshot!(parts(&m, &["fn main(", "fn naps(", "fn List.map"]));
 }
 
-/// Fibers: Scope's generic operations keep their own type parameters, and fork and attempt get
+/// Tasks: TaskGroup's generic operation keeps its own type parameter, and start and attempt get
 /// concrete types.
 #[test]
-fn fibers() {
+fn tasks() {
     let m = mono(&lower_files(&[(
         "main.emel",
         "\
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
 fn main() -> Int uses { Async } {
   with d = Deferred {
-    Fiber.scope(|s| {
-      a = s.fork(|| [1])
-      b = Fiber.fork(|| 2)
+    with s = Task.Group {
+      a = s.start(|| [1])
+      b = s.start(|| 2)
       d.complete(\"x\")
       e = Exit.attempt(|| 3)
-      List.length(Fiber.join(a)) + Fiber.join(b)
-    })
+      List.length(a.join()) + b.join()
+    }
   }
 }
 ",
     )]));
-    insta::assert_snapshot!(parts(&m, &["fn main(", "fn Std.Fiber.fork[", "effect "]));
+    insta::assert_snapshot!(parts(&m, &["fn main(", "effect "]));
 }
 
 /// A generic function returning a closure over its argument function: inside the copy for a pure
@@ -366,12 +366,12 @@ fn generic_roots_are_instantiated() {
     let m = try_lower(
         &[(
             "main.emel",
-            "import Std.Fiber.{Fiber, Scope}\n\
+            "import Std.Task.{Task}\n\
              fn child_defect() {\n\
-               Fiber.scope(|_| {\n\
-                 h = Fiber.fork(|| panic(\"child\"))\n\
-                 Fiber.join(h)\n\
-               })\n\
+               with tasks = Task.Group {\n\
+                 h = tasks.start(|| panic(\"child\"))\n\
+                 h.join()\n\
+               }\n\
              }\n\
              fn main() { 0 }\n",
         )],

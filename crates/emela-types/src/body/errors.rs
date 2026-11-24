@@ -385,6 +385,15 @@ impl BodyInfer<'_> {
                 row.extend(&self.expr_row(*body));
                 for entry in entries {
                     if let Some(h) = entry.handler() {
+                        // The tasks of a built-in handler fail the `with` (`[task.group]`).
+                        if let Some(fails) = self.builtin_handler_sets(
+                            h,
+                            &entry.ty_args,
+                            crate::row::SetKind::Errors,
+                        ) {
+                            row.extend(&fails);
+                            continue;
+                        }
                         let fails = self.handler_init_fails(h);
                         let fails = self.instantiate_facts(
                             fails,
@@ -575,7 +584,7 @@ impl BodyInfer<'_> {
     /// they are the whole point of the comparison. While solving, a constraint already recorded
     /// is not added again, so the rounds end.
     pub(super) fn solve_errors(&mut self) {
-        // Comparing tags with set type arguments (`Scope[E, R]`, spec 11.2) and placing the
+        // Comparing tags with set type arguments (`TaskGroup[E, R]`, spec 11.2) and placing the
         // solved E and R of the group's definitions at their references
         // ([`Self::place_instance_sets`]) add constraints while solving, so solve again until no
         // new constraint appears.
@@ -1043,7 +1052,7 @@ impl BodyInfer<'_> {
                     SmolStr::new(row.display_effects(cons, params).to_string())
                 })
                 .collect();
-            let scope = self.forked_from(origin, &elems);
+            let started = self.started_from(origin, &elems);
             let program = self.program;
             let hosts = elems
                 .iter()
@@ -1060,11 +1069,11 @@ impl BodyInfer<'_> {
                     && self.under_platform(&rows, body, e)
             });
             self.diags.push(Diagnostic {
-                span: Some(self.program.exprs[origin].span),
+                span: Some(self.program.exprs[started.unwrap_or(origin)].span),
                 kind: DiagnosticKind::UnhandledEffects {
                     effects,
                     context: context.clone(),
-                    scope,
+                    in_task: started.is_some(),
                     hosts,
                     process,
                 },
@@ -1072,39 +1081,57 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// If `origin` calls a scope function (`Fiber.scope`) and some of `elems` are not required by
-    /// its body itself, they come from fibers forked in it (through the `R` of `Scope[E, R]`,
-    /// spec 11.2): returns the scope function's name for the note that they must be provided
-    /// outside it.
-    fn forked_from(&mut self, origin: ExprId, elems: &[RowElem]) -> Option<SmolStr> {
-        let (scope, body) = self.scope_call(origin)?;
-        let ty = self.exprs.get(body).cloned()?;
-        let Ty::Fn(f) = self.ctx.resolve(&ty) else {
-            return None;
-        };
-        elems.iter().any(|e| !f.uses.contains(e)).then_some(scope)
-    }
-
-    /// The scope function's name and the body argument, if `expr` calls a scope function.
-    pub(super) fn scope_call(&self, expr: ExprId) -> Option<(SmolStr, ExprId)> {
+    /// If `origin` is a `with` whose items start tasks (`Task.Group`, `Task.Background`) and some
+    /// of `elems` are required by a task started in its body (through the R of the item,
+    /// `[task.group]`), the call of `start` that started it: E0402 points there, with the note
+    /// that tasks get their handlers from outside the `with`.
+    fn started_from(&mut self, origin: ExprId, elems: &[RowElem]) -> Option<ExprId> {
         let program = self.program;
-        let (callee, body) = match &program.exprs[expr].kind {
-            ExprKind::Call { callee, args } => (*callee, args.first()?.value),
-            ExprKind::Binary {
-                op: emela_resolve::hir::BinaryOp::Pipe,
-                lhs,
-                rhs,
-            } => match &program.exprs[*rhs].kind {
-                ExprKind::Call { callee, .. } => (*callee, *lhs),
-                _ => (*rhs, *lhs),
-            },
-            _ => return None,
-        };
-        let ExprKind::Path(Res::Def(def)) = program.exprs[callee].kind else {
+        let ExprKind::With { body, .. } = &program.exprs[origin].kind else {
             return None;
         };
-        let scope = self.fibers.scope_fns.iter().find(|s| s.def == def)?;
-        Some((scope.display.clone(), body))
+        let within = program.exprs[*body].span;
+        let calls: Vec<(ExprId, Option<ExprId>)> = self
+            .calls
+            .iter()
+            .map(|(call, args)| (call, args.first().copied().flatten()))
+            .collect();
+        let mut found: Option<ExprId> = None;
+        for (call, f) in calls {
+            let span = program.exprs[call].span;
+            if span.module != within.module || !within.range.contains_range(span.range) {
+                continue;
+            }
+            let ExprKind::Call { callee, .. } = &program.exprs[call].kind else {
+                continue;
+            };
+            let Some(&op) = self.ops.get(*callee) else {
+                continue;
+            };
+            let builtin = program.defs[op]
+                .parent
+                .is_some_and(|e| crate::lower::is_intrinsic_effect(program, e));
+            if !builtin || program.defs[op].name != "start" {
+                continue;
+            }
+            let Some(ty) = f.and_then(|f| self.exprs.get(f).cloned()) else {
+                continue;
+            };
+            let Ty::Fn(f) = self.ctx.resolve(&ty) else {
+                continue;
+            };
+            let uses = self.ctx.resolve_row(&f.uses);
+            let needs = elems.iter().any(|e| match e {
+                RowElem::Tag(t) => uses.tags().any(|u| u.def == t.def),
+                e => uses.elems().contains(e),
+            });
+            if needs
+                && found.is_none_or(|c| program.exprs[c].span.range.start() > span.range.start())
+            {
+                found = Some(call);
+            }
+        }
+        found
     }
 
     /// Each expression's E (R if `kind` says so), with set variables solved.
@@ -1480,7 +1507,7 @@ impl BodyInfer<'_> {
         self.diags.push(Diagnostic { span, kind });
     }
 
-    /// The function that the closure `lambda` is passed to (`Fiber.scope`), for messages.
+    /// The function that the closure `lambda` is passed to (`List.map`), for messages.
     fn receiving_callee(&self, lambda: ExprId) -> SmolStr {
         let program = self.program;
         for (call, args) in self.calls.iter() {
@@ -1496,7 +1523,7 @@ impl BodyInfer<'_> {
                 _ => continue,
             };
             if let ExprKind::Path(Res::Def(def)) = program.exprs[callee].kind {
-                return crate::fiber::qualified_name(program, def);
+                return crate::builtin::qualified_name(program, def);
             }
         }
         SmolStr::new("the function")
@@ -1509,6 +1536,7 @@ impl BodyInfer<'_> {
     /// solution has, a capability that a binding put into a type variable made outside its scope
     /// ([`crate::scopes`]), and the value of a `with` body that has a capability of that `with`.
     pub(super) fn check_leaks(&mut self) {
+        self.check_task_items();
         self.check_with_values();
         for (cap, span) in std::mem::take(&mut self.ctx.scopes.escapes) {
             self.push_leak(&cap, span);
@@ -1530,6 +1558,16 @@ impl BodyInfer<'_> {
                 if effects && matches!(c.id, CapId::Named { .. }) {
                     continue;
                 }
+                // The set type argument of a built-in handler at an item may have the
+                // capabilities of the items before it, and its own (`[task.group]`).
+                if let CapId::Item { with, item } = c.id
+                    && self
+                        .item_set_vars
+                        .get(&v)
+                        .is_some_and(|&(w, i)| w == with && item <= i)
+                {
+                    continue;
+                }
                 if !self.ctx.scopes.fits(c, scope) {
                     let span = self
                         .cap_provenance
@@ -1543,9 +1581,34 @@ impl BodyInfer<'_> {
         }
     }
 
+    /// The R of the tasks of a group or a background is provided outside its with, and by the
+    /// items before it (`[task.group]`): a capability of an item after it, or of a with inside its
+    /// body, leaves through the set type argument of the item. Reported at the item, before the
+    /// same leak is found where the R of the with flows.
+    fn check_task_items(&mut self) {
+        let program = self.program;
+        let vars: Vec<(crate::row::RowVar, (ExprId, u32))> =
+            self.item_set_vars.iter().map(|(v, w)| (*v, *w)).collect();
+        for (v, (with, i)) in vars {
+            let ExprKind::With { handlers, .. } = &program.exprs[with].kind else {
+                continue;
+            };
+            let span = handlers.get(i as usize).map(|h| h.span);
+            let scope = self.ctx.scopes.row_var(v);
+            let row = self.ctx.resolve_row(&Row::var(v));
+            for c in row.caps() {
+                let allowed =
+                    matches!(c.id, CapId::Item { with: w, item } if w == with && item <= i);
+                if !allowed && !self.ctx.scopes.fits(c, scope) {
+                    self.push_leak(c, span);
+                }
+            }
+        }
+    }
+
     /// The value of a `with` body cannot have a capability that the `with` made, nor the name of
-    /// an effect that it provides by name, in its type; neither can the R of the `with`
-    /// (`[effect.escape]`).
+    /// an effect that it provides by name, in its type; neither can the E (the capabilities an
+    /// error records) or the R of the `with` (`[effect.escape]`).
     fn check_with_values(&mut self) {
         let program = self.program;
         let withs: Vec<ExprId> = self.withs.iter().map(|w| w.expr).collect();
@@ -1566,6 +1629,15 @@ impl BodyInfer<'_> {
                     .collect();
             let mut found = Vec::new();
             caps_of(&ty, &mut found);
+            // The E of the `with`: the capabilities an error records (`[type.rules]`).
+            if let Some(row) = self.expr_rows.get(with).cloned() {
+                let row = self.ctx.resolve_row(&row);
+                for t in row.tags() {
+                    for a in &t.args {
+                        caps_of(a, &mut found);
+                    }
+                }
+            }
             // The R of the `with`: the type arguments of its effects (`State[use Logger]`).
             if let Some(row) = self.expr_effects.get(with).cloned() {
                 let row = self.ctx.resolve_row(&row);

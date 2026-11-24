@@ -530,6 +530,17 @@ impl TyTable {
         self.sets.get(def).and_then(|s| s.get(i).copied().flatten())
     }
 
+    /// The kinds of the `n` type parameters of `def`: a set where [`Self::set_kind`] says so
+    /// (the `E` and `R` of the built-in handler `Group[E, R]`, `[task.group]`).
+    pub(crate) fn param_kinds(&self, def: DefId, n: usize) -> Vec<ParamKind> {
+        (0..n)
+            .map(|i| match self.set_kind(def, i) {
+                Some(_) => ParamKind::Set,
+                None => ParamKind::Type,
+            })
+            .collect()
+    }
+
     /// `None` for Bool and for definitions other than type, enum, error and handler.
     pub fn con(&self, def: DefId) -> Option<TyConId> {
         self.by_def.get(def).copied()
@@ -832,7 +843,7 @@ impl TyTable {
             result_caps: scope.result_caps,
             quant: None,
         };
-        // Set type parameters of built-in effects (the `E` and `R` of `Scope[E, R]`) take sets,
+        // Set type parameters of built-in effects (the `E` and `R` of `TaskGroup[E, R]`) take sets,
         // written like set type arguments of named types (spec 8.1, 9.2).
         let args = args
             .iter()
@@ -1185,8 +1196,14 @@ fn decl_params(program: &Program, def: DefId, sets: &[Option<SetKind>]) -> Vec<T
         Some(Item::Handler(_)) => {
             return handler_type_params(program, def)
                 .iter()
-                .map(|tp| {
-                    let mut p = TyParam::new(program.defs[tp.def].name.clone());
+                .enumerate()
+                .map(|(i, tp)| {
+                    let name = program.defs[tp.def].name.clone();
+                    // The set type parameters of a built-in handler (`Group[E, R]`).
+                    if sets.get(i).copied().flatten().is_some() {
+                        return TyParam::set(name);
+                    }
+                    let mut p = TyParam::new(name);
                     crate::signature::with_traits(program, &mut p, tp);
                     p
                 })
@@ -1302,7 +1319,7 @@ pub(crate) fn prelude_bounds(program: &Program, tp: &TypeParam, name: &str) -> V
         .collect()
 }
 
-/// Whether an effect is a built-in effect of the bundled sources (`@intrinsic effect Scope`,
+/// Whether an effect is a built-in effect of the bundled sources (`@intrinsic effect TaskGroup`,
 /// spec 11.2). Only built-in effects may have set type parameters and operation type parameters,
 /// and no handler may implement them (spec 8.1).
 pub(crate) fn is_intrinsic_effect(program: &Program, effect: DefId) -> bool {
@@ -1366,7 +1383,7 @@ pub(crate) fn classify_sets(
 
 /// Decides like [`classify_sets`], also counting the set type arguments of built-in effects in a
 /// fn's own `uses` clause (the `E` and `R` of
-/// `fn deferred[A, E, R]() -> Deferred[A] uses { Scope[E, R] }`, spec 11.2).
+/// `fn crawl[E, R](tasks: use TaskGroup[E, R]) -> ()`, `[task.group]`).
 pub(crate) fn classify_fn_sets(
     program: &Program,
     decls: &DeclSets,
@@ -1518,7 +1535,7 @@ fn mark_params(
 
 /// Elements of an effect set. A type parameter itself is a set; an effect's type arguments (the
 /// `S` of `State[S]`, spec 8.1) are ordinary types, except at the set type parameters of a
-/// built-in effect (the `E` and `R` of `Scope[E, R]`).
+/// built-in effect (the `E` and `R` of `TaskGroup[E, R]`).
 pub(crate) fn mark_effect(
     program: &Program,
     decls: &DeclSets,
@@ -1546,8 +1563,8 @@ pub(crate) fn mark_effect(
     }
 }
 
-/// Type parameters written in a set type argument of a built-in effect (`Scope[E, R]`,
-/// `Scope[E | Timeout, { R, Log }]`) are sets of that kind.
+/// Type parameters written in a set type argument of a built-in effect (`TaskGroup[E, R]`,
+/// `TaskGroup[E | Timeout, { R, Log }]`) are sets of that kind.
 fn mark_set_arg(
     program: &Program,
     position: &dyn Fn(&Res) -> Option<usize>,
@@ -1597,7 +1614,7 @@ fn decl_sets(program: &Program) -> DeclSets {
         .collect();
     let mut sets = DeclSets::default();
     // Built-in effects decide the kinds of their type parameters from the operation signatures,
-    // like the field types of a type (`Scope[E, R]`, spec 11.2). Other effects take ordinary
+    // like the field types of a type (`TaskGroup[E, R]`, spec 11.2). Other effects take ordinary
     // types only (E0424, spec 8.1).
     for (def, _) in program.defs.iter() {
         if !is_intrinsic_effect(program, def) {
@@ -1618,9 +1635,38 @@ fn decl_sets(program: &Program) -> DeclSets {
             }
         }
         if !changed {
-            return sets;
+            break;
         }
     }
+    // Built-in handlers decide them from the effects they implement and the parameters of their
+    // init (`Group[E, R]: TaskGroup[E, R]`, `[task.group]`). They are the only handlers with set
+    // type parameters.
+    for (def, _) in program.defs.iter() {
+        let Some(Item::Handler(h)) = program.item(def) else {
+            continue;
+        };
+        if !h.is_intrinsic || h.type_params.is_empty() {
+            continue;
+        }
+        let Some(span) = h.effects.first().map(|e| e.span) else {
+            continue;
+        };
+        let params: Vec<DefId> = h.type_params.iter().map(|tp| tp.def).collect();
+        let effects = EffectSet {
+            items: h.effects.clone(),
+            span,
+        };
+        let types = h
+            .fields
+            .iter()
+            .map(|f| f.ty)
+            .chain(h.init_params.iter().filter_map(|p| p.ty));
+        let kinds = classify_fn_sets(program, &sets, &params, types, Some(&effects));
+        if kinds.iter().any(Option::is_some) {
+            sets.insert(def, kinds);
+        }
+    }
+    sets
 }
 
 /// The parameter and return type expressions of an effect's operations.

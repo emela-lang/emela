@@ -3122,3 +3122,70 @@ handler LaterLog: Logger {
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
+
+/// The diagnostics of tasks (`[task]`, `[diag.list]`): importing `Std.Fiber` is E0205 with a help
+/// that names `Std.Task`; an effect that a task uses and that a with inside the body of its group
+/// provides is E0402 at the call of start, with the note and the help to provide it outside the
+/// group; a handler for TaskGroup or Spawn is E0413 naming the built-in handler that provides it.
+#[test]
+fn task_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"import Std.Fiber.{Fiber}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    let fiber = render(&analysis.diagnostics, &analysis.sources, false);
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"import Std.Task.{Task, TaskGroup, Spawn}
+
+type User(name: String)
+
+effect Users {
+  fn find(id: Int) -> User
+}
+
+handler PostgresUsers: Users {
+  fn find(id) { User(name: "alice") }
+}
+
+handler MyGroup: TaskGroup[{}, {}] {
+  fn start(f) { todo() }
+}
+
+handler MySpawn: Spawn[{}, {}] {
+  fn start(f) { () }
+}
+
+fn main() {
+  with tasks = Task.Group {
+    with PostgresUsers {
+      tasks.start(|| (use Users).find(1))
+    }
+    ()
+  }
+}
+
+fn declared() -> () uses { Async } {
+  with tasks = Task.Group {
+    with PostgresUsers {
+      tasks.start(|| (use Users).find(1))
+    }
+    ()
+  }
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    let tasks = render(&analysis.diagnostics, &analysis.sources, false);
+    insta::assert_snapshot!(format!("{fiber}\n{tasks}"));
+}

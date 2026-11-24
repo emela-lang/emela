@@ -757,7 +757,7 @@ fn copy(src: use ReadFile, dst: use ReadFile + WriteFile) -> () {
 ==================
 Capability-bound types and borrowed parameters
 ==================
-type Fiber[A] uses Scope
+type Task[A] uses TaskGroup
 
 type Conn(id: Int) uses Db[Int] derive Show
 

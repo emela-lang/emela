@@ -1,27 +1,27 @@
-# Semaphore (`[task.semaphore]`): limits how many fibers run a piece of code at the same time.
+# Semaphore (`[task.semaphore]`): limits how many tasks run a piece of code at the same time.
 #
 # `with s = Semaphore(permits: p)` makes a semaphore with `p` permits, and `s` is its capability.
 # Permits are opened with the handler members `Permits` and `TryPermits`: the init takes them and
 # the release gives them back.
 #
 #   with db = Semaphore(permits: 10) {
-#     Fiber.map(ids, |id| Semaphore.with_permit(db, || load(id)))
+#     Task.map(ids, |id| Semaphore.with_permit(db, || load(id)))
 #   }
 #
 # The effects and the handler are built in: the runtime holds the permits and the line of waiting
-# fibers. Lowering turns the handler into a handler value whose operations and handler members
+# tasks. Lowering turns the handler into a handler value whose operations and handler members
 # are concurrency operations of the Core IR. `with_permits` and the others are plain Emela.
 
 ## A fixed number of permits. dbg shows the capability as `<semaphore>`.
 @intrinsic
 pub effect Semaphore {
   ## Waits until `n` permits are free and takes them; its release gives them back. Waiting
-  ## fibers are served in the order they started to wait.
+  ## tasks are served in the order they started to wait.
   suspend handler Permits(n: Int): Permit
-  ## Takes `n` permits if they are free and no fiber is waiting; otherwise fails with
+  ## Takes `n` permits if they are free and no task is waiting; otherwise fails with
   ## `NoPermits`. Its release gives them back. Does not suspend.
   handler TryPermits(n: Int): Permit fails NoPermits
-  ## The number of permits that no fiber holds. Does not suspend.
+  ## The number of permits that no task holds. Does not suspend.
   fn available() -> Int
 }
 

@@ -6,10 +6,10 @@
 mod assert;
 mod effects;
 mod errors;
-mod fiber;
 mod release;
 mod run;
 mod suspend;
+mod task;
 
 /// Every `.rs` file in this directory that is not a test binary of its own is declared
 /// above. Without the declaration Cargo would not build it, and its tests would not run.

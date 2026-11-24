@@ -86,7 +86,7 @@ with tasks = Task.Group {
 ## 11.3 Task.Background `[task.background]`
 
 ```emel
-with bg = Task.Background(on_failure: |cause| log.error(Cause.to_string(cause))) {
+with bg = Task.Background(on_failure: |cause| log.warn(Cause.to_string(cause))) {
   bg.start(|| audit(request))
   respond(request)
 }

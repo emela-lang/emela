@@ -34,12 +34,12 @@ fn long_expressions() {
     input_values_that_are_long,
     |value| transform_the_value_with_a_long_function(value),
   )
-  hugged = Fiber.scope(|s| s.fork(|| fetch_user_profile_and_orders_for_the_current_session(1)))
+  hugged = Exit.attempt(|s| s.start(|| fetch_user_profile_and_orders_for_the_current_session(1)))
   mapped_block = List.map(input_values_that_are_long, |value| {
     transform_the_value_with_a_long_function(value)
   })
-  hugged_block = Fiber.scope(|s| {
-    s.fork(|| fetch_user_profile_and_orders_for_the_current_session(1))
+  hugged_block = Exit.attempt(|s| {
+    s.start(|| fetch_user_profile_and_orders_for_the_current_session(1))
   })
   nested = outer_function(
     inner_function(first_inner_argument, second_inner_argument),

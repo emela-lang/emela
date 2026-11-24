@@ -3348,7 +3348,7 @@ fn completion_in_clauses_and_types() {
     }
     // An effect set as a type argument, and the effect of a handler.
     check(
-        at("fn f(x: Fiber[Int, { $"),
+        at("fn f(x: TaskGroup[E, { $"),
         &interface,
         &effects,
         &not_effects,

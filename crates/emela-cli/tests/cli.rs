@@ -952,17 +952,18 @@ fn run_and_test_clock_example() {
 }
 
 #[test]
-fn run_and_test_fibers_example() {
-    // The `examples/fibers` example. The children of a scope wait concurrently; the combinators
-    // keep the order of their arguments, and a failing child interrupts its siblings (spec 11.2,
-    // 11.3).
+fn run_and_test_tasks_example() {
+    // The `examples/tasks` example. The tasks of a group wait concurrently; the combinators keep
+    // the order of their arguments, a failing task interrupts its siblings, and a background
+    // passes the failure of a task to `on_failure` (`[task.group]`, `[task.background]`,
+    // `[task.combinators]`).
     let project = Project::new(
-        "fibers",
+        "tasks",
         &[
             ("Pome.toml", ""),
             (
                 "src/main.emel",
-                include_str!("../../../examples/fibers/src/main.emel"),
+                include_str!("../../../examples/tasks/src/main.emel"),
             ),
         ],
     );
@@ -973,7 +974,8 @@ fn run_and_test_fibers_example() {
             Some(0),
             "fetched 2\nfetched 1\nboth: user 1, user 2\nfetched 5\nfetched 4\nfetched 3\n\
              map: [\"user 3\", \"user 4\", \"user 5\"]\nfetched 7\nrace: user 7\n\
-             timeout: None\nfetched -1\nnot found: -1\n",
+             timeout: None\nfetched -1\nnot found: -1\nbackground started\nfetched -2\n\
+             error: NotFound\n",
             ""
         )
     );

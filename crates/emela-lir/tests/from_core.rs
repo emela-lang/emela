@@ -280,21 +280,21 @@ fn main() {
 }
 
 #[test]
-fn fibers() {
+fn tasks() {
     let m = program(
         "\
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Exit.{Exit}
 import Std.Deferred.{Deferred}
 
 fn main() -> Int uses { Async } {
   with d = Deferred {
-    Fiber.scope(|s| {
-      a = s.fork(|| [1])
+    with s = Task.Group {
+      a = s.start(|| [1])
       d.complete(())
       e = Exit.attempt(|| 3)
-      List.length(Fiber.join(a))
-    })
+      List.length(a.join())
+    }
   }
 }
 ",
@@ -302,13 +302,13 @@ fn main() -> Int uses { Async } {
     insta::assert_snapshot!(parts(&m, &["main"]));
 }
 
-/// fork's type parameter is boxed (`any`): a child whose value is not a reference is wrapped in a
+/// start's type parameter is boxed (`any`): a task whose value is not a reference is wrapped in a
 /// closure that boxes it. A release that may suspend is held (spec 11.4).
 #[test]
-fn fork_boxes_and_suspending_releases_hold() {
+fn start_boxes_and_suspending_releases_hold() {
     let m = program(
         "\
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 
 effect Wait {
   suspend fn wait() -> ()
@@ -322,10 +322,10 @@ handler Later: Wait {
 
 fn main() -> Int uses { Async, Wait } {
   with Later { () }
-  Fiber.scope(|s| {
-    a = s.fork(|| 1)
-    Fiber.join(a)
-  })
+  with s = Task.Group {
+    a = s.start(|| 1)
+    a.join()
+  }
 }
 ",
     );

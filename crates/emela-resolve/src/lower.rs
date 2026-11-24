@@ -891,7 +891,7 @@ impl Lower<'_, '_> {
         }
         let mut fields = fields.unwrap_or_default();
         let effects = self.handler_effects(h.effects());
-        let is_intrinsic = !h.has_body()
+        let is_intrinsic = h.declares_only()
             && h.syntax()
                 .children()
                 .filter_map(ast::Annotation::cast)

@@ -93,7 +93,7 @@ fn main() {
 }
 
 #[test]
-fn suspending_functions_and_fibers() {
+fn suspending_functions_and_tasks() {
     let src = r##"
 effect Clock {
   suspend fn sleep(ms: Int) -> Int
@@ -110,15 +110,15 @@ fn nap(ms: Int) -> Int uses { Clock } {
 
 fn main() -> () uses { Async } {
   with Instant {
-    total = Fiber.scope(|_| {
-      a = Fiber.fork(|| nap(1))
-      nap(2) + Fiber.join(a)
-    })
+    total = with tasks = Task.Group {
+      a = tasks.start(|| nap(1))
+      nap(2) + a.join()
+    }
     print("#{total}")
   }
 }
 "##;
-    let c = to_c(&format!("import Std.Fiber.{{Fiber}}\n{PRELUDE}{src}"))
+    let c = to_c(&format!("import Std.Task.{{Task}}\n{PRELUDE}{src}"))
         .unwrap_or_else(|e| panic!("{e:#?}"))
         .main;
     insta::assert_snapshot!(c);

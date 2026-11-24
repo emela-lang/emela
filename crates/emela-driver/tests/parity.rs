@@ -362,11 +362,11 @@ fn map_in_parallel<T: Sync, R: Send>(
     results.into_iter().map(|(_, r)| r).collect()
 }
 
-/// Test functions with fibers and suspension (spec chapters 11, 13, 14.5): the outcomes, an
+/// Test functions with tasks and suspension (spec chapters 11, 13, 14.5): the outcomes, an
 /// interrupted test included, are the same on both targets.
 fn suspending_tests_give_the_same_results_on_js_and_c() {
     let Some(mut c) = c_backend() else { return };
-    let main = r##"import Std.Fiber.{Fiber, Scope}
+    let main = r##"import Std.Task.{Task}
 import Std.Deferred.{Deferred}
 
 error Boom
@@ -406,31 +406,31 @@ fn explode() -> Int { panic("child") }
 @test
 fn joins() {
   with Ticks {
-    xs = Fiber.all([|| fetch(1, 20), || fetch(2, 10)])
+    xs = Task.all([|| fetch(1, 20), || fetch(2, 10)])
     assert xs == [10, 20]
   }
 }
 
 @test
 fn child_error() {
-  Fiber.scope(|_| {
-    h = Fiber.fork(|| boom())
-    Fiber.join(h)
-  })
+  with tasks = Task.Group {
+    h = tasks.start(|| boom())
+    h.join()
+  }
 }
 
 @test
 fn child_defect() {
-  Fiber.scope(|_| {
-    h = Fiber.fork(|| explode())
-    Fiber.join(h)
-  })
+  with tasks = Task.Group {
+    h = tasks.start(|| explode())
+    h.join()
+  }
 }
 
 @test
 fn waits_forever() {
-  with d = Deferred {
-    Fiber.scope(|_| d.await() + 1)
+  with d = Deferred[Int], tasks = Task.Group {
+    tasks.start(|| d.await() + 1).join()
   }
 }
 

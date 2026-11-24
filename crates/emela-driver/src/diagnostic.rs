@@ -178,6 +178,13 @@ impl Diagnostic {
                     display(first)
                 ),
             ),
+            // `Std.Fiber` was removed when tasks replaced fibers (`[task]`).
+            DiagnosticKind::UndefinedModule { name } if name.to_string() == "Std.Fiber" => {
+                return Diagnostic::error(format!("undefined module `{name}`"))
+                    .with_code(code::UNDEFINED_MODULE)
+                    .with_help("`Std.Fiber` was replaced by `Std.Task` (`[task]`)")
+                    .at(location);
+            }
             DiagnosticKind::UndefinedModule { name } => {
                 (code::UNDEFINED_MODULE, format!("undefined module `{name}`"))
             }
@@ -971,14 +978,15 @@ impl Diagnostic {
             TypeDiagnosticKind::UnhandledEffects {
                 effects,
                 context,
-                scope,
+                in_task,
                 hosts,
                 process,
             } => {
-                if let Some(scope) = scope {
-                    note = Some(format!(
-                        "fibers forked in `{scope}` get their handlers from where `{scope}` is called, so `with` inside it does not reach them"
-                    ));
+                if *in_task {
+                    note = Some(
+                        "tasks get their handlers from outside the `with` of their group, so `with` inside it does not reach them"
+                            .to_owned(),
+                    );
                 }
                 // Only the entry provides a host effect (`[effect.host]`): name it and what it
                 // provides.
@@ -1004,11 +1012,11 @@ impl Diagnostic {
                 let verb = if effects.len() == 1 { "is" } else { "are" };
                 let message = match context {
                     EffectContext::Declared => {
-                        help = Some(match scope {
-                            Some(scope) => format!(
-                                "add it to `uses` or provide it with `with` outside `{scope}`"
-                            ),
-                            None => "add it to `uses` or provide it with `with`".to_owned(),
+                        help = Some(if *in_task {
+                            "add it to `uses` or provide it with `with` outside the group"
+                                .to_owned()
+                        } else {
+                            "add it to `uses` or provide it with `with`".to_owned()
                         });
                         format!("{list} {verb} not declared in `uses`")
                     }
@@ -1018,23 +1026,26 @@ impl Diagnostic {
                         format!("arguments in layer `{}` cannot use {list}", arg.layer)
                     }
                     EffectContext::Main => {
-                        help = Some(match scope {
-                            Some(scope) => format!("provide it with `with` outside `{scope}`"),
-                            None => "provide it with `with`".to_owned(),
+                        help = Some(if *in_task {
+                            "provide it with `with` outside the group".to_owned()
+                        } else {
+                            "provide it with `with`".to_owned()
                         });
                         format!("{list} {verb} not provided in `main`")
                     }
                     EffectContext::Export { name, .. } => {
-                        help = Some(match scope {
-                            Some(scope) => format!("provide it with `with` outside `{scope}`"),
-                            None => "provide it with `with`".to_owned(),
+                        help = Some(if *in_task {
+                            "provide it with `with` outside the group".to_owned()
+                        } else {
+                            "provide it with `with`".to_owned()
                         });
                         format!("{list} {verb} not provided in exported function `{name}`")
                     }
                     EffectContext::Test { name } => {
-                        help = Some(match scope {
-                            Some(scope) => format!("provide it with `with` outside `{scope}`"),
-                            None => "provide it with `with`".to_owned(),
+                        help = Some(if *in_task {
+                            "provide it with `with` outside the group".to_owned()
+                        } else {
+                            "provide it with `with`".to_owned()
                         });
                         format!("{list} {verb} not provided in test function `{name}`")
                     }

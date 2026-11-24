@@ -1,4 +1,4 @@
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 
 @external(js, "console.log")
 @external(c, "./print.c", "emela_test_print")
@@ -8,8 +8,8 @@ fn print(s: String) -> () uses {}
 # nothing) and set parameters; the native target instantiates them instead of skipping main.
 fn main() {
   print("start")
-  Fiber.scope(|_| {
-    h = Fiber.fork(|| panic("child"))
-    Fiber.join(h)
-  })
+  with tasks = Task.Group {
+    h = tasks.start(|| panic("child"))
+    h.join()
+  }
 }

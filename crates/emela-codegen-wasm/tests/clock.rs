@@ -116,7 +116,7 @@ fn several_fibers_sleep_in_the_order_of_their_wake_times() {
     let Some(run) = run(
         "clock-many-sleepers",
         r##"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Clock.{Clock, TestClock}
 import Std.Instant.{Instant}
 import Std.State.{State}
@@ -131,13 +131,13 @@ fn main() -> () uses { Async } {
   start = Instant.from_unix_milliseconds(Int64.from_int(0))
   (_, end) = State.run(start, || {
     with TestClock {
-      Fiber.scope(|_| {
-        a = Fiber.fork(|| sleeper("a", 100))
-        b = Fiber.fork(|| sleeper("b", 50))
-        Fiber.join(a)
-        Fiber.join(b)
+      with tasks = Task.Group {
+        a = tasks.start(|| sleeper("a", 100))
+        b = tasks.start(|| sleeper("b", 50))
+        a.join()
+        b.join()
         ()
-      })
+      }
     }
   })
   dbg("end #{Instant.to_unix_milliseconds(end)}")

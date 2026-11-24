@@ -1141,21 +1141,27 @@ fn main() {
         "call_order",
         include_str!("../../emela-codegen-c/tests/programs/call_order.emel"),
     ),
-    // `[fiber.semaphore]` and `[fiber.queue]`: the lines of waiting fibers, interruption while
-    // waiting, and the end of the scope.
+    // `[task.semaphore]` and `[task.queue]`: the lines of waiting tasks, interruption while
+    // waiting, and the end of the group.
     (
-        "fiber_semaphore",
-        include_str!("../../emela-codegen-c/tests/programs/fiber_semaphore.emel"),
+        "task_semaphore",
+        include_str!("../../emela-codegen-c/tests/programs/task_semaphore.emel"),
     ),
     (
-        "fiber_queue",
-        include_str!("../../emela-codegen-c/tests/programs/fiber_queue.emel"),
+        "task_queue",
+        include_str!("../../emela-codegen-c/tests/programs/task_queue.emel"),
     ),
     // `[task.deferred]`, `[task.queue]`, `[task.semaphore]`: the built-in handlers as items of a
     // with, Permits and TryPermits, their defects, and dbg of the capabilities.
     (
         "builtin_handlers",
         include_str!("../../emela-codegen-c/tests/programs/builtin_handlers.emel"),
+    ),
+    // `[task.background]`: the release waits without interrupting, on_failure, a defect in it, and
+    // an interruption from outside passed on to the tasks.
+    (
+        "task_background",
+        include_str!("../../emela-codegen-c/tests/programs/task_background.emel"),
     ),
     // `[trait.derive]`: derived Encode, Decode, ObjectKey and Shaped, with `@key` and `@tag`.
     (

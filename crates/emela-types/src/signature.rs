@@ -231,12 +231,12 @@ impl Signatures {
                         {
                             continue;
                         }
-                        let kinds = vec![ParamKind::Type; defs.len()];
+                        let kinds = ty_table.param_kinds(def, defs.len());
                         let scope = Scope {
                             params: &defs,
                             kinds: &kinds,
                             omitted: Omitted::Empty,
-                            sets: false,
+                            sets: item.is_intrinsic,
                             self_ty: None,
                             result_caps: None,
                             quant: None,
@@ -704,14 +704,14 @@ fn op_signature(
     let effect_defs: Vec<DefId> = effect
         .map(|e| effect_params(program, e).iter().map(|tp| tp.def).collect())
         .unwrap_or_default();
-    // The operation's own type parameters (`fork[A]`, spec 8.1) follow the effect's. Only
+    // The operation's own type parameters (`start[A]`, spec 8.1) follow the effect's. Only
     // built-in effects may have them (E0426, `check_effect_params`); they are kept either way so
     // errors do not cascade.
     let mut defs = effect_defs.clone();
     defs.extend(sig.type_params.iter().map(|tp| tp.def));
     // A type parameter of a user effect used as a set is E0424 (`check_effect_params`). Read it
     // as a set here so errors do not cascade. The set type parameters of a built-in effect
-    // (`Scope[E, R]`) are decided with the whole declaration (`decl_sets`).
+    // (`TaskGroup[E, R]`) are decided with the whole declaration (`decl_sets`).
     let types = sig.params.iter().filter_map(|p| p.ty).chain(sig.ret);
     let mut kinds = classify_params(program, ty_table.decl_sets(), &defs, types);
     if let Some(e) = effect {
@@ -757,11 +757,12 @@ fn op_signature(
     let param_caps = param_caps.found();
     let caps_uses =
         Row::from_elems((0..param_caps.len()).map(|i| RowElem::Bound((defs.len() + i) as u32)));
-    // A child forked through a built-in effect may use the effect itself (to fork a sibling),
-    // and that is provided by the same scope, not from outside (spec 11.2): a function-typed
+    // A task started through a built-in effect may use the effect itself (to start a sibling),
+    // and that is provided by the same group, not from outside (`[task.group]`): a function-typed
     // parameter whose `use` names the effect's set type parameter also gets the effect with its
-    // own type parameters (`fork[A](f: fn() -> A fails E uses { Scope[E, R], R })`). Inclusion then
-    // only requires the child's `Scope` arguments to be contained in the scope's.
+    // own type parameters (`start[A](f: fn() -> A fails E uses { TaskGroup[E, R], R })`).
+    // Inclusion then only requires the task's `TaskGroup` arguments to be contained in the
+    // group's.
     let params = match effect {
         Some(e) if is_intrinsic_effect(program, e) => {
             let own = own_tag(ty_table, e, effect_defs.len());
@@ -1009,7 +1010,7 @@ fn member_signature(
     sig
 }
 
-/// A built-in effect applied to its own type parameters (`Scope[E, R]` as `Bound(0)`,
+/// A built-in effect applied to its own type parameters (`TaskGroup[E, R]` as `Bound(0)`,
 /// `Bound(1)`).
 fn own_tag(ty_table: &TyTable, effect: DefId, n: usize) -> Tag {
     let args = (0..n)
@@ -1027,10 +1028,10 @@ fn own_tag(ty_table: &TyTable, effect: DefId, n: usize) -> Tag {
 /// Adds `own` to the `use` of a function type that names one of the effect's set type
 /// parameters (the first `n` scheme parameters).
 ///
-/// Without it, the child's `Scope[?e, ?r]` would become a lower bound of `?r` itself: the scope
-/// would demand `Scope` from outside (E0402, and the checker could overflow its stack), and in
-/// nested scopes the child's `Scope` would be met by the outer scope while lowering points it at
-/// the inner one.
+/// Without it, the task's `TaskGroup[?e, ?r]` would become a lower bound of `?r` itself: the
+/// group would demand `TaskGroup` from outside (E0402, and the checker could overflow its stack),
+/// and in nested groups the task's `TaskGroup` would be met by the outer group while lowering
+/// points it at the inner one.
 fn with_own_tag(ty: Ty, own: &Tag, n: usize) -> Ty {
     let Ty::Fn(mut f) = ty else {
         return ty;
@@ -1050,7 +1051,7 @@ fn with_own_tag(ty: Ty, own: &Tag, n: usize) -> Ty {
 /// the `fails` or `uses` of function types in an operation's parameters and return type becomes
 /// a set, so it is E0424. Operations cannot have their own type parameters (E0426).
 ///
-/// Built-in effects (`Scope`, spec 11.2) may have both.
+/// Built-in effects (`TaskGroup`, `[task.group]`) may have both.
 fn check_effect_params(
     program: &Program,
     ty_table: &TyTable,
@@ -1124,7 +1125,8 @@ fn check_handler_params(
         }
         return;
     }
-    if item.type_params.is_empty() {
+    // A built-in handler may have set type parameters (`Group[E, R]`, `[task.group]`).
+    if item.type_params.is_empty() || item.is_intrinsic {
         return;
     }
     let defs: Vec<DefId> = item.type_params.iter().map(|tp| tp.def).collect();
@@ -1441,12 +1443,13 @@ fn init_params(
         .map(|p| match p.ty {
             Some(ty) => {
                 caps.start_field(program.locals[p.local].name.clone());
-                let kinds = vec![ParamKind::Type; type_params.len()];
+                // The set type parameters of a built-in handler (`Background[E, R]`).
+                let kinds = ty_table.param_kinds(handler, type_params.len());
                 let mut scope = Scope {
                     params: type_params,
                     kinds: &kinds,
                     omitted: Omitted::Fields(&mut caps),
-                    sets: false,
+                    sets: kinds.contains(&ParamKind::Set),
                     self_ty: None,
                     result_caps: None,
                     quant: None,

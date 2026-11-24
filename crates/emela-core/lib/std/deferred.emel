@@ -1,13 +1,11 @@
 # Deferred (`[task.deferred]`): a box that takes a value only once, for passing values between
-# fibers.
+# tasks.
 #
 # `with d = Deferred` makes an empty box, and `d` is its capability:
 #
-#   with ready = Deferred {
-#     Fiber.scope(|s| {
-#       s.fork(|| serve(ready))
-#       port = ready.await()
-#     })
+#   with ready = Deferred, tasks = Task.Group {
+#     tasks.start(|| serve(ready))
+#     port = ready.await()
 #   }
 #
 # The effect and the handler are built in: the runtime holds the box. Lowering turns the handler
@@ -19,7 +17,7 @@ pub effect Deferred[A] {
   ## Puts `value` in the box and returns True the first time. Afterwards does nothing and returns
   ## False. Does not suspend.
   fn complete(value: A) -> Bool
-  ## Waits until the box has a value, and returns it. Any number of fibers may wait on one box.
+  ## Waits until the box has a value, and returns it. Any number of tasks may wait on one box.
   suspend fn await() -> A
   ## The value if the box has one, `None` otherwise. Does not wait or suspend.
   fn poll() -> Option[A]

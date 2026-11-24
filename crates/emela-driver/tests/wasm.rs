@@ -405,14 +405,14 @@ fn the_test_protocol_escapes_messages() {
 }
 
 #[test]
-fn fibers_are_supported() {
+fn tasks_are_supported() {
     if !have_wasmtime() {
         return;
     }
-    // `[target.wasm.unsupported]` lists no construct: a fiber scope emits and runs.
+    // `[target.wasm.unsupported]` lists no construct: a group emits and runs.
     let (analysis, output) = run_wasm(
-        "fibers",
-        "import Std.Fiber.{Fiber}\nfn main() -> () uses { Async } {\n  Fiber.scope(|_| ())\n}\n",
+        "tasks",
+        "import Std.Task.{Task}\nfn main() -> () uses { Async } {\n  with tasks = Task.Group { () }\n}\n",
     );
     assert!(!analysis.has_errors(), "{:?}", analysis.diagnostics);
     let output = output.expect("the program ran");

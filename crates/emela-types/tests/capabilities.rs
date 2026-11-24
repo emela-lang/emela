@@ -368,37 +368,37 @@ handler Ticking: Counter {
 fn errors_record_capabilities() {
     insta::assert_snapshot!(render_bodies(
         r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task, TaskGroup}
 
-error Leak(f: Fiber[Int])
+error Leak(f: Task[Int])
 
-fn raise(s: use Scope[{}, {}]) {
-  f = s.fork(|| 1)
+fn raise(s: use TaskGroup[{}, {}]) {
+  f = s.start(|| 1)
   fail Leak(f:)
 }
 
 fn caught() uses { Async } {
-  Fiber.scope(|s| {
+  with s = Task.Group {
     raise(s) escape {
       Leak(f:) -> ()
     }
-  })
+  }
 }
 
 fn leaves() -> Int fails Leak uses { Async } {
-  Fiber.scope(|s| {
-    f = s.fork(|| 1)
-    if True { fail Leak(f:) } else { Fiber.join(f) }
-  })
+  with s = Task.Group {
+    f = s.start(|| 1)
+    if True { fail Leak(f:) } else { f.join() }
+  }
 }
 
 fn taken_out() uses { Async } {
-  Fiber.scope(|s| {
-    f = s.fork(|| 1)
+  with s = Task.Group {
+    f = s.start(|| 1)
     (if True { fail Leak(f:) } else { f }) escape {
       Leak(f:) -> f
     }
-  })
+  }
 }
 "#
     ));

@@ -1,4 +1,4 @@
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Exit.{Exit, Success, Failure}
 import Std.Cause.{Cause}
 import Std.State.{State}
@@ -89,32 +89,32 @@ fn show[A, E](e: Exit[A, E]) -> String {
 
 fn main() -> () uses { Async } {
   with Ticks, Slowly {
-    Fiber.scope(|_| {
-      a = Fiber.fork(|| {
+    with tasks = Task.Group {
+      a = tasks.start(|| {
         v = (use Slow).slow(1500)
         print("caller got #{v}")
         v
       })
-      b = Fiber.fork(|| {
+      b = tasks.start(|| {
         spin(500)
         print("other fiber")
         1
       })
-      print("joined #{Fiber.join(a) + Fiber.join(b)}")
-    })
+      print("joined #{a.join() + b.join()}")
+    }
   }
   (_, left) = State.run([], || {
     with Parked {
-      Fiber.scope(|_| {
-        x = Fiber.fork(|| print("x woke with #{(use Wait).wait("x")}"))
-        y = Fiber.fork(|| print("y woke with #{(use Wait).wait("y")}"))
-        Fiber.fork(|| {
+      with tasks = Task.Group {
+        x = tasks.start(|| print("x woke with #{(use Wait).wait("x")}"))
+        y = tasks.start(|| print("y woke with #{(use Wait).wait("y")}"))
+        tasks.start(|| {
           wake_all((use State[List[fn(String) -> ()]]).get(), "hello")
           print("woke all")
         })
-        Fiber.join(x)
-        Fiber.join(y)
-      })
+        x.join()
+        y.join()
+      }
     }
   })
   print("parked left #{List.length(left)}")

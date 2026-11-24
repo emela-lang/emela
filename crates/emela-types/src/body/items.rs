@@ -88,7 +88,19 @@ impl BodyInfer<'_> {
                 return ItemInst::default();
             }
         }
-        let args: Vec<Ty> = params.iter().map(|_| self.ctx.new_var()).collect();
+        // A set type parameter of a built-in handler (`Group[E, R]`, `[task.group]`) is a set
+        // variable, solved from what the body starts.
+        let args: Vec<Ty> = (0..params.len())
+            .map(|i| match self.ty_table.set_kind(def, i) {
+                Some(kind) => {
+                    // A capability that a task cannot use is reported at the item.
+                    let v = self.ctx.new_row_var();
+                    self.ctx.scopes.set_row_span(v, span);
+                    Ty::Set(kind, Row::var(v))
+                }
+                None => self.ctx.new_var(),
+            })
+            .collect();
         let determined = written.len() == params.len();
         if determined {
             for (arg, &t) in args.iter().zip(written) {
@@ -127,6 +139,50 @@ impl BodyInfer<'_> {
             earlier: self.handler_facts.layer_ty_args,
             here: &self.layer_insts,
         }
+    }
+
+    /// The E (`SetKind::Errors`) or the R (`SetKind::Effects`) that the built-in handler
+    /// `handler` adds to its `with`, at an item with the type arguments `ty_args`: the sets of
+    /// its set type parameters of that kind, and Async for the R (`[task.group]`,
+    /// `[task.background]`). The errors of the tasks of a handler whose init takes parameters
+    /// (`Background(on_failure:)`) go to them, not to the `with`. `None` for other handlers.
+    pub(super) fn builtin_handler_sets(
+        &self,
+        handler: DefId,
+        ty_args: &[Ty],
+        kind: crate::row::SetKind,
+    ) -> Option<Row> {
+        let program = self.program;
+        let Some(Item::Handler(h)) = program.item(handler) else {
+            return None;
+        };
+        if !h.is_intrinsic {
+            return None;
+        }
+        let errors_to_init = !h.init_params.is_empty();
+        let mut row = Row::empty();
+        let mut any = false;
+        for (i, arg) in ty_args.iter().enumerate() {
+            let Some(k) = self.ty_table.set_kind(handler, i) else {
+                continue;
+            };
+            any = true;
+            if k == kind
+                && !(kind == crate::row::SetKind::Errors && errors_to_init)
+                && let Ty::Set(_, r) = arg
+            {
+                row.extend(r);
+            }
+        }
+        if !any {
+            return None;
+        }
+        if kind == crate::row::SetKind::Effects
+            && let Some(async_) = program.prelude_def("Async")
+        {
+            row.insert(RowElem::Tag(Tag::new(async_)));
+        }
+        Some(row)
     }
 
     /// Replaces the type arguments of `inst` with what they resolve to once they contain no

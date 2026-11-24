@@ -12,7 +12,6 @@ mod effect_type_params;
 mod effects;
 mod errors;
 mod export;
-mod fiber;
 mod generic_handler;
 mod handler_member;
 mod lower;
@@ -22,6 +21,7 @@ mod resume;
 mod signature;
 mod spec_examples;
 mod tables;
+mod task;
 
 /// Every `.rs` file in this directory that is not a test binary of its own is declared
 /// above. Without the declaration Cargo would not build it, and its tests would not run.

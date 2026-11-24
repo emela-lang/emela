@@ -452,6 +452,16 @@ impl HandlerDecl {
     pub fn has_body(&self) -> bool {
         self.0.children().any(|n| n.kind() == ITEM_LIST)
     }
+    /// Whether it implements nothing: it has no body, or its body is only an init without a
+    /// block, which declares the parameters of the init. Only a built-in handler is written so
+    /// (`Task.Background`, `[kw.annotation]`).
+    pub fn declares_only(&self) -> bool {
+        let Some(list) = self.0.children().find(|n| n.kind() == ITEM_LIST) else {
+            return true;
+        };
+        list.children()
+            .all(|n| n.kind() == HANDLER_INIT && item_block(&self.0, HANDLER_INIT).is_none())
+    }
     pub fn init(&self) -> Option<BlockExpr> {
         item_block(&self.0, HANDLER_INIT)
     }
