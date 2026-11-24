@@ -100,27 +100,6 @@ fn the_target_flag_replaces_the_project_target() {
     assert_eq!(target_lines(&output), ["js", "native (required)", "wasm"]);
 }
 
-/// `[target.native]`: `--target c` and `[build].target = "c"` select the native target and
-/// report W0903.
-#[test]
-fn the_deprecated_target_c_selects_native() {
-    let dir = project(Some("wasm"));
-    let output = emela(dir.path(), &["doctor", "--target", "c"]);
-    assert_eq!(target_lines(&output), ["js", "native (required)", "wasm"]);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("warning[W0903]: target `c` is deprecated; use `native`"),
-        "{stderr}"
-    );
-
-    let dir = project(Some("c"));
-    let output = emela(dir.path(), &["doctor"]);
-    assert_eq!(target_lines(&output), ["js", "native (required)", "wasm"]);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("warning[W0903]"), "{stderr}");
-    assert!(stderr.contains("Pome.toml:2:10"), "{stderr}");
-}
-
 #[test]
 fn the_target_flag_outside_a_project() {
     let dir = dir_with(&[]);

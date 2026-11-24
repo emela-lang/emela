@@ -167,10 +167,10 @@ fn dependency_targets_are_checked_for_library_only_builds() {
     }
 }
 
-/// `[target.native]`, `[cmd.build]`: `--target native` and the deprecated `--target c` build the
-/// executable `main` and the header `emela.h` into `target/emela/native`; `c` reports W0903 first.
+/// `[target.native]`, `[cmd.build]`: `--target native` builds the executable `main` and the
+/// header `emela.h` into `target/emela/native`.
 #[test]
-fn the_native_target_and_its_deprecated_name() {
+fn the_native_target() {
     let have_cc = Command::new("cc")
         .arg("--version")
         .output()
@@ -179,25 +179,34 @@ fn the_native_target_and_its_deprecated_name() {
         eprintln!("skipping: cannot start the C compiler `cc`");
         return;
     }
-    for (name, warns) in [("native", false), ("c", true)] {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path();
-        write(root, "Pome.toml", "");
-        write(root, "src/main.emel", "fn main() {}\n");
-        let output = emela(root, &["build", "--target", name]);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(output.status.success(), "{name}: {stderr}");
-        assert_eq!(
-            stderr.starts_with(
-                "warning[W0903]: target `c` is deprecated; use `native`\n   = help: `c` is removed in 0.29\n"
-            ),
-            warns,
-            "{name}: {stderr}"
-        );
-        assert!(root.join("target/emela/native/main").is_file(), "{name}");
-        assert!(root.join("target/emela/native/emela.h").is_file(), "{name}");
-        assert!(!root.join("target/emela/c").exists(), "{name}");
-    }
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(root, "Pome.toml", "");
+    write(root, "src/main.emel", "fn main() {}\n");
+    let output = emela(root, &["build", "--target", "native"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(root.join("target/emela/native/main").is_file());
+    assert!(root.join("target/emela/native/emela.h").is_file());
+}
+
+/// `[target.native]`: `c`, the name of the native target before 0.28, is an unknown target since
+/// 0.29, in `--target` (a usage error) and in `[build].target` (E0232).
+#[test]
+fn the_removed_target_c_is_unknown() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(root, "src/main.emel", "fn main() {}\n");
+    write(root, "Pome.toml", "");
+    let output = emela(root, &["build", "--target", "c"]);
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    write(root, "Pome.toml", "[build]\ntarget = \"c\"\n");
+    let output = emela(root, &["build"]);
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(error.contains("E0232"), "{error}");
+    assert!(error.contains("unknown target `c`"), "{error}");
+    assert!(!root.join("target").exists());
 }
 
 /// `[cmd.test.out-dir]`: the test output of the native target is `target/emela/test-native`.

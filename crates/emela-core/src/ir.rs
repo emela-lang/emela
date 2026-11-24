@@ -428,7 +428,7 @@ pub struct EffectDef {
     /// `State.State[Int]`); the same as `name` for an effect without type parameters.
     pub decl: String,
     /// The type arguments of the instantiation, in the declaration's parameter order. Set type
-    /// arguments (`Scope[E, R]`, spec 11.2) have no IR type and are the placeholder `()`. A
+    /// arguments (`TaskGroup[E, R]`, `[task.group]`) have no IR type and are the placeholder `()`. A
     /// `Type::Param(i)` is a type parameter of the function whose body uses the effect (the key
     /// `State[$modify.0]` is used only in the body of `modify`), as in that function's local types.
     pub args: Vec<TypeId>,
@@ -439,6 +439,10 @@ pub struct EffectDef {
     /// has type `Type::Handler(base)`, and a table binding of the label holds a handler of the
     /// base. `ops` are the base's.
     pub label_of: Option<EffectId>,
+    /// How the debug display (`dbg`) shows a capability of the effect: `<deferred>`, `<queue>`
+    /// and `<semaphore>` for those of the built-in handlers (`[task.deferred]`, `[task.queue]`,
+    /// `[task.semaphore]`). `None` for every other effect, whose capabilities cannot be shown.
+    pub display: Option<&'static str>,
 }
 
 impl EffectDef {
@@ -450,6 +454,7 @@ impl EffectDef {
             args: Vec::new(),
             ops,
             label_of: None,
+            display: None,
         }
     }
 }
@@ -459,12 +464,12 @@ impl EffectDef {
 /// An operation may have type parameters of its own only in built-in effects (`fork[A]` and
 /// `deferred[A]` of Scope, spec 8.1, 11.2). They are `Type::Param(0..type_params)` in `params` and
 /// `ret`, instantiated per call by `Callee::Op::ty_args`. The type arguments of built-in effects
-/// are sets (`Scope[E, R]`), so such an operation's types contain no other `Type::Param`. A
+/// are sets (`TaskGroup[E, R]`), so such an operation's types contain no other `Type::Param`. A
 /// handler implements a generic operation for every instantiation at once, so its implementation
 /// sees the operation's own type parameters as `Type::Any`.
 ///
 /// Why type parameters rather than `Any` in the `OpDef` itself: so that the value of a call
-/// (`Fiber[Int]` from `s.fork[Int](..)`) has a type the IR alone determines. The type checker
+/// (`Task[Int]` from `tasks.start[Int](..)`) has a type the IR alone determines. The type checker
 /// records the instantiation at the operation reference, so filling `Callee::Op::ty_args` costs
 /// no more than for a direct call.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -527,7 +532,7 @@ pub struct EnumDef {
     /// represent it so the error can be identified at run time.
     pub error: bool,
     /// Whether it is an `@external type` (spec 12.3): an opaque host value with no constructors,
-    /// which Emela only passes around (`Std.Fiber.Fiber` is one too, made by the runtime). Backends
+    /// which Emela only passes around (`Std.Task.Task` is one too, made by the runtime). Backends
     /// represent its values as host handles. An enum without constructors that is not external
     /// has no values.
     pub external: bool,
@@ -541,7 +546,7 @@ pub const OPTION_NONE: usize = 1;
 impl EnumDef {
     /// How the debug display (`dbg`) shows a value of an external type that the runtime holds:
     /// a Semaphore as `<semaphore>` and a Queue as `<queue>` (`[trait.builtin]`,
-    /// `[fiber.semaphore]`, `[fiber.queue]`). `None` for every other type.
+    /// `[task.semaphore]`, `[task.queue]`). `None` for every other type.
     pub fn runtime_display(&self) -> Option<&'static str> {
         if !self.external {
             return None;
@@ -686,11 +691,11 @@ pub enum Type {
     Evidence,
     /// A mutable cell holding a value of the type (the state of `State.run`, `Builtin::CellNew`).
     Cell(TypeId),
-    /// The run-time scope that `FiberOp::Scope` passes to its body and `FiberOp::Fork` and
-    /// `FiberOp::Deferred` take (spec 11.2). Not Scope's capability value, which is a `Handler`.
+    /// The run-time scope that `FiberOp::Scope` passes to its body and `FiberOp::Fork` takes
+    /// (`[task.group]`). Not the capability value of the group, which is a `Handler`.
     FiberScope,
-    /// A value whose type differs per use and is not tracked: inside Scope's handler, the child
-    /// function that fork receives (the `A` of `fork[A]`, spec 11.2) and the handles that
+    /// A value whose type differs per use and is not tracked: inside the handler of a group, the
+    /// task function that start receives (the `A` of `start[A]`, `[task.group]`) and the handles that
     /// `FiberOp::Fork` and `FiberOp::Deferred` return. Only built-in effects have generic
     /// operations (spec 8.1), and lowering builds their handlers. Backends give it a uniform
     /// representation. A handler's implementation of a generic operation sees the operation's own
@@ -1427,86 +1432,94 @@ impl Expr {
 /// operations they follow from the operation. The two that vary carry them in the variant
 /// (`Scope { fails }`, from the body's E, and `Attempt { suspends }`, from `f`'s R).
 ///
-/// Scopes (the `Scope` capability value), fiber handles (`Fiber[A]`), Deferreds, Semaphores,
+/// Run-time scopes of groups, tasks (`Task[A]`), Deferreds, Semaphores,
 /// Queues and causes (`Cause[E]`) are opaque values chosen by the backend. Capability values may
 /// be put in evidence tables with `Expr::Provide`. Exit (`Std.Exit`) and CauseKind (`Std.Cause`)
 /// are represented like user enums, with constructor order given by `EXIT_SUCCESS`,
-/// `EXIT_FAILURE` and `CAUSE_FAIL`, `CAUSE_DIE`, `CAUSE_INTERRUPT`.
+/// `EXIT_FAILURE` and `CAUSE_FAIL`, `CAUSE_DIE`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FiberOp {
-    /// `Fiber.scope(body)` (spec 11.2). `[body]`, where `body` is a function value taking the
-    /// scope capability value. When the body returns a value, the remaining children are
-    /// interrupted, and the value is returned after all children finish. The first failure (Fail,
-    /// Die) of a child or the body is the scope's result. `fails` tells whether the body's (and
-    /// children's) E is not empty.
-    Scope { fails: bool },
-    /// `s.fork(f)` (spec 11.2). `[scope, f]`, where `f` is a parameterless function value run as
-    /// a child fiber. The value is the fiber handle. Not a suspension point (the child starts when
-    /// the parent next suspends).
+    /// The run-time scope of an item of a with that names `Task.Group` or `Task.Background`
+    /// (`[task.group]`, `[task.background]`). `[body]`, where `body` is a function value taking
+    /// the run-time scope; it runs the rest of the with (`lower/fiber.rs`). `fails` tells whether
+    /// the body's (and the tasks') E is not empty.
+    ///
+    /// A group (`background` false): when the body returns a value, the remaining tasks are
+    /// interrupted, and the value is returned after all tasks end. The first failure (Fail, Die)
+    /// of a task or the body is the result, and a failure of a task interrupts its siblings and
+    /// the body.
+    ///
+    /// A background (`background` true): when the body ends, with a value or a failure, the tasks
+    /// are waited for without being interrupted, and the result is the body's. A failure of a task
+    /// (only a defect of `on_failure`, since lowering wraps each task in attempt) stops nothing:
+    /// it becomes the result if the body ended with a value or an error, and a note otherwise.
+    /// When the body unwinds by an interruption, or one arrives while the tasks are waited for,
+    /// the tasks are interrupted.
+    Scope { fails: bool, background: bool },
+    /// `tasks.start(f)` (`[task.group]`). `[scope, f]`, where `f` is a parameterless function
+    /// value run as a task. The value is the task. Not a suspension point (the task starts when
+    /// the starting task next suspends).
     Fork,
-    /// `s.deferred()` (spec 11.7). `[scope]`. The value is an empty Deferred.
+    /// The init of the built-in handler `Deferred` (`[task.deferred]`). `[]`. The value is an
+    /// empty Deferred.
     Deferred,
-    /// `Fiber.join(h)` (spec 11.5). `[fiber]`. The child's value; a defect if the child was
+    /// `Task.join(task)` (`[task.cause]`). `[task]`. The task's value. If the task failed or was
+    /// interrupted (seen only while a release holds off an interruption), the caller unwinds as
     /// interrupted.
     Join,
-    /// `Fiber.await(h)` (spec 11.5). `[fiber]`. A value of the `exit` enum (`Exit[A, {}]`).
-    Await { exit: EnumId },
-    /// `Fiber.interrupt(h)` (spec 11.4). `[fiber]`. Interrupts the child and waits until it has
-    /// unwound. The value is `()`.
-    Interrupt,
-    /// `Exit.attempt(f)` (spec 11.5). `[f]`. Calls `f` on the spot and turns Fail and Die into
+    /// `Exit.attempt(f)` (`[task.cause]`). `[f]`. Calls `f` on the spot and turns Fail and Die into
     /// `Failure` of the `exit` enum. Interrupt is not caught. `suspends` tells whether `f` may
     /// suspend (the same rule as `Callee::Indirect` of `Expr::Call::suspends`).
     Attempt { exit: EnumId, suspends: bool },
-    /// `Deferred.complete(d, value)` (spec 11.7). `[deferred, value]`. The value is a Bool. Not a
+    /// `complete(value)` of a Deferred (`[task.deferred]`). `[deferred, value]`. The value is a Bool. Not a
     /// suspension point.
     Complete,
-    /// `Deferred.await(d)` (spec 11.7). `[deferred]`. Waits until a value is set.
+    /// `await()` of a Deferred (`[task.deferred]`). `[deferred]`. Waits until a value is set.
     DeferredAwait,
-    /// `Deferred.poll(d)` (spec 11.7). `[deferred]`. The value is Prelude's Option
+    /// `poll()` of a Deferred (`[task.deferred]`). `[deferred]`. The value is Prelude's Option
     /// (`Module::option_enum`).
     Poll,
-    /// `s.semaphore(permits)` (spec 11.9). `[scope, permits]`. The value is a new Semaphore with
-    /// `permits` permits; a defect if `permits` is less than 1.
+    /// The init of the built-in handler `Semaphore` (`[task.semaphore]`). `[permits]`. The value
+    /// is a new Semaphore with `permits` permits; a defect if `permits` is less than 1.
     Semaphore,
-    /// `s.queue(capacity)` (spec 11.10). `[scope, capacity]`. The value is a new empty Queue; a
-    /// defect if `capacity` is less than 1.
+    /// The init of the built-in handler `Queue` (`[task.queue]`). `[capacity]`. The value is a new
+    /// empty Queue; a defect if `capacity` is less than 1.
     Queue,
-    /// Waits until `n` permits of the semaphore are free and takes them (spec 11.9).
-    /// `[semaphore, n]`. The value is `()`. It is the init of the `with` that
-    /// `Semaphore.with_permits` lowers to, whose release is `Release`: a fiber interrupted while it
-    /// waits takes no permit. Defects name `with_permits`.
+    /// Waits until `n` permits of the semaphore are free and takes them (`[task.semaphore]`).
+    /// `[semaphore, n]`. The value is `()`. It is the init of the handler member `Permits`, whose
+    /// release is `Release`: a fiber interrupted while it waits takes no permit. Defects name
+    /// `Permits`.
     Acquire,
-    /// Takes `n` permits if they are free and no fiber waits (spec 11.9). `[semaphore, n]`. The
-    /// value is a Bool. Not a suspension point. Defects name `try_with_permits`.
+    /// Takes `n` permits if they are free and no fiber waits (`[task.semaphore]`).
+    /// `[semaphore, n]`. The value is a Bool. Not a suspension point. It is the init of the
+    /// handler member `TryPermits`, and defects name it.
     TryAcquire,
-    /// Gives `n` permits back (spec 11.9). `[semaphore, n]`. The value is `()`. Not a suspension
-    /// point.
+    /// Gives `n` permits back (`[task.semaphore]`). `[semaphore, n]`. The value is `()`. Not a
+    /// suspension point.
     Release,
-    /// `Semaphore.available(s)` (spec 11.9). `[semaphore]`. The value is an Int.
+    /// `available()` of a Semaphore (`[task.semaphore]`). `[semaphore]`. The value is an Int.
     Available,
-    /// `Queue.offer(q, value)` without the failure (spec 11.10). `[queue, value]`. Waits while the
-    /// queue is full. The value is a Bool: False when the queue is closed (lowering turns it into
-    /// the failure `QueueClosed`).
+    /// `offer(value)` of a Queue without the failure (`[task.queue]`). `[queue, value]`. Waits
+    /// while the queue is full. The value is a Bool: False when the queue is closed (lowering
+    /// turns it into the failure `QueueClosed`).
     Offer,
-    /// `Queue.take(q)` without the failure (spec 11.10). `[queue]`. Waits while the queue is empty.
-    /// The value is Prelude's Option: `None` when the queue is closed and empty.
+    /// `take()` of a Queue without the failure (`[task.queue]`). `[queue]`. Waits while the queue
+    /// is empty. The value is Prelude's Option: `None` when the queue is closed and empty.
     Take,
-    /// `Queue.try_offer(q, value)` (spec 11.10). `[queue, value]`. The value is a Bool.
+    /// `try_offer(value)` of a Queue (`[task.queue]`). `[queue, value]`. The value is a Bool.
     TryOffer,
-    /// `Queue.poll(q)` (spec 11.10). `[queue]`. The value is Prelude's Option.
+    /// `poll()` of a Queue (`[task.queue]`). `[queue]`. The value is Prelude's Option.
     QueuePoll,
-    /// `Queue.size(q)` (spec 11.10). `[queue]`. The value is an Int.
+    /// `size()` of a Queue (`[task.queue]`). `[queue]`. The value is an Int.
     Size,
-    /// `Queue.close(q)` (spec 11.10). `[queue]`. The value is `()`.
+    /// `close()` of a Queue (`[task.queue]`). `[queue]`. The value is `()`.
     Close,
-    /// `Cause.kind(c)` (spec 11.5). `[cause]`. The value is of the `kind` enum (CauseKind).
+    /// `Cause.kind(c)` (`[task.cause]`). `[cause]`. The value is of the `kind` enum (CauseKind).
     CauseKind { kind: EnumId },
-    /// `Cause.to_string(c)` (spec 11.5). `[cause]`. `error: …`, `defect: …` or `interrupted`.
+    /// `Cause.to_string(c)` (`[task.cause]`). `[cause]`. `error: …` or `defect: …`.
     CauseToString,
-    /// `Cause.raise(c)` (spec 11.5). `[cause]`. Fail becomes a failure, Die a defect, and Interrupt
-    /// unwinds the current fiber's interruption. The type is Never, but it may fail. `fails` tells
-    /// whether the cause's E is not empty.
+    /// `Cause.raise(c)` (`[task.cause]`). `[cause]`. Fail becomes a failure and Die a defect. The
+    /// type is Never, but it may fail. `fails` tells whether the cause's E is not empty.
     CauseRaise { fails: bool },
 }
 
@@ -1518,16 +1531,13 @@ pub const EXIT_FAILURE: usize = 1;
 pub const CAUSE_FAIL: usize = 0;
 /// The index of `Die` in `CauseKind`.
 pub const CAUSE_DIE: usize = 1;
-/// The index of `Interrupt` in `CauseKind`.
-pub const CAUSE_INTERRUPT: usize = 2;
 
 impl FiberOp {
     pub fn arity(self) -> usize {
         match self {
+            FiberOp::Deferred => 0,
             FiberOp::Fork
             | FiberOp::Complete
-            | FiberOp::Semaphore
-            | FiberOp::Queue
             | FiberOp::Acquire
             | FiberOp::TryAcquire
             | FiberOp::Release
@@ -1541,8 +1551,6 @@ impl FiberOp {
         match self {
             FiberOp::Scope { .. }
             | FiberOp::Join
-            | FiberOp::Await { .. }
-            | FiberOp::Interrupt
             | FiberOp::DeferredAwait
             | FiberOp::Acquire
             | FiberOp::Offer
@@ -1570,7 +1578,7 @@ impl FiberOp {
     /// Whether it may fail (whether the result must be checked).
     pub fn fails(self) -> bool {
         match self {
-            FiberOp::Scope { fails } | FiberOp::CauseRaise { fails } => fails,
+            FiberOp::Scope { fails, .. } | FiberOp::CauseRaise { fails } => fails,
             _ => false,
         }
     }
@@ -1582,8 +1590,6 @@ impl FiberOp {
             FiberOp::Fork => "fork",
             FiberOp::Deferred => "deferred",
             FiberOp::Join => "join",
-            FiberOp::Await { .. } => "await",
-            FiberOp::Interrupt => "interrupt",
             FiberOp::Attempt { .. } => "attempt",
             FiberOp::Complete => "complete",
             FiberOp::DeferredAwait => "deferred_await",
@@ -1663,16 +1669,12 @@ impl WithBind {
 
 /// The cleanup when leaving a `with` (spec 8.4, 14.2).
 ///
-/// After evaluating `body` and discarding its value, the bound handler value is marked released.
-/// Calling its operations afterwards is a defect (`handler <name> was used after release`,
-/// spec 8.6). `body` may refer to the variables of the same `with` up to and including this
-/// binding. `body` cannot fail (release's E is empty, spec 8.4) but may suspend; the IR does not
-/// check that it cannot fail.
-///
-/// The use-after-release check is only on bindings with release. A stateless handler value has
-/// none, so it keeps working after it leaves its `with`. Lowering gives a release to every
-/// stateful handler (fields, init or release; `()` when release is not written), so that all of
-/// them are checked (`[effect.escape]`).
+/// After evaluating `body` and discarding its value, the bound handler value is marked released:
+/// the backends remember its name for the note of a release that fails while another defect
+/// unwinds (spec 14.4). Using a handler after its release cannot be written: the types keep a
+/// capability inside its `with` (`[effect.escape]`). `body` may refer to the variables of the
+/// same `with` up to and including this binding. `body` cannot fail (release's E is empty, spec
+/// 8.4) but may suspend; the IR does not check that it cannot fail.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Release {
     /// The handler's name (as in source), used in the use-after-release defect message.

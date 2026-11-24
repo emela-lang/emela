@@ -2,16 +2,16 @@
 fn f(xs: List[Int], pairs: List[(String, Int)], ids: List[Int]) {
   ys = xs |> List.map(|x| x + 1)
   total = List.fold(xs, 0, |acc, x| acc + x)
-  t = Fiber.fork(|| fetch(1))
+  t = tasks.start(|| fetch(1))
   keys = List.map(pairs, |(key, _)| key)
   doubled = List.map(ids, |id: Int| id * 2)
   sum = |(a, b): (Int, Int)| a + b
   run = |f: (fn() -> Int fails Timeout | Refused)| f()
   one = |f: fn() -> Int fails Timeout| f()
   h = |h: Handler[Timeout | Refused, Db]| h
-  scoped = Fiber.scope(|| {
-    a = Fiber.fork(|| fetch(1))
-    Fiber.join(a)
+  scoped = Exit.attempt(|| {
+    a = tasks.start(|| fetch(1))
+    a.join()
   })
   vs = List.map(results, |r| r match {
     Ok(v) -> v

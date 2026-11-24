@@ -4,6 +4,7 @@ description = "Lexer, parser and lossless syntax tree, including error recovery"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autotests = false
 
 [dependencies]
 rowan.workspace = true
@@ -12,3 +13,7 @@ logos.workspace = true
 [dev-dependencies]
 insta.workspace = true
 proptest.workspace = true
+
+[[test]]
+name = "tests"
+path = "tests/main.rs"

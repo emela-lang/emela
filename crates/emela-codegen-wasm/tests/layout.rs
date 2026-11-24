@@ -4,7 +4,7 @@
 //! The output is a WASI 0.3 component, so the memory, data and global sections are in the core
 //! module embedded in the component.
 
-mod common;
+use crate::common;
 use common::*;
 use emela_codegen_wasm::layout;
 use wasmparser::{DataKind, Operator, Parser, Payload, ValType};

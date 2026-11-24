@@ -1,0 +1,705 @@
+# `Duration.parse` and `Duration.to_iso8601` (`[api.std.duration]`): the two forms, the names of
+# the units, the order of the components, the sign, the fractions, the exact sum truncated toward
+# 0, the range of Duration, the limit on the length, and the round trips through `to_string` and
+# `to_iso8601`.
+#
+# The expected values were computed apart from the implementation, with the integers of Python.
+
+import Brix.Pbt.Gen
+import Brix.Pbt.Gen.{Gen}
+import Brix.Pbt.Property
+import Std.Duration.{Duration}
+
+fn ms(n: Int64) -> Duration {
+  Duration.milliseconds(n)
+}
+
+fn int64_max() -> Int64 {
+  9223372036854775807
+}
+
+# A literal is checked as a positive number, so the least Int64 is written as a difference.
+fn int64_min() -> Int64 {
+  0 - 9223372036854775807 - 1
+}
+
+## The Duration written in `s`, or None if `parse` fails. A failure MUST carry the whole input.
+fn parsed(s: String) -> Option[Duration] {
+  Some(Duration.parse(s)) escape {
+    ParseError(input:) -> {
+      assert input == s
+      None
+    }
+  }
+}
+
+fn reads(s: String, expected: Duration) -> () {
+  assert parsed(s) == Some(expected)
+}
+
+fn rejects(s: String) -> () {
+  assert parsed(s) == None
+}
+
+## `count` copies of `s`, by doubling, so that a long text does not need a deep recursion.
+fn repeat(s: String, count: Int) -> String {
+  if count <= 0 {
+    ""
+  } else {
+    half = repeat(s, count / 2)
+    if count % 2 == 0 { "#{half}#{half}" } else { "#{half}#{half}#{s}" }
+  }
+}
+
+# --- The examples of the proposal ---
+
+@test
+fn reads_the_forms_of_the_proposal() {
+  d = ms(5400000)
+  assert Duration.parse("1h30m") == d
+  assert Duration.parse("1.5h") == d
+  assert Duration.parse("1h 30min") == d
+  assert Duration.parse("PT1H30M") == d
+  assert Duration.parse(d.to_string()) == d
+  assert d.to_string() == "5400000ms"
+  assert d.to_iso8601() == "PT1H30M"
+}
+
+@test
+fn reads_the_examples_of_the_table() {
+  reads("1h30m", ms(5400000))
+  reads("1.5s", ms(1500))
+  reads("2h 30min", ms(9000000))
+  reads("30 seconds", ms(30000))
+  reads("PT1H30M", ms(5400000))
+  reads("-PT1.5S", ms(-1500))
+}
+
+# --- The units ---
+
+@test
+fn every_name_of_every_unit_is_read() {
+  ["h", "hr", "hour", "hours"].each(|u| reads("2#{u}", ms(7200000)))
+  ["m", "min", "minute", "minutes"].each(|u| reads("2#{u}", ms(120000)))
+  ["s", "sec", "second", "seconds"].each(|u| reads("2#{u}", ms(2000)))
+  ["ms", "msec", "millisecond", "milliseconds"].each(|u| reads("2#{u}", ms(2)))
+  ["us", "\u{b5}s", "\u{3bc}s", "usec", "microsecond", "microseconds"].each(|u| {
+    reads("2000#{u}", ms(2))
+  })
+  ["ns", "nsec", "nanosecond", "nanoseconds"].each(|u| reads("2000000#{u}", ms(2)))
+}
+
+@test
+fn both_micro_signs_are_read() {
+  # U+00B5 MICRO SIGN and U+03BC GREEK SMALL LETTER MU.
+  reads("1500\u{b5}s", ms(1))
+  reads("1500\u{3bc}s", ms(1))
+  reads("1s 500ms 2000\u{b5}s", ms(1502))
+  reads("1s 500ms 2000\u{3bc}s", ms(1502))
+  # Other letters that look alike are not read.
+  rejects("1500\u{39c}s")
+  rejects("1500\u{1d6cd}s")
+}
+
+@test
+fn a_unit_name_is_read_whatever_the_number_before_it() {
+  reads("1 seconds", ms(1000))
+  reads("2 second", ms(2000))
+  reads("1.5 hour", ms(5400000))
+  reads("0 hours", ms(0))
+  reads("1 hours 1 minute", ms(3660000))
+}
+
+@test
+fn the_units_are_lowercase_only() {
+  rejects("1H")
+  rejects("30S")
+  rejects("1M")
+  rejects("1Hour")
+  rejects("1MS")
+  rejects("1Ms")
+  rejects("1US")
+  rejects("1h30M")
+}
+
+@test
+fn days_weeks_months_and_years_are_not_read() {
+  rejects("1d")
+  rejects("1day")
+  rejects("2days")
+  rejects("2w")
+  rejects("2week")
+  rejects("1mo")
+  rejects("1month")
+  rejects("1y")
+  rejects("1year")
+  rejects("1d2h")
+  rejects("P1D")
+  rejects("P1W")
+  rejects("P1M")
+  rejects("P1Y")
+  rejects("P1DT2H")
+  rejects("P0DT2H")
+  rejects("PT1D")
+}
+
+@test
+fn the_plurals_of_the_abbreviations_are_not_read() {
+  rejects("2hrs")
+  rejects("2mins")
+  rejects("2secs")
+  rejects("2msecs")
+  rejects("2usecs")
+  rejects("2nsecs")
+}
+
+@test
+fn other_names_are_not_read() {
+  rejects("1")
+  rejects("1x")
+  rejects("1 ")
+  rejects("1hour_")
+  rejects("1sec.")
+  rejects("1mn")
+  rejects("1hh")
+  rejects("1hours1")
+  rejects("1\u{b5}")
+  rejects("1u")
+  rejects("1\u{b5}sec")
+}
+
+# --- `unit_form`: the components ---
+
+@test
+fn the_length_is_the_sum_of_the_components() {
+  reads("1h2m3s4ms", ms(3723004))
+  reads("1h 2m 3s 4ms 5000us 6000000ns", ms(3723015))
+  reads("1hour 2minutes 3seconds 4milliseconds", ms(3723004))
+  reads("1hr 2min 3sec 4msec 5000usec 6000000nsec", ms(3723015))
+  reads("2m3s", ms(123000))
+  reads("3s4ms", ms(3004))
+  reads("0h0m0s", ms(0))
+  reads("48h0m0s", ms(172800000))
+}
+
+@test
+fn zero_alone_is_the_length_0() {
+  reads("0", ms(0))
+  reads("-0", ms(0))
+  reads("+0", ms(0))
+  reads("0s", ms(0))
+  reads("0ms", ms(0))
+  reads("-0ms", ms(0))
+  # Another number needs a unit.
+  rejects("00")
+  rejects("1")
+  rejects("0.0")
+  rejects("0 ")
+}
+
+@test
+fn the_components_go_from_the_longest_unit_to_the_shortest() {
+  rejects("30s1h")
+  rejects("30m1h")
+  rejects("1ms1s")
+  rejects("1ns1us")
+  rejects("1us1ms")
+  rejects("1s 1h")
+}
+
+@test
+fn each_unit_is_written_at_most_once() {
+  rejects("1s2s")
+  rejects("1m1min")
+  rejects("1h1hour")
+  rejects("1ms 1msec")
+  rejects("1\u{b5}s1us")
+  rejects("1\u{b5}s1\u{3bc}s")
+  rejects("1ns1nsec")
+}
+
+@test
+fn a_number_has_digits() {
+  rejects("h")
+  rejects("s")
+  rejects(".5s")
+  rejects("1.s")
+  rejects("1..5s")
+  rejects("1.5.5s")
+  rejects("1h.5m")
+  rejects("1e3ms")
+  rejects("0x10s")
+  rejects("1_000ms")
+  # Only the ASCII digits: FULLWIDTH DIGIT ONE, ARABIC-INDIC DIGIT ONE.
+  rejects("\u{ff11}s")
+  rejects("\u{661}s")
+  rejects("1.\u{ff11}s")
+}
+
+@test
+fn leading_zeros_are_read() {
+  reads("01h", ms(3600000))
+  reads("0001s", ms(1000))
+  reads("00000000000000000000000000000001ms", ms(1))
+  reads("PT00001S", ms(1000))
+}
+
+# --- Whitespace ---
+
+@test
+fn one_space_may_come_between_a_number_and_its_unit_and_between_components() {
+  reads("2 h 30 min", ms(9000000))
+  reads("2h 30min", ms(9000000))
+  reads("2 h30 min", ms(9000000))
+  reads("1 s 500 ms", ms(1500))
+  reads("1.5 s", ms(1500))
+}
+
+@test
+fn no_more_than_one_space_is_read() {
+  rejects("2h  30min")
+  rejects("2  h")
+  rejects("2 h  30 min")
+}
+
+@test
+fn no_other_whitespace_is_read() {
+  rejects("2\th")
+  rejects("2h\t30min")
+  rejects("2h\n30min")
+  # NO-BREAK SPACE, IDEOGRAPHIC SPACE
+  rejects("2\u{a0}h")
+  rejects("2h\u{3000}30min")
+}
+
+@test
+fn no_whitespace_is_allowed_around_the_text() {
+  rejects(" 1h")
+  rejects("1h ")
+  rejects("1h\n")
+  rejects("\t1h")
+  rejects("\u{feff}1h")
+  rejects(" PT1H")
+  rejects("PT1H ")
+  rejects(" 0")
+  rejects("")
+  rejects(" ")
+}
+
+@test
+fn no_whitespace_is_allowed_after_the_sign() {
+  rejects("- 1h")
+  rejects("+ 1h")
+  rejects("- PT1H")
+  rejects("- 0")
+}
+
+@test
+fn no_whitespace_is_allowed_in_iso_form() {
+  rejects("P T1H")
+  rejects("PT 1H")
+  rejects("PT1 H")
+  rejects("PT1H 30M")
+  rejects("PT1H30M ")
+}
+
+# --- `iso_form` ---
+
+@test
+fn iso_form_has_hours_minutes_and_seconds() {
+  reads("PT1H", ms(3600000))
+  reads("PT1M", ms(60000))
+  reads("PT1S", ms(1000))
+  reads("PT1H30M", ms(5400000))
+  reads("PT1H1S", ms(3601000))
+  reads("PT1M1S", ms(61000))
+  reads("PT1H2M3S", ms(3723000))
+  reads("PT1H2M3.004S", ms(3723004))
+  reads("PT0S", ms(0))
+  reads("PT48H", ms(172800000))
+  reads("PT90M", ms(5400000))
+  reads("PT3600S", ms(3600000))
+}
+
+@test
+fn the_letters_of_iso_form_are_read_in_either_case() {
+  reads("pt1h30m", ms(5400000))
+  reads("Pt1H30m", ms(5400000))
+  reads("pT1h2M3s", ms(3723000))
+  reads("pt1.5s", ms(1500))
+  reads("-pt1s", ms(-1000))
+}
+
+@test
+fn iso_form_needs_a_component_after_pt() {
+  rejects("PT")
+  rejects("-PT")
+  rejects("P")
+  rejects("T1H")
+  rejects("P1H")
+  rejects("P1S")
+  rejects("PTH")
+  rejects("PT.5S")
+  rejects("PT1")
+  rejects("PT1.5")
+}
+
+@test
+fn the_components_of_iso_form_are_in_order_and_at_most_once() {
+  rejects("PT1M1H")
+  rejects("PT1S1M")
+  rejects("PT1S1H")
+  rejects("PT1H1H")
+  rejects("PT1S1S")
+  rejects("PT1H30M1H")
+}
+
+@test
+fn iso_form_has_no_other_units() {
+  rejects("PT1MS")
+  rejects("PT1ms")
+  rejects("PT1US")
+  rejects("PT1hour")
+  rejects("PT1min")
+  rejects("PT1sec")
+}
+
+@test
+fn the_forms_do_not_mix() {
+  rejects("PT1h 30m")
+  rejects("PT1H30min")
+  rejects("1hPT30M")
+  rejects("1h30M")
+}
+
+# --- The sign ---
+
+@test
+fn a_sign_applies_to_the_whole_length() {
+  reads("-1h30m", ms(-5400000))
+  reads("-PT1H30M", ms(-5400000))
+  reads("+1h30m", ms(5400000))
+  reads("+PT1H30M", ms(5400000))
+  reads("-1h 30min", ms(-5400000))
+  reads("-1.5s", ms(-1500))
+  reads("-1s 500ms", ms(-1500))
+}
+
+@test
+fn a_component_has_no_sign_of_its_own() {
+  rejects("PT-1.3S")
+  rejects("PT1H-30M")
+  rejects("PT+1H")
+  rejects("P-T1H")
+  rejects("1h-30m")
+  rejects("1h+30m")
+  rejects("1h -30m")
+  rejects("--1h")
+  rejects("+-1h")
+  rejects("-+1h")
+  rejects("--PT1H")
+  rejects("-")
+  rejects("+")
+}
+
+# --- Fractions ---
+
+@test
+fn only_the_last_component_may_have_a_fraction() {
+  reads("1h30.5m", ms(5430000))
+  reads("PT1H30.5M", ms(5430000))
+  reads("1h30m1.5s", ms(5401500))
+  reads("1s1.5ms", ms(1001))
+  rejects("1.5h30m")
+  rejects("PT1.5H30M")
+  rejects("1.5m30s")
+  rejects("PT1.5M30S")
+  rejects("PT1.5H1S")
+  rejects("1.5s500ms")
+  rejects("1.5ms500us")
+  rejects("1.5us500ns")
+}
+
+@test
+fn the_fraction_of_an_hour_or_a_minute_has_at_most_two_digits() {
+  reads("1.25h", ms(4500000))
+  reads("2.5min", ms(150000))
+  reads("PT1.25H", ms(4500000))
+  reads("PT2.5M", ms(150000))
+  reads("0.01h", ms(36000))
+  reads("0.01m", ms(600))
+  reads("0.99h", ms(3564000))
+  reads("0.99m", ms(59400))
+  reads("1h0.01m", ms(3600600))
+  rejects("1.125h")
+  rejects("1.125min")
+  rejects("PT1.125H")
+  rejects("PT1.125M")
+  rejects("1.000h")
+  rejects("1h1.000m")
+}
+
+@test
+fn the_fraction_of_a_second_or_a_shorter_unit_may_have_any_number_of_digits() {
+  reads("1.5s", ms(1500))
+  reads("1.500s", ms(1500))
+  reads("1.500000000s", ms(1500))
+  reads("3.000001s", ms(3000))
+  reads("1h15m30.918273645s", ms(4530918))
+  reads("PT1H15M30.918273645S", ms(4530918))
+  reads("140.884ms", ms(140))
+  reads("1500.5us", ms(1))
+  reads("1500000.5ns", ms(1))
+  reads("1.123456789123456789s", ms(1123))
+}
+
+@test
+fn fractions_of_twenty_digits_or_more_are_read() {
+  reads("1.00000000000000000001s", ms(1000))
+  reads("0.99999999999999999999s", ms(999))
+  reads("PT0.99999999999999999999S", ms(999))
+  reads("0.99999999999999999999ms", ms(0))
+  reads("999.99999999999999999999us", ms(0))
+  reads("1000.00000000000000000000us", ms(1))
+  reads("-0.99999999999999999999999999999s", ms(-999))
+}
+
+@test
+fn a_comma_is_not_read() {
+  rejects("PT1,5S")
+  rejects("1,5s")
+  rejects("1h,30m")
+  rejects("1h, 30m")
+  rejects("1,000ms")
+}
+
+# --- The exact sum, truncated toward 0 ---
+
+@test
+fn the_digits_below_the_millisecond_are_dropped() {
+  reads("1.0009s", ms(1000))
+  reads("1.5us", ms(0))
+  reads("-0.0005s", ms(0))
+  reads("0.9999s", ms(999))
+  reads("-0.9999s", ms(-999))
+  reads("999us", ms(0))
+  reads("1999us", ms(1))
+  reads("-1999us", ms(-1))
+  reads("999999ns", ms(0))
+  reads("1999999ns", ms(1))
+  reads("1.9ms", ms(1))
+  reads("-1.9ms", ms(-1))
+}
+
+@test
+fn the_length_is_the_exact_sum_before_it_is_truncated() {
+  # The parts below the millisecond of several components add up to whole milliseconds.
+  reads("500us 500000ns", ms(1))
+  reads("999us 1000ns", ms(1))
+  reads("1us 999000ns", ms(1))
+  reads("1us 998999ns", ms(0))
+  reads("1999us 1000000ns", ms(2))
+  reads("1999us 1999999ns", ms(3))
+  reads("1ms 999us 1000ns", ms(2))
+  reads("-500us 500000ns", ms(-1))
+  reads("-1us 998999ns", ms(0))
+  reads("999us 1000.9ns", ms(1))
+  reads("999us 999.9ns", ms(0))
+}
+
+@test
+fn exact_fractions_of_an_hour_and_a_minute() {
+  # 0.01 hour is 36000 milliseconds, 0.01 minute 600.
+  reads("1.01h", ms(3636000))
+  reads("1.1h", ms(3960000))
+  reads("PT0.05H", ms(180000))
+  reads("1.01m", ms(60600))
+  reads("PT0.05M", ms(3000))
+}
+
+# --- The range ---
+
+@test
+fn the_ends_of_duration_are_read() {
+  reads("9223372036854775807ms", ms(int64_max()))
+  reads("-9223372036854775808ms", ms(int64_min()))
+  reads("+9223372036854775807ms", ms(int64_max()))
+  reads("PT2562047788015H12M55.807S", ms(int64_max()))
+  reads("-PT2562047788015H12M55.808S", ms(int64_min()))
+  reads("2562047788015h12m55.807s", ms(int64_max()))
+  reads("-2562047788015h12m55s808ms", ms(int64_min()))
+  reads("9223372036854775807999us", ms(int64_max()))
+  reads("-9223372036854775808999999ns", ms(int64_min()))
+  # The digits below the millisecond are dropped at the ends too.
+  reads("9223372036854775807.999ms", ms(int64_max()))
+  reads("-9223372036854775808.999ms", ms(int64_min()))
+  reads("PT2562047788015H12M55.8079999S", ms(int64_max()))
+  reads("-PT2562047788015H12M55.8089999S", ms(int64_min()))
+  reads("9223372036854775807ms 999us 999ns", ms(int64_max()))
+}
+
+@test
+fn the_lengths_just_outside_the_ends_fail() {
+  rejects("9223372036854775808ms")
+  rejects("-9223372036854775809ms")
+  rejects("PT2562047788015H12M55.808S")
+  rejects("-PT2562047788015H12M55.809S")
+  rejects("2562047788015h12m56s")
+  rejects("9223372036854775808000us")
+  rejects("-9223372036854775809000000ns")
+  # The parts below the millisecond carry into the milliseconds.
+  rejects("9223372036854775807ms 1000us")
+  rejects("9223372036854775807ms 999us 1000ns")
+  rejects("-9223372036854775808ms 500us 500000ns")
+}
+
+@test
+fn a_length_outside_the_range_fails_however_many_digits_it_has() {
+  rejects("2562047788016h")
+  rejects("153722867280913m")
+  rejects("9223372036854776s")
+  rejects("18446744073709551616ms")
+  rejects("18446744073709551615ms")
+  rejects("100000000000000000000000000000000000000000ms")
+  rejects("-100000000000000000000000000000000000000000ms")
+  rejects("100000000000000000000000000000000000000000h")
+  rejects("PT100000000000000000000000000000000000000000S")
+  # Numbers that would wrap around to a length in the range.
+  rejects("18446744073709551616ms")
+  rejects("18446744073709553616ms")
+  rejects("5124095576030431h")
+}
+
+@test
+fn a_sum_outside_the_range_fails_although_each_component_is_in_it() {
+  rejects("2562047788015h 9223372036854775807ms")
+  rejects("PT2562047788015H2562047788015H")
+  rejects("1h 9223372036854775807ms")
+  rejects("-1h 9223372036854775807ms")
+}
+
+# --- The limit on the length ---
+
+@test
+fn a_text_of_256_code_points_is_read() {
+  # 4 + 1 + 250 + 1 = 256
+  text = "1000.#{repeat("9", 250)}s"
+  reads(text, ms(1000999))
+  # A micro sign is two bytes: 257 bytes, 256 code points.
+  micro = "1000.#{repeat("9", 249)}\u{b5}s"
+  reads(micro, ms(1))
+}
+
+@test
+fn a_text_of_257_code_points_fails() {
+  rejects("1000.#{repeat("9", 251)}s")
+  rejects("1000.#{repeat("9", 250)}\u{3bc}s")
+  rejects("#{repeat("0", 255)}1s")
+}
+
+@test
+fn a_very_long_text_fails() {
+  rejects("1.#{repeat("0", 100000)}s")
+  rejects(repeat("\u{3bc}", 300))
+}
+
+# --- `to_string` ---
+
+@test
+fn to_string_writes_the_milliseconds() {
+  assert ms(0).to_string() == "0ms"
+  assert ms(1500).to_string() == "1500ms"
+  assert ms(-1500).to_string() == "-1500ms"
+  assert ms(5400000).to_string() == "5400000ms"
+  assert ms(int64_max()).to_string() == "9223372036854775807ms"
+  assert ms(int64_min()).to_string() == "-9223372036854775808ms"
+}
+
+# --- `to_iso8601` ---
+
+@test
+fn to_iso8601_writes_the_examples() {
+  assert ms(5400000).to_iso8601() == "PT1H30M"
+  assert ms(1500).to_iso8601() == "PT1.5S"
+  assert ms(-500).to_iso8601() == "-PT0.5S"
+  assert ms(172800000).to_iso8601() == "PT48H"
+  assert ms(60001).to_iso8601() == "PT1M0.001S"
+  assert ms(3600500).to_iso8601() == "PT1H0.5S"
+  assert ms(0).to_iso8601() == "PT0S"
+}
+
+@test
+fn to_iso8601_at_chosen_lengths() {
+  assert ms(1).to_iso8601() == "PT0.001S"
+  assert ms(-1).to_iso8601() == "-PT0.001S"
+  assert ms(999).to_iso8601() == "PT0.999S"
+  assert ms(-999).to_iso8601() == "-PT0.999S"
+  assert ms(1000).to_iso8601() == "PT1S"
+  assert ms(-1000).to_iso8601() == "-PT1S"
+  assert ms(10).to_iso8601() == "PT0.01S"
+  assert ms(120).to_iso8601() == "PT0.12S"
+  assert ms(59999).to_iso8601() == "PT59.999S"
+  assert ms(3599999).to_iso8601() == "PT59M59.999S"
+  assert ms(3600000).to_iso8601() == "PT1H"
+  assert ms(3601000).to_iso8601() == "PT1H1S"
+  assert ms(-5400000).to_iso8601() == "-PT1H30M"
+}
+
+@test
+fn to_iso8601_writes_the_ends() {
+  assert ms(int64_max()).to_iso8601() == "PT2562047788015H12M55.807S"
+  assert ms(int64_min()).to_iso8601() == "-PT2562047788015H12M55.808S"
+  assert ms(int64_max() - 1).to_iso8601() == "PT2562047788015H12M55.806S"
+  assert ms(int64_min() + 1).to_iso8601() == "-PT2562047788015H12M55.807S"
+}
+
+# --- The round trips ---
+
+fn round_trips(n: Int64) -> () fails ParseError {
+  assert Duration.parse(ms(n).to_string()) == ms(n)
+  assert Duration.parse(ms(n).to_iso8601()) == ms(n)
+}
+
+@test
+fn reads_back_what_to_string_and_to_iso8601_write_at_chosen_lengths() {
+  lengths: List[Int64] = [
+    0,
+    1,
+    -1,
+    999,
+    -999,
+    1000,
+    -1000,
+    1500,
+    -1500,
+    5400000,
+    -5400000,
+    172800000,
+    int64_max(),
+    int64_min(),
+    int64_max() - 1,
+    int64_min() + 1,
+  ]
+  lengths.each(round_trips)
+}
+
+# Every Int64: the high and the low 32 bits from two Ints.
+fn int64s() -> Gen[Int64] {
+  Gen.pair(Gen.int(), Gen.int())
+    |> Gen.map(|(high, low)| {
+      Int64.bit_or(
+        Int64.shift_left(Int64.from_int(high), 32),
+        Int64.bit_and(Int64.from_int(low), 4294967295),
+      )
+    })
+}
+
+@test
+fn reads_back_what_to_string_and_to_iso8601_write_for_every_duration() {
+  Property.check(int64s(), round_trips)
+}
+
+@test
+fn reads_back_what_to_string_and_to_iso8601_write_for_short_lengths() {
+  Property.check(Gen.int(), |n| round_trips(Int64.from_int(n)))
+}

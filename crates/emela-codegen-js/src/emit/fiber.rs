@@ -1,22 +1,20 @@
 //! Emits the fiber operations (spec chapter 11).
 //!
-//! Each operation is a call of a runtime function. Operations that wait (`Fiber.scope`, join,
-//! await, interrupt, `Deferred.await`, acquire, offer, take) are generators or requests handled by
-//! the scheduler, so
-//! they only appear in generators:
+//! Each operation is a call of a runtime function. Operations that wait (the run-time scope of a
+//! group or a background, join, `Deferred.await`, acquire, offer, take) are generators or requests
+//! handled by the scheduler, so they only appear in generators:
 //!
 //! ```js
-//! const $t0 = (yield* $scope((function* (s$1) { … })));   // Fiber.scope
-//! const a$2 = $fork(s$1, (function* () { … }));            // s.fork(f)
-//! const v$3 = (yield $join(a$2));                          // Fiber.join(a)
+//! const $t0 = (yield* $scope((function* (s$1) { … })));   // with tasks = Task.Group
+//! const a$2 = $fork(s$1, (function* () { … }));            // tasks.start(f)
+//! const v$3 = (yield $join(a$2));                          // a.join()
 //! ```
 //!
 //! `Exit.attempt` follows the rules of a function value call: `$attempt` returns a generator only
 //! when `f` does.
 
 use emela_core::{
-    CAUSE_DIE, CAUSE_FAIL, CAUSE_INTERRUPT, EXIT_FAILURE, EXIT_SUCCESS, EnumId, Expr, FiberOp,
-    VariantFields,
+    CAUSE_DIE, CAUSE_FAIL, EXIT_FAILURE, EXIT_SUCCESS, EnumId, Expr, FiberOp, VariantFields,
 };
 
 use super::Emitter;
@@ -31,7 +29,7 @@ impl Emitter<'_> {
             op.name()
         );
         match op {
-            FiberOp::Await { exit } | FiberOp::Attempt { exit, .. } => self.check_exit(exit),
+            FiberOp::Attempt { exit, .. } => self.check_exit(exit),
             FiberOp::CauseKind { kind } => self.check_cause_kind(kind),
             _ => {}
         }
@@ -39,12 +37,11 @@ impl Emitter<'_> {
         let vs = self.values_in_order(&es);
         let vs = vs.join(", ");
         let (f, waits) = match op {
+            // A background passes the flag after the body (`$scope`).
             FiberOp::Scope { .. } => ("$scope", Wait::Generator),
             FiberOp::Fork => ("$fork", Wait::No),
             FiberOp::Deferred => ("$deferred", Wait::No),
             FiberOp::Join => ("$join", Wait::Request),
-            FiberOp::Await { .. } => ("$fiberAwait", Wait::Request),
-            FiberOp::Interrupt => ("$interrupt", Wait::Request),
             FiberOp::Attempt { suspends, .. } => {
                 let call = format!("{}({vs})", self.rt("$attempt"));
                 if !suspends {
@@ -74,7 +71,13 @@ impl Emitter<'_> {
             FiberOp::CauseToString => ("$causeToString", Wait::No),
             FiberOp::CauseRaise { .. } => ("$causeRaise", Wait::No),
         };
-        let call = format!("{}({vs})", self.rt(f));
+        // A background passes the flag after the body (`$scope`).
+        let call = match op {
+            FiberOp::Scope {
+                background: true, ..
+            } => format!("{}({vs}, true)", self.rt(f)),
+            _ => format!("{}({vs})", self.rt(f)),
+        };
         if waits != Wait::No {
             // These require Async, so R is never Immediate here.
             assert!(
@@ -103,8 +106,8 @@ impl Emitter<'_> {
     /// The runtime returns `CauseKind` values as `{ $tag: k }`.
     fn check_cause_kind(&self, kind: EnumId) {
         let def = &self.m.enums[kind];
-        let ok = def.variants.len() == 3
-            && [CAUSE_FAIL, CAUSE_DIE, CAUSE_INTERRUPT]
+        let ok = def.variants.len() == 2
+            && [CAUSE_FAIL, CAUSE_DIE]
                 .iter()
                 .enumerate()
                 .all(|(i, &k)| i == k && def.variants[k].fields.is_empty());
