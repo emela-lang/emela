@@ -1,0 +1,9 @@
+exit: 101
+--- stdout
+init res
+error: Boom
+note: another task also failed: defect: second
+init res
+--- stderr
+defect: first
+note: another task also failed: defect: second

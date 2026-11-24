@@ -5,7 +5,7 @@
 //! `Std.Clock.sleep` (see `tests/clock.rs`). A continuation that nothing can resume is unwound as
 //! interrupted, which runs its `with` releases.
 
-mod common;
+use crate::common;
 
 use common::*;
 use emela_codegen_wasm::WasmErrorKind;

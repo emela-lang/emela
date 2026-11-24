@@ -1,7 +1,7 @@
-# Prelude (spec 15.1). Visible from every module without an import. Only pure items go here.
+# Prelude (`[lib.prelude]`). Visible from every module without an import. Only pure items go here.
 #
 # Int, Int64, Float, String, Never and List are built into the compiler, so they are not declared
-# here. So are the traits Eq, Ord and Show (spec 10.6), and their impls for the primitive
+# here. So are the traits Eq, Ord and Show (`[trait.builtin]`), and their impls for the primitive
 # types and tuples. List and Option have theirs in list.emel and option.emel.
 
 ## `False` comes first so that the derived Ord gives `False < True`.
@@ -11,12 +11,14 @@ pub enum Bool {
 }
   derive Eq, Ord, Show
 
-## Eq, Ord and Show are in option.emel (spec 10.6).
+# Its Eq, Ord and Show are in option.emel (`[trait.builtin]`).
+## A value that is present (`Some`) or absent (`None`).
 pub enum Option[A] {
   Some(A)
   None
 }
 
+## The result of a comparison (`Ord.compare`).
 pub enum Ordering {
   Less
   Equal
@@ -43,5 +45,6 @@ pub fn dbg[A](value: A) -> A
 @intrinsic
 pub fn inspect[A: Show](value: A) -> String
 
-## The input of a `parse` was not in the expected form (spec 15.3). `input` is the whole input.
+## The input of a `parse` was not in the expected form (`[lib.api-rules]`). `input` is the whole
+## input.
 pub error ParseError(input: String) derive Show
