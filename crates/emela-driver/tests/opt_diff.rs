@@ -382,6 +382,7 @@ const PAIRS: &[(&str, &str)] = &[
     ("failing_fused.emel", "failing_expanded.emel"),
     ("with_release_fused.emel", "with_release_expanded.emel"),
     ("inline_fused.emel", "inline_expanded.emel"),
+    ("rc_release_fused.emel", "rc_release_expanded.emel"),
 ];
 
 /// An optimisation must keep the output of the program it rewrites: each form gives the same

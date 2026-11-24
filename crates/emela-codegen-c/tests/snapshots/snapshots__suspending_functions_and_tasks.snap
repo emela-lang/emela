@@ -332,18 +332,15 @@ static em_ref e5_main_closure0_closure0(em_ref v0, em_ref v1) {
   v2 = v0->slots[1].p;
   em_dup(v2);
   v3 = v0->slots[2].p;
-  em_dup(v3);
   v4 = em_alloc(&em_d5, 3);
   v4->slots[0] = (em_word){.fn = (em_fnptr)e9_main_closure0_closure0_closure0};
   v4->slots[1] = (em_word){.p = v1};
   v4->slots[2] = (em_word){.p = v2};
   v5 = em_fiber_fork(v3, v4);
   if (em_defect != NULL) {
-    em_drop(v3);
     em_drop(v4);
     return 0;
   }
-  em_drop(v3);
   em_drop(v4);
   return v5;
 }
