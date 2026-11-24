@@ -1,0 +1,21 @@
+---
+source: crates/emela-types/tests/task.rs
+expression: "render(r#\"\nimport Std.Task.{Task, Spawn}\nimport Std.Cause.{Cause}\n\nerror Boom\n\neffect Log {\n  fn warn(msg: String) -> ()\n}\n\nfn boom() -> () fails Boom { fail Boom }\n\nfn logged() {\n  with bg = Task.Background(on_failure: |cause| (use Log).warn(Cause.to_string(cause))) {\n    bg.start(|| boom())\n    1\n  }\n}\n\nfn value_wanted() -> () uses { Async } {\n  with bg = Task.Background(on_failure: |_| ()) {\n    bg.start(|| 1)\n  }\n}\n\nfn failing_handler() -> () uses { Async } {\n  with bg = Task.Background(on_failure: |_| boom()) {\n    ()\n  }\n}\n\nfn helper[E, R](spawn: use Spawn[E | Boom, R]) -> () {\n  spawn.start(|| boom())\n}\n\nfn through_helper() {\n  with bg = Task.Background(on_failure: |_| ()) {\n    helper(bg)\n  }\n}\n\"#)"
+---
+boom: fn() -> () fails Boom
+logged: fn() -> Int uses { Async, Log }
+  cause: Cause[Boom]
+  bg: use Spawn[Boom, Log]
+value_wanted: fn() -> () uses { Async }
+  _: Cause[{}]
+  bg: use Spawn[{}, {}]
+failing_handler: fn() -> () uses { Async }
+  _: Cause[{}]
+  bg: use Spawn[{}, {}]
+helper: ∀ E, R. fn(use Spawn[Boom | E, R]) -> () uses { spawn }
+  spawn: use Spawn[Boom | '0, '1]
+through_helper: fn() -> () uses { Async }
+  _: Cause[Boom]
+  bg: use Spawn[Boom, {}]
+`1` mismatch: expected `()`, found `Int`
+`|_| boom()` error set mismatch: expected `fails {}`, found `fails Boom`

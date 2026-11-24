@@ -187,6 +187,7 @@ impl BlockExpr {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Stmt {
     Binding(Binding),
+    EffectAlias(EffectAlias),
     LocalFn(LocalFn),
     Expr(Expr),
 }
@@ -195,6 +196,7 @@ impl Stmt {
     fn cast(node: SyntaxNode) -> Option<Self> {
         match node.kind() {
             BINDING => return Some(Stmt::Binding(Binding(node))),
+            EFFECT_ALIAS => return Some(Stmt::EffectAlias(EffectAlias(node))),
             LOCAL_FN => return Some(Stmt::LocalFn(LocalFn(node))),
             _ => {}
         }
@@ -224,6 +226,26 @@ impl Binding {
             1
         };
         self.0.children().nth(skip).and_then(Expr::cast)
+    }
+}
+
+ast_node!(
+    /// `log <- Logger` (an effect alias, `[effect.use]`)
+    EffectAlias,
+    EFFECT_ALIAS
+);
+
+impl EffectAlias {
+    pub fn name(&self) -> Option<SyntaxToken> {
+        token(&self.0, LOWER_NAME)
+    }
+    /// The effect, when the right side is one.
+    pub fn path(&self) -> Option<Path> {
+        child(&self.0)
+    }
+    /// Whether the right side is not an effect name (E0152, reported by validation).
+    pub fn is_malformed(&self) -> bool {
+        self.path().is_none() || self.0.children().any(|c| c.kind() == ERROR)
     }
 }
 

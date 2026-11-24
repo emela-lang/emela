@@ -1,4 +1,4 @@
-# Functions that build path strings (spec 15.2). Pure: they never touch the file system.
+# Functions that build path strings (`[lib.layers]`). Pure: they never touch the file system.
 #
 # The separator is `/` only (Node accepts `/` on Windows too). Paths are not normalized: `..` is
 # not resolved, and nothing is made absolute. Trailing slashes are ignored, so `a/b/` is `a/b`.
