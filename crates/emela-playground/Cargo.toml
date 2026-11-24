@@ -4,6 +4,7 @@ description = "The compiler for the browser: check, format and compile one file 
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autotests = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -15,3 +16,7 @@ lsp-server.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 wasm-bindgen.workspace = true
+
+[[test]]
+name = "tests"
+path = "tests/main.rs"

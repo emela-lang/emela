@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/capabilities.rs
+expression: "run(r#\"\nfn keep(f: fn() -> () uses { Logger }) { () }\n\nfn main() {\n  with g = Quiet {\n    keep(|| g.info(\"x\"))\n  }\n}\n\"#)"
+---
+keep: ∀ E(f). fn(fn() -> () fails E(f) uses { Logger }) -> ()
+  f: fn() -> () fails '0 uses { Logger }
+main: fn() -> ()
+  g: use Logger
+`|| g.info("x")` effect set mismatch: expected `uses { Logger }`, found `uses { g }`

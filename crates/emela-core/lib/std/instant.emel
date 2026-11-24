@@ -1,10 +1,11 @@
 # An Instant is an opaque Int64 of milliseconds since the Unix epoch (1970-01-01T00:00:00Z)
-# (spec 15.2, 4.4). Leap seconds are not counted.
+# (`[lib.layers]`, `[module.opaque]`). Leap seconds are not counted.
 #
 # This module cannot read the current time; the Clock effect returns it.
 
 import Std.Duration.{Duration}
 
+## A point in time. The current one is returned by `Clock.now`.
 pub opaque type Instant(milliseconds: Int64)
   derive Eq, Ord
 
@@ -13,6 +14,7 @@ pub fn from_unix_milliseconds(ms: Int64) -> Instant {
   Instant(milliseconds: ms)
 }
 
+## Milliseconds since the Unix epoch. Negative before the epoch.
 pub fn to_unix_milliseconds(t: Instant) -> Int64 {
   t.milliseconds
 }
@@ -22,6 +24,7 @@ pub fn add(t: Instant, d: Duration) -> Instant {
   Instant(milliseconds: t.milliseconds + d.to_milliseconds())
 }
 
+## `d` earlier. Later if `d` is negative.
 pub fn subtract(t: Instant, d: Duration) -> Instant {
   Instant(milliseconds: t.milliseconds - d.to_milliseconds())
 }
@@ -37,7 +40,7 @@ pub fn since(t: Instant, earlier: Instant) -> Duration {
 ## expanded year of ISO 8601. The format is in spec `[api.std.instant]`.
 pub fn to_string(t: Instant) -> String {
   days = floor_div(t.milliseconds, 86400000)
-  ms_of_day = t.milliseconds - days * 86400000
+  ms_of_day = floor_mod(t.milliseconds, 86400000)
   # Days to a civil date (proleptic Gregorian; H. Hinnant's civil_from_days).
   z = days + 719468
   era = floor_div(z, 146097)
@@ -56,9 +59,222 @@ pub fn to_string(t: Instant) -> String {
   "#{date}T#{pad(hour, 2)}:#{pad(minute, 2)}:#{pad(second, 2)}.#{pad(milli, 3)}Z"
 }
 
-## `b` must be positive.
+## The point in time written in `s`: a date and time with an offset from UTC, in the form that
+## `to_string` writes, the `date-time` of RFC 3339, and a few more (`2025-10-12 12:04:05.678+09`).
+## The offset is required. Fails with `ParseError(input: s)` otherwise. The grammar is in spec
+## `[api.std.instant]`.
+pub fn parse(s: String) -> Instant fails ParseError {
+  # The limit is 256 code points. Every text that the grammar matches is ASCII, so a text of more
+  # than 256 bytes either has more than 256 code points or does not match: it fails either way, and
+  # its code points are not listed.
+  if s.byte_size() > 256 {
+    fail ParseError(input: s)
+  }
+  cs = s.code_points()
+  (year, after_year) = read_year(s, cs)
+  (month, after_month) = two_digits(s, expect(s, after_year, 45))
+  (day, after_day) = two_digits(s, expect(s, after_month, 45))
+  (hour, after_hour) = two_digits(s, separator(s, after_day))
+  (minute, after_minute) = two_digits(s, expect(s, after_hour, 58))
+  (second, milli, after_time) = after_minute match {
+    [58, ..rest] -> {
+      (second, after_second) = two_digits(s, rest)
+      (milli, after_fraction) = read_fraction(s, after_second)
+      (second, milli, after_fraction)
+    }
+    _ -> (0, 0, after_minute)
+  }
+  offset = read_offset(s, after_time)
+  if month < 1 || month > 12 || day < 1 || day > days_in_month(year, month) {
+    fail ParseError(input: s)
+  }
+  if hour > 23 || minute > 59 || second > 59 {
+    fail ParseError(input: s)
+  }
+  # The milliseconds of the day minus the offset lie between -86340000 and 172739999; they are
+  # moved into the days before the range is checked, so that nothing wraps around.
+  local = Int64.from_int(((hour * 60 + minute - offset) * 60 + second) * 1000 + milli)
+  days = days_from_civil(year, month, day) + floor_div(local, 86400000)
+  ms_of_day = floor_mod(local, 86400000)
+  # The least Int64 is day -106751991168 at 60424192 ms, the greatest day 106751991167 at
+  # 25975807 ms.
+  below = days < -106751991168 || days == -106751991168 && ms_of_day < 60424192
+  above = days > 106751991167 || days == 106751991167 && ms_of_day > 25975807
+  if below || above {
+    fail ParseError(input: s)
+  }
+  # A negative day is counted from its end, so that the product stays in the range of Int64 on the
+  # first day of Instant too: as in `to_string`, nothing wraps around.
+  ms = if days < 0 {
+    (days + 1) * 86400000 + (ms_of_day - 86400000)
+  } else {
+    days * 86400000 + ms_of_day
+  }
+  Instant(milliseconds: ms)
+}
+
+# The code points that `parse` reads, by value: `+` 43, `-` 45, `.` 46, `0` to `9` 48 to 57, `:` 58,
+# `T` 84, `Z` 90, `t` 116, `z` 122, and the space 32.
+
+fn is_digit(c: Int) -> Bool {
+  c >= 48 && c <= 57
+}
+
+fn expect(s: String, cs: List[Int], c: Int) -> List[Int] fails ParseError {
+  cs match {
+    [d, ..rest] if d == c -> rest
+    _                     -> fail ParseError(input: s)
+  }
+}
+
+fn separator(s: String, cs: List[Int]) -> List[Int] fails ParseError {
+  cs match {
+    [c, ..rest] if c == 84 || c == 116 || c == 32 -> rest
+    _                                             -> fail ParseError(input: s)
+  }
+}
+
+fn two_digits(s: String, cs: List[Int]) -> (Int, List[Int]) fails ParseError {
+  cs match {
+    [a, b, ..rest] if is_digit(a) && is_digit(b) -> ((a - 48) * 10 + (b - 48), rest)
+    _                                            -> fail ParseError(input: s)
+  }
+}
+
+## Four digits, or a sign and six or more digits. A year with a sign is read as an exact integer:
+## its leading zeros are skipped, and more than nine significant digits fail (every year of
+## Instant has at most nine), so the value never wraps around.
+fn read_year(s: String, cs: List[Int]) -> (Int64, List[Int]) fails ParseError {
+  cs match {
+    [43, ..rest] -> signed_year(s, rest, False)
+    [45, ..rest] -> signed_year(s, rest, True)
+    [a, b, c, d, ..rest] if is_digit(a) && is_digit(b) && is_digit(c) && is_digit(d) -> {
+      (Int64.from_int((a - 48) * 1000 + (b - 48) * 100 + (c - 48) * 10 + (d - 48)), rest)
+    }
+    _            -> fail ParseError(input: s)
+  }
+}
+
+fn signed_year(s: String, cs: List[Int], negative: Bool) -> (Int64, List[Int]) fails ParseError {
+  (count, value, rest) = year_digits(s, cs, 0, 0)
+  # `-000000` is not read: the year 0 has no sign minus.
+  if count < 6 || negative && value == 0 {
+    fail ParseError(input: s)
+  }
+  (if negative { 0 - value } else { value }, rest)
+}
+
+## The number of digits at the start of `cs` and their value, which stays below 10^9.
+fn year_digits(s: String, cs: List[Int], count: Int, value: Int64) -> (Int, Int64, List[Int])
+  fails ParseError {
+  cs match {
+    [c, ..rest] if is_digit(c) -> {
+      next = value * 10 + Int64.from_int(c - 48)
+      if next > 999999999 {
+        fail ParseError(input: s)
+      }
+      year_digits(s, rest, count + 1, next)
+    }
+    _ -> (count, value, cs)
+  }
+}
+
+## The milliseconds of `.` and one or more digits, or 0 if there is no `.`. The first three digits
+## are the milliseconds (padded with zeros on the right); the rest are checked to be digits and
+## dropped, which rounds toward the past.
+fn read_fraction(s: String, cs: List[Int]) -> (Int, List[Int]) fails ParseError {
+  cs match {
+    [46, c, ..rest] if is_digit(c) -> fraction_digits(s, rest, c - 48, 1)
+    [46, ..]                       -> fail ParseError(input: s)
+    _                              -> (0, cs)
+  }
+}
+
+fn fraction_digits(s: String, cs: List[Int], milli: Int, count: Int) -> (Int, List[Int])
+  fails ParseError {
+  cs match {
+    [c, ..rest] if is_digit(c) -> {
+      next = if count < 3 { milli * 10 + (c - 48) } else { milli }
+      fraction_digits(s, rest, next, count + 1)
+    }
+    _ -> (if count == 1 { milli * 100 } else if count == 2 { milli * 10 } else { milli }, cs)
+  }
+}
+
+## The offset in minutes east of UTC. It is the rest of the text: nothing may follow it.
+fn read_offset(s: String, cs: List[Int]) -> Int fails ParseError {
+  cs match {
+    [90]         -> 0
+    [122]        -> 0
+    [32, ..rest] -> numeric_offset(s, rest)
+    _            -> numeric_offset(s, cs)
+  }
+}
+
+fn numeric_offset(s: String, cs: List[Int]) -> Int fails ParseError {
+  (sign, after_sign) = cs match {
+    [43, ..rest] -> (1, rest)
+    [45, ..rest] -> (-1, rest)
+    _            -> fail ParseError(input: s)
+  }
+  (hours, after_hours) = two_digits(s, after_sign)
+  minutes = after_hours match {
+    []           -> 0
+    [58, ..rest] -> last_two_digits(s, rest)
+    _            -> last_two_digits(s, after_hours)
+  }
+  if hours > 23 || minutes > 59 {
+    fail ParseError(input: s)
+  }
+  sign * (hours * 60 + minutes)
+}
+
+fn last_two_digits(s: String, cs: List[Int]) -> Int fails ParseError {
+  two_digits(s, cs) match {
+    (n, []) -> n
+    _       -> fail ParseError(input: s)
+  }
+}
+
+fn is_leap_year(year: Int64) -> Bool {
+  year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+fn days_in_month(year: Int64, month: Int) -> Int {
+  if month == 2 {
+    if is_leap_year(year) { 29 } else { 28 }
+  } else if month == 4 || month == 6 || month == 9 || month == 11 {
+    30
+  } else {
+    31
+  }
+}
+
+## Days since the epoch of a civil date (proleptic Gregorian; H. Hinnant's days_from_civil, the
+## inverse of the civil_from_days in `to_string`).
+fn days_from_civil(year: Int64, month: Int, day: Int) -> Int64 {
+  y = if month <= 2 { year - 1 } else { year }
+  era = floor_div(y, 400)
+  yoe = y - era * 400
+  mp = Int64.from_int(if month > 2 { month - 3 } else { month + 9 })
+  doy = (153 * mp + 2) / 5 + Int64.from_int(day) - 1
+  doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+  era * 146097 + doe - 719468
+}
+
+## `b` must be positive. `/` truncates toward 0 and `%` has the sign of `a`, so a negative
+## remainder means the quotient is one above the floor. Nothing here wraps around, for every `a`
+## down to the least Int64.
 fn floor_div(a: Int64, b: Int64) -> Int64 {
-  if a >= 0 { a / b } else { (a - b + 1) / b }
+  q = a / b
+  if a % b < 0 { q - 1 } else { q }
+}
+
+## The remainder of `floor_div`, from 0 to `b - 1`. `b` must be positive. It is computed from `%`,
+## not as `a - floor_div(a, b) * b`, whose product wraps around near the least Int64.
+fn floor_mod(a: Int64, b: Int64) -> Int64 {
+  r = a % b
+  if r < 0 { r + b } else { r }
 }
 
 fn year_to_string(year: Int64) -> String {

@@ -1,0 +1,195 @@
+name: Proposal record
+
+# Records the author's decision on a proposal once its pull request (label `proposal`) is closed,
+# in a pull request of its own (label `proposal-record`), which it adds to the merge queue once
+# its checks pass:
+#
+# - merged (`/accept`): `scripts/spec.py accept` sets `status: accepted`, `pr` and `decided`,
+#   writes the reasons of the `/accept` comment into "Decision", and adds the entry to
+#   `spec/history.md`. When that pull request is merged, the `Proposal implementation issue`
+#   workflow opens the issue for implementing the proposal.
+# - closed with `/reject`: `scripts/spec.py reject` keeps the proposal as it stood, with the
+#   reasons, in `proposals/rejected/`.
+#
+# A pull request closed without a command records nothing. `workflow_dispatch` records a pull
+# request again, for example when the record could not be merged (proposals/README.md, "Decision").
+
+on:
+  # `pull_request_target` so that a pull request from a fork is recorded too. The job runs the
+  # default branch's code; the pull request's proposal is read as data only.
+  pull_request_target:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: The number of the proposal's pull request
+        required: true
+
+concurrency:
+  group: proposal-record
+  cancel-in-progress: false
+
+jobs:
+  record:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'proposal')
+    runs-on: ubuntu-latest
+    # Everything goes through the App token: a pull request opened with GITHUB_TOKEN does not run
+    # CI, so the merge queue would never see `ci-ok`.
+    permissions: {}
+    steps:
+      - name: "Mint token (GitHub App: emela-bot)"
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: emela-lang
+          repositories: emela
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: true
+
+      - name: Find the decision
+        id: decision
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
+          AUTHOR: Allianaab2m
+        run: |
+          echo "pr=$PR" >> "$GITHUB_OUTPUT"
+          merged="$(gh pr view "$PR" --repo "$REPO" --json mergedAt --jq '.mergedAt != null')"
+          if [ "$merged" = true ]; then verb=accept; else verb=reject; fi
+          # The last comment of the author whose first line is the command.
+          gh api --paginate "repos/$REPO/issues/$PR/comments" --jq "
+            .[] | select(.user.login == \"$AUTHOR\")
+                | select((.body | split(\"\n\")[0] | gsub(\"^\\\\s+|\\\\s+\$\"; \"\")) == \"/$verb\")
+                | @json" | tail -n1 > "$RUNNER_TEMP/comment.json"
+          if [ ! -s "$RUNNER_TEMP/comment.json" ]; then
+            if [ "$verb" = accept ]; then
+              echo "::error::#$PR was merged without a /accept of $AUTHOR"
+              exit 1
+            fi
+            echo "#$PR was closed without /reject; nothing to record"
+            echo "verb=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          jq -r .body "$RUNNER_TEMP/comment.json" | tr -d '\r' | tail -n +2 > "$RUNNER_TEMP/reasons.md"
+          echo "date=$(TZ=Asia/Tokyo date -d "$(jq -r .created_at "$RUNNER_TEMP/comment.json")" +%F)" >> "$GITHUB_OUTPUT"
+          gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | select(.status == "added") | .filename' \
+            | grep -E '^proposals/[^/]+\.md$' | grep -vE '^proposals/(README|TEMPLATE)\.md$' > "$RUNNER_TEMP/added" || true
+          if [ "$(grep -c . "$RUNNER_TEMP/added")" != 1 ]; then
+            echo "::error::expected exactly one new proposal in #$PR, found: $(cat "$RUNNER_TEMP/added")"
+            exit 1
+          fi
+          echo "file=$(cat "$RUNNER_TEMP/added")" >> "$GITHUB_OUTPUT"
+          echo "slug=$(basename "$(cat "$RUNNER_TEMP/added")" .md)" >> "$GITHUB_OUTPUT"
+          echo "verb=$verb" >> "$GITHUB_OUTPUT"
+
+      - name: Record the adoption
+        if: steps.decision.outputs.verb == 'accept'
+        env:
+          SLUG: ${{ steps.decision.outputs.slug }}
+          DATE: ${{ steps.decision.outputs.date }}
+          PR: ${{ steps.decision.outputs.pr }}
+        run: |
+          python3 scripts/spec.py accept "$SLUG" "$RUNNER_TEMP/reasons.md" "$DATE" "$PR"
+          python3 scripts/spec.py check
+          echo "MESSAGE=docs(proposal): $SLUG の採択を記録する" >> "$GITHUB_ENV"
+
+      # The proposal is taken from the pull request's last commit as a file; nothing in it runs.
+      - name: Record the rejection
+        if: steps.decision.outputs.verb == 'reject'
+        env:
+          FILE: ${{ steps.decision.outputs.file }}
+          SLUG: ${{ steps.decision.outputs.slug }}
+          DATE: ${{ steps.decision.outputs.date }}
+          PR: ${{ steps.decision.outputs.pr }}
+        run: |
+          git fetch --depth=1 origin "refs/pull/$PR/head"
+          mkdir -p "$RUNNER_TEMP/proposal"
+          git show "FETCH_HEAD:$FILE" > "$RUNNER_TEMP/proposal/$SLUG.md"
+          python3 scripts/spec.py reject "$RUNNER_TEMP/proposal/$SLUG.md" "$RUNNER_TEMP/reasons.md" "$DATE" "$PR"
+          python3 scripts/spec.py check
+          echo "MESSAGE=docs(proposal): $SLUG の却下を記録する" >> "$GITHUB_ENV"
+
+      - name: Open the record
+        if: steps.decision.outputs.verb != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.decision.outputs.pr }}
+          SLUG: ${{ steps.decision.outputs.slug }}
+          VERB: ${{ steps.decision.outputs.verb }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          gh label create proposal-record --repo "$REPO" --color C5DEF5 \
+            --description "Records the decision on a proposal (proposals/)" 2>/dev/null || true
+          branch="proposal-record/$PR"
+          id="$(gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)"
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add proposals spec/history.md
+          git commit -m "$MESSAGE"
+          git push --force origin "HEAD:$branch"
+          if [ "$VERB" = accept ]; then what=adoption; else what=rejection; fi
+          url="$(gh pr list --repo "$REPO" --head "$branch" --state open --json url --jq '.[0].url // empty')"
+          if [ -z "$url" ]; then
+            url="$(gh pr create --repo "$REPO" --base "$BASE" \
+              --head "$branch" --label proposal-record --title "$MESSAGE" \
+              --body "Records the $what of \`$SLUG\` (#$PR) decided by the language's author. Opened and merged by the \`Proposal record\` workflow.")"
+          fi
+          gh pr comment "$PR" --repo "$REPO" --body "The $what is recorded in $url."
+          echo "TARGET=$url" >> "$GITHUB_ENV"
+          echo "HEAD_OID=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Add the record to the merge queue
+        if: steps.decision.outputs.verb != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Wait for the required checks, then add the pull request to the merge queue with the
+          # `enqueuePullRequest` mutation ("Merge when ready"). `gh pr merge` cannot be used: on a
+          # branch that requires the merge queue it always enables auto-merge, which the repository
+          # does not allow. `expectedHeadOid` makes the queue refuse a commit pushed after HEAD_OID.
+          sleep 20
+          for _ in $(seq 120); do
+            buckets="$(gh pr checks "$TARGET" --repo "$REPO" --required --json bucket \
+              --jq '[.[].bucket] | unique | join(" ")' 2>/dev/null || true)"
+            case " $buckets " in
+              *" fail "* | *" cancel "*) echo "::error::a required check failed: $buckets"; exit 1 ;;
+              "  " | *" pending "*) ;;
+              *)
+                id="$(gh pr view "$TARGET" --repo "$REPO" --json id --jq .id)"
+                # shellcheck disable=SC2016 # GraphQL variables, not shell ones
+                gh api graphql -f id="$id" -f oid="$HEAD_OID" -f query='
+                  mutation($id: ID!, $oid: GitObjectID!) {
+                    enqueuePullRequest(input: {pullRequestId: $id, expectedHeadOid: $oid}) {
+                      mergeQueueEntry { state }
+                    }
+                  }'
+                exit 0
+                ;;
+            esac
+            sleep 15
+          done
+          echo "::error::the required checks did not finish in 30 minutes"
+          exit 1
+
+      - name: Report a failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh pr comment "$PR" --repo "$REPO" --body "Recording the decision failed. See $RUN"

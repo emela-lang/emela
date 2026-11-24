@@ -46,7 +46,7 @@ The specification is in `spec/`. Every section has a stable name (`[effect.handl
    gh pr list --label proposal --search "effect.handler"   # proposals under review
    ```
 
-   - A decided proposal (`status: accepted`) that is not yet in the text is newer than the text.
+   - A proposal in `proposals/` is in the text: its pull request changed `spec/`. One in `proposals/rejected/` was rejected, with the reasons in "Decision".
    - Local drafts and open proposal pull requests (`status: draft`) are not decisions. Do not mix them into the answer.
 
 4. Look at the implementation only when the question is about it: rustdoc and comments in the crates refer to sections by name.

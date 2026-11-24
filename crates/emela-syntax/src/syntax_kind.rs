@@ -158,6 +158,8 @@ pub enum SyntaxKind {
     LT,
     /// `<=`
     LTEQ,
+    /// `<-`
+    LEFT_ARROW,
     /// `>`
     GT,
     /// `>=`
@@ -367,6 +369,8 @@ pub enum SyntaxKind {
     /// The left side is parsed as an expression and checked as a pattern on the tree.
     /// `(a, b): (Int, Int) = pair`
     BINDING,
+    /// `log <- Logger` `st <- State[Int]` (an effect alias, `[effect.use]`).
+    EFFECT_ALIAS,
     /// `if c { a } else { b }`
     IF_EXPR,
     /// `x match { ... }`
@@ -492,6 +496,7 @@ impl SyntaxKind {
             NEQ => "`!=`",
             LT => "`<`",
             LTEQ => "`<=`",
+            LEFT_ARROW => "`<-`",
             GT => "`>`",
             GTEQ => "`>=`",
             AMP2 => "`&&`",
@@ -553,7 +558,7 @@ mod tests {
         let src = concat!(
             "fn type enum error const trait impl effect handler layer import pub opaque suspend ",
             "if else match fail escape use with assert self Self as _ ",
-            "( ) [ ] { } , . .. : = -> | |> + - * / % ! == != < <= > >= && || @ ",
+            "( ) [ ] { } , . .. : = -> | |> + - * / % ! == != < <= <- > >= && || @ ",
             "\"#{x}\"\n\"\"\"\nt\n\"\"\"\n",
         );
         let mut seen = BTreeSet::new();

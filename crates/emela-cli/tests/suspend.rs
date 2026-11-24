@@ -102,16 +102,17 @@ fn clocks_resume_later_and_in_place() {
     let project = Project::new(
         "clocks",
         r#"fn total(xs: List[Int]) -> Int uses { Clock } {
-  clock = use Clock
+  clock <- Clock
   List.fold(List.map(xs, |ms| clock.sleep(ms)), 0, |a, b| a + b)
 }
 
 fn main() {
   with SystemConsole {
-    console = use Console
+    console <- Console
     with JsClock {
       console.print_line("start")
-      slept = (use Clock).sleep(20)
+      clock <- Clock
+      slept = clock.sleep(20)
       console.print_line("slept #{slept}")
       console.print_line("total #{total([3, 1, 2])}")
     }
@@ -151,7 +152,10 @@ fn resuming_twice_is_a_defect() {
 }
 
 fn main() {
-  with TwiceClock { (use Clock).sleep(1) }
+  with TwiceClock {
+    clock <- Clock
+    clock.sleep(1)
+  }
   ()
 }
 "#,
@@ -177,10 +181,11 @@ fn dropped_resume_interrupts_main() {
 
 fn main() {
   with SystemConsole {
-    console = use Console
+    console <- Console
     with NeverClock {
       console.print_line("before")
-      (use Clock).sleep(1)
+      clock <- Clock
+      clock.sleep(1)
       console.print_line("never")
     }
   }
@@ -205,17 +210,26 @@ fn tests_wait_for_clocks() {
 
 @test
 fn sleeps() {
-  with JsClock { assert (use Clock).sleep(5) == 5 }
+  with JsClock {
+    clock <- Clock
+    assert clock.sleep(5) == 5
+  }
 }
 
 @test
 fn instant() {
-  with InstantClock { assert (use Clock).sleep(5) == 0 }
+  with InstantClock {
+    clock <- Clock
+    assert clock.sleep(5) == 0
+  }
 }
 
 @test
 fn never_resumed() {
-  with NeverClock { (use Clock).sleep(1) }
+  with NeverClock {
+    clock <- Clock
+    clock.sleep(1)
+  }
 }
 "#,
     );
@@ -252,7 +266,10 @@ handler JsTimer: Timer {
 
 handler InstantTimer: Timer {
   suspend fn wait(ms, resume) { resume(0) }
-  fn now() { (use Timer).now() + 1 }
+  fn now() {
+    timer <- Timer
+    timer.now() + 1
+  }
 }
 
 handler PureTimer: Timer {
@@ -263,20 +280,24 @@ handler PureTimer: Timer {
 handler LocalWait: Timer {
   suspend fn wait(ms, resume) { resume(0) }
   fn now() {
-    with PureTimer { (use Timer).wait(7) }
+    with PureTimer {
+      timer <- Timer
+      timer.wait(7)
+    }
   }
 }
 
 fn main() {
   with SystemConsole {
-    console = use Console
+    console <- Console
     with JsTimer {
-      waited = (use Timer).wait(5)
+      timer <- Timer
+      waited = timer.wait(5)
       with InstantTimer {
-        console.print_line("now #{(use Timer).now()} after #{waited}")
+        console.print_line("now #{timer.now()} after #{waited}")
       }
       with LocalWait {
-        console.print_line("local #{(use Timer).now()}")
+        console.print_line("local #{timer.now()}")
       }
     }
   }
