@@ -8,9 +8,9 @@
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use emela_driver::{
-    Analysis, Backend, CoreC, CoreJs, CoreWasm, Diagnostic, DoctorFormat, FileSystem, Input, Lower,
-    LowerTests, MemoryFiles, OsFs, Output, Reporter, RunOptions, SourceDb, Target, TestBackend,
-    TestModule, TestOptions, Typecheck,
+    Analysis, Backend, BuildOutput, CoreC, CoreJs, CoreWasm, Diagnostic, DoctorFormat, FileSystem,
+    Input, Lower, LowerTests, MemoryFiles, OsFs, Output, Reporter, RunOptions, Runner, SourceDb,
+    Target, TestBackend, TestModule, TestOptions, Typecheck,
 };
 use std::ffi::OsString;
 use std::io::{IsTerminal, Read, Write};
@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 mod pome;
+mod progress;
 
 /// The version `--version` prints: the workspace version, then `+<short hash>` when built from a
 /// git checkout (see `build.rs`).
@@ -151,25 +152,14 @@ enum TargetArg {
     Native,
     /// WebAssembly (WASI) run with `wasmtime` (`EMELA_WASMTIME`)
     Wasm,
-    /// The deprecated name of `native` (`[target.native]`): W0903, removed in 0.29
-    #[value(hide = true)]
-    C,
 }
 
 impl TargetArg {
-    /// The target, after printing W0903 for the deprecated `c` (`[target.native]`).
     fn select(self) -> Target {
         match self {
             TargetArg::Js => Target::Js,
             TargetArg::Native => Target::Native,
             TargetArg::Wasm => Target::Wasm,
-            TargetArg::C => {
-                print_diagnostics(
-                    &[emela_driver::deprecated_target_warning()],
-                    &SourceDb::new(),
-                );
-                Target::Native
-            }
         }
     }
 }
@@ -473,7 +463,7 @@ fn build(
             &OsFs,
             &input,
             &mut frontend,
-            &mut CoreC::default().with_optimize(optimize),
+            &mut Native(CoreC::default().with_optimize(optimize)),
             &out_dir,
         ),
         Target::Wasm => emela_driver::build(
@@ -513,7 +503,7 @@ fn run(
             &input,
             &options,
             target,
-            &mut CoreC::default().with_optimize(optimize),
+            &mut Native(CoreC::default().with_optimize(optimize)),
             optimize,
         ),
         Target::Wasm => run_with(
@@ -603,7 +593,7 @@ fn test(
             &input,
             &options,
             target,
-            &mut CoreC::default().with_optimize(optimize),
+            &mut Native(CoreC::default().with_optimize(optimize)),
             optimize,
         ),
         Target::Wasm => test_with(
@@ -789,14 +779,10 @@ fn js_host(target: Target) -> PathBuf {
 /// the project that contains `path`; `Pome.toml` is not read when `--target` is given, so a broken
 /// manifest does not stop the report.
 fn doctor(path: &Path, target: Option<TargetArg>, format: DoctorFormatArg) -> ExitCode {
-    let mut sources = SourceDb::new();
     let required = match target {
         Some(target) => Some(target.select()),
-        None => match emela_driver::enclosing_project_target(&OsFs, path, &mut sources) {
-            Ok((target, warnings)) => {
-                print_diagnostics(&warnings, &sources);
-                target
-            }
+        None => match emela_driver::enclosing_project_target(&OsFs, path) {
+            Ok(target) => target,
             Err(diagnostic) => {
                 print_diagnostics(&[diagnostic], &SourceDb::new());
                 return ExitCode::from(DIAGNOSTIC_FAILURE);
@@ -850,6 +836,76 @@ fn resolve_input(
         }
     }
     Some(input)
+}
+
+/// [`CoreC`] with progress while the C compiler runs: the only slow step of a native build.
+/// The status line lives inside `finish`, so it is gone before the diagnostics and the program
+/// write anything.
+#[derive(Default)]
+struct Native(CoreC);
+
+impl Native {
+    fn compile(
+        &mut self,
+        finish: impl FnOnce(&mut CoreC) -> Result<PathBuf, Vec<Diagnostic>>,
+    ) -> Result<PathBuf, Vec<Diagnostic>> {
+        let cc = emela_driver::cc_command().0;
+        let cc = cc.display();
+        let line = progress::StatusLine::stderr();
+        let started = std::time::Instant::now();
+        line.set(format!("compiling C with {cc}"));
+        let built = finish(&mut self.0);
+        if built.is_ok() {
+            line.keep(&format!(
+                "compiled C with {cc} ({})",
+                progress::seconds(started.elapsed())
+            ));
+        }
+        built
+    }
+}
+
+impl<P> Backend<P> for Native
+where
+    CoreC: Backend<P>,
+{
+    fn emit(&mut self, program: &P, analysis: &Analysis) -> Result<BuildOutput, Vec<Diagnostic>> {
+        self.0.emit(program, analysis)
+    }
+
+    fn finish(&mut self, out_dir: &Path, entry: PathBuf) -> Result<PathBuf, Vec<Diagnostic>> {
+        self.compile(|c| Backend::<P>::finish(c, out_dir, entry))
+    }
+
+    fn runner(&self) -> Runner {
+        Backend::<P>::runner(&self.0)
+    }
+}
+
+impl<P> TestBackend<P> for Native
+where
+    CoreC: TestBackend<P>,
+{
+    fn test_names(&self, program: &P) -> Vec<String> {
+        self.0.test_names(program)
+    }
+
+    fn emit_tests(
+        &mut self,
+        program: &P,
+        selected: &[usize],
+        analysis: &Analysis,
+    ) -> Result<BuildOutput, Vec<Diagnostic>> {
+        self.0.emit_tests(program, selected, analysis)
+    }
+
+    fn finish(&mut self, out_dir: &Path, entry: PathBuf) -> Result<PathBuf, Vec<Diagnostic>> {
+        self.compile(|c| TestBackend::<P>::finish(c, out_dir, entry))
+    }
+
+    fn runner(&self) -> Runner {
+        TestBackend::<P>::runner(&self.0)
+    }
 }
 
 /// Returns 1 if there are errors.

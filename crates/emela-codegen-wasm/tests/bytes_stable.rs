@@ -16,7 +16,7 @@
 //! change comes from what you changed, then paste the values from the failure message, which
 //! lists every program whose output changed, in place of the old ones.
 
-mod common;
+use crate::common;
 
 use common::*;
 
@@ -46,8 +46,8 @@ fn main() {
   dbg("ab" == "ab")
 }
 "#,
-        12893,
-        0x075d_c7f3_9a7d_f262,
+        12886,
+        0xce3b_f855_b1c2_b1d3,
     ),
     (
         "lists_enums_strings",
@@ -81,8 +81,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        23985,
-        0x5cb8_9bfe_8e3b_576e,
+        23978,
+        0xc3b2_ca3d_6a48_2881,
     ),
     (
         "floats",
@@ -96,8 +96,8 @@ fn main() {
   dbg(Float.to_string(Float.parse("2.5") escape { ParseError(_) -> 0.0 }))
 }
 "#,
-        22411,
-        0x56ef_c13c_41a6_0b73,
+        22404,
+        0x686a_4035_cf6c_d594,
     ),
     (
         "platform_console",
@@ -111,16 +111,10 @@ fn main() {
   }
 }
 "#,
-        37009,
-        0x366a_12a8_b2be_8662,
+        36125,
+        0x927f_4d31_a37e_3edd,
     ),
     (
-        // The default rules now run closure devirtualisation (E5) and closure SRA (C5). The
-        // `|| {…}` closure made in `main` and the two `|xs| …` closures made inside it are each
-        // created and only called in one function; they lose their dispatch and their records.
-        // With `devirt` off the output is the previous pin, 15718 / 0xd6a5_1ebb_ebe5_aa99; with
-        // only `sra_closures` off it is 15712 / 0x51ba_16da_2f8f_968e, so the difference is E5
-        // plus C5 and not another change.
         "state_and_options",
         r#"
 import Std.State.{State}
@@ -137,9 +131,8 @@ fn main() {
   dbg(String.from_code_point(65))
 }
 "#,
-        // Closure devirtualisation and closure SRA are on by default (E5 + C5 closure half).
-        15637,
-        0xce5e_1250_53da_4e6f,
+        15596,
+        0xf0ec_328c_81ee_7384,
     ),
     (
         "numeric",
@@ -165,8 +158,8 @@ fn main() {
   dbg(Float.from_int(7) % Float.from_int(2) > 0.5)
 }
 "#,
-        13259,
-        0x1873_e29b_3a30_f596,
+        13252,
+        0xde55_f3e1_8caf_92c1,
     ),
 ];
 
@@ -185,8 +178,8 @@ pub fn fails_with_an_error() -> Int fails Nope { half(3) }
 pub fn raises_a_defect() { panic("boom") }
 "#,
     &["passes", "fails_with_an_error", "raises_a_defect"],
-    13188,
-    0xa18d_fdf5_9791_af9a,
+    13181,
+    0xf3ae_1892_a5c9_be47,
 )];
 
 /// Compares each `(name, bytes, expected length, expected FNV-1a)` and fails once, listing the new

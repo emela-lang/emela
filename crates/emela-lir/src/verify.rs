@@ -1225,9 +1225,7 @@ impl Checker<'_> {
                     | FiberOp::Queue
                     | FiberOp::Take
                     | FiberOp::QueuePoll => Expect::Exactly(Repr::Ref),
-                    FiberOp::Await { exit } | FiberOp::Attempt { exit, .. } => {
-                        Expect::Exactly(enum_repr(self.core, exit))
-                    }
+                    FiberOp::Attempt { exit, .. } => Expect::Exactly(enum_repr(self.core, exit)),
                     FiberOp::CauseKind { kind } => Expect::Exactly(enum_repr(self.core, kind)),
                     FiberOp::Complete
                     | FiberOp::TryAcquire
@@ -1235,8 +1233,7 @@ impl Checker<'_> {
                     | FiberOp::TryOffer
                     | FiberOp::Available
                     | FiberOp::Size => Expect::Exactly(Repr::I32),
-                    FiberOp::Interrupt
-                    | FiberOp::CauseRaise { .. }
+                    FiberOp::CauseRaise { .. }
                     | FiberOp::Acquire
                     | FiberOp::Release
                     | FiberOp::Close => Expect::Exactly(Repr::Void),
