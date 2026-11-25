@@ -337,6 +337,9 @@ pub(crate) fn empty_like(f: &Function) -> Function {
     out.external = f.external.clone();
     out.env = f.env.clone();
     out.defects = f.defects;
+    // The drop kinds are keyed by statement IDs, so `compact` clears them (it numbers the
+    // statements again); a copy that keeps the IDs keeps the classification.
+    out.drop_kinds = f.drop_kinds.clone();
     out
 }
 
@@ -344,6 +347,8 @@ pub(crate) fn empty_like(f: &Function) -> Function {
 /// reaches, numbered in the order they are met.
 pub(crate) fn compact(f: &Function) -> Function {
     let mut out = empty_like(f);
+    // The statements get new IDs, so the classification keyed by the old ones no longer applies.
+    out.drop_kinds.clear();
     let mut c = Copier::new(f);
     out.params = f.params.iter().map(|&p| c.fresh(&mut out, p)).collect();
     out.body = f.body.map(|b| c.seq(&mut out, b));

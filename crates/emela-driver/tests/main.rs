@@ -14,6 +14,7 @@ mod c;
 mod dependencies;
 mod diagnostics;
 mod doc;
+mod drop_spec;
 mod file_system;
 mod http_service;
 mod ide_docs;

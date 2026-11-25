@@ -13,6 +13,7 @@ mod analysis_liveness;
 mod analysis_ownership;
 mod borrow_call;
 mod devirt;
+mod drop_spec;
 mod dump;
 mod from_core;
 mod heap;

@@ -221,6 +221,13 @@ void em_free(em_ref o) {
   }
 }
 
+/* Drop specialisation (C3/PR-027): the block of a value whose payload holds no reference and has
+ * no finalizer, so there is nothing to walk. */
+void em_free_block(em_ref o) {
+  em_release_block(o);
+  em_live--;
+}
+
 static const uint8_t em_refs_none[2] = {0, 0};
 static const uint8_t em_refs_cons_ref[2] = {1, 1};
 static const uint8_t em_refs_cons_val[2] = {0, 1};

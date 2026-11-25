@@ -127,6 +127,10 @@ struct em_obj {
 /* ---- Reference counting ---- */
 
 void em_free(em_ref o);
+/* Frees the block of a value whose payload holds no reference and has no finalizer (drop
+ * specialisation, C3/PR-027): the same block release as `em_free`, without the descriptor switch
+ * or the worklist. The caller checked that the count reached zero. */
+void em_free_block(em_ref o);
 
 static inline void em_dup(em_ref o) {
   if (o != NULL && o->hdr.u.h.rc != 0) o->hdr.u.h.rc++;
@@ -134,6 +138,12 @@ static inline void em_dup(em_ref o) {
 
 static inline void em_drop(em_ref o) {
   if (o != NULL && o->hdr.u.h.rc != 0 && --o->hdr.u.h.rc == 0) em_free(o);
+}
+
+/* `em_drop` for a value whose type proves that its block holds no reference and has no
+ * finalizer. Static data (`rc == 0`) is still never touched. */
+static inline void em_drop_block(em_ref o) {
+  if (o != NULL && o->hdr.u.h.rc != 0 && --o->hdr.u.h.rc == 0) em_free_block(o);
 }
 
 em_ref em_alloc(const em_desc *desc, size_t nslots);
