@@ -8,8 +8,9 @@
 //! Equation: let f = λp. e in C[f a] → let p0 = a0 in … let pn = an in C[e]
 //! Preconditions: f is used exactly once in the whole `let`, that use is exactly the callee of an
 //!                indirect call, the call passes one argument per parameter, the call is neither
-//!                marked `fails` nor `suspends`, the lambda's type is a function type without the
-//!                evidence table and without set type parameters, the lambda does not suspend, no
+//!                marked `fails` nor `suspends`, the lambda's type is a function type without set
+//!                type parameters (the evidence table, when the lambda takes it, is one more
+//!                parameter bound like the others), the lambda does not suspend, no
 //!                free local of its body has a finalizer-bearing type, and the expansion fits
 //!                `MAX_BETA_NODES`.
 //! Postconditions: the lambda and the call are gone; the call site is the lambda's body with its
@@ -21,8 +22,8 @@
 //!            where it was.
 //! Deopt: f is used zero times or more than once, f is passed as a value, the lambda captures f
 //!        (a recursive lambda), the use is not the callee of a call, another number of arguments
-//!        (a partial application), a lambda that takes the evidence table or whose type has set
-//!        type parameters, a suspending lambda, a call marked `fails` or `suspends`, a lambda
+//!        (a partial application), a lambda whose type has set type parameters, a suspending
+//!        lambda, a call marked `fails` or `suspends`, a lambda
 //!        that captures a value with a finalizer, or an expansion over the budget.
 //! Budget: an expansion of at most `MAX_BETA_NODES` nodes, so that a call site stays small. The
 //!         rewrite removes the binding, the lambda, the call and its callee and adds one `let` per
@@ -147,7 +148,20 @@ fn beta_let(m: &Module, e: &mut Expr, stats: &mut RuleStats) {
     // Arguments are bound left to right before the body. Building the chain in reverse makes the
     // first parameter the outermost `let`, which is what evaluates its argument first.
     let mut expanded = *lambda_body;
-    for (param, arg) in params.into_iter().zip(args.to_vec()).rev() {
+    let mut params = params;
+    let mut args = args.to_vec();
+    // The evidence table a lambda takes is usually a local or `()` ([`crate::lower`]'s evidence
+    // argument), and often unused: substituting it leaves no `let` for ζ to remove. Neither has
+    // an evaluation to move.
+    if let (Some(&last), Some(arg)) = (params.last(), args.last())
+        && m.locals[last].ty == TypeId::EVIDENCE
+        && matches!(arg, Expr::Var(_) | Expr::Lit(_))
+    {
+        replace_var(&mut expanded, last, arg);
+        params.pop();
+        args.pop();
+    }
+    for (param, arg) in params.into_iter().zip(args).rev() {
         expanded = Expr::Let {
             var: param,
             value: Box::new(arg),
@@ -167,6 +181,16 @@ fn beta_let(m: &Module, e: &mut Expr, stats: &mut RuleStats) {
     );
     *e = *body;
     stats.applied += 1;
+}
+
+/// Replaces every read of `var` in `e` by `value`, a variable or a literal. Locals are unique in a
+/// module, so no binder inside `e` can capture `value`.
+fn replace_var(e: &mut Expr, var: Local, value: &Expr) {
+    if matches!(e, Expr::Var(v) if *v == var) {
+        *e = value.clone();
+        return;
+    }
+    crate::tail::for_each_child_mut(e, &mut |c| replace_var(c, var, value));
 }
 
 /// Whether the `let` at `e` has the shape of β and its expansion is safe and within budget.
@@ -193,18 +217,23 @@ fn fits(m: &Module, e: &Expr) -> bool {
     let Type::Fn(ft) = m.ty(*ty) else {
         return false;
     };
-    // A lambda that takes the evidence table has one more argument at the call than its type
-    // lists; a type with set type parameters would need substitution. Both are left alone.
-    if ft.ev || ft.sets.is_some() {
+    // A type with set type parameters would need substitution, so it is left alone.
+    if ft.sets.is_some() {
         return false;
     }
     // The type and the lambda must agree exactly, so the expansion keeps the module well typed
-    // with the lambda's own parameter locals.
-    if ft.params.len() != params.len()
+    // with the lambda's own parameter locals. A lambda that takes the evidence table has it as
+    // one more parameter than its type lists; it is bound to the call's table like the others.
+    let declared = params.len().saturating_sub(usize::from(ft.ev));
+    if ft.params.len() != declared
         || params
             .iter()
             .zip(&ft.params)
             .any(|(param, ty)| m.locals[*param].ty != *ty)
+        || ft.ev
+            && params
+                .last()
+                .is_none_or(|p| m.locals[*p].ty != TypeId::EVIDENCE)
     {
         return false;
     }
@@ -662,9 +691,51 @@ mod tests {
         assert_eq!(m.functions[g].body, before);
     }
 
-    /// A lambda type that takes the evidence table is left alone.
+    /// A lambda that takes the evidence table expands like any other: the table is one more
+    /// parameter, bound to the call's table.
     #[test]
-    fn an_evidence_lambda_deopts() {
+    fn an_evidence_lambda_expands() {
+        let mut m = Module::new();
+        let x = m.local("x", TypeId::INT);
+        let ev = m.local("ev", TypeId::EVIDENCE);
+        let ty = m.intern(Type::Fn(FnType {
+            params: vec![TypeId::INT],
+            ret: TypeId::INT,
+            fails: false,
+            suspends: false,
+            ev: true,
+            uses: false,
+            sets: None,
+        }));
+        let body = lambda_let(
+            &mut m,
+            vec![x, ev],
+            ty,
+            add_one(x),
+            vec![
+                Expr::Lit(Lit::Int(1)),
+                Expr::Provide {
+                    base: None,
+                    bindings: Vec::new(),
+                },
+            ],
+            false,
+            false,
+        );
+        define(&mut m, body);
+        assert_eq!(
+            beta(&mut m),
+            RuleStats {
+                applied: 1,
+                deopt: 0
+            }
+        );
+    }
+
+    /// A lambda whose type takes the evidence table but whose parameters do not end with it is
+    /// left alone.
+    #[test]
+    fn an_evidence_lambda_without_the_parameter_deopts() {
         let mut m = Module::new();
         let x = m.local("x", TypeId::INT);
         let ty = m.intern(Type::Fn(FnType {
@@ -673,6 +744,7 @@ mod tests {
             fails: false,
             suspends: false,
             ev: true,
+            uses: false,
             sets: None,
         }));
         let body = lambda_let(
@@ -706,6 +778,7 @@ mod tests {
             fails: false,
             suspends: false,
             ev: false,
+            uses: false,
             sets: Some(FnSets {
                 errors: TypeId::NEVER,
                 effects: TypeId::NEVER,

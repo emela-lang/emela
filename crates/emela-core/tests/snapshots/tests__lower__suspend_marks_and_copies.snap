@@ -24,7 +24,7 @@ export suspend fn main() -> List[Int] {
   } {
     @dbg[Int](h%6.Clock#sleep(1)!)
   }
-  @dbg[List[Int]](List.map[Int, Int, {}, {}]([1]: List[Int], fn(x%7: Int) -> Int {
+  @dbg[List[Int]](List.map[Int, Int, {}, {}]([1]: List[Int], fn(x%7: Int, ev%8: evidence) -> Int {
     x%7
   }, ()))
 }
@@ -32,8 +32,11 @@ export suspend fn main() -> List[Int] {
 fn SystemClock() -> handler Clock {
   handler SystemClock: Clock {
     sleep: fn(ms%0: Int, resume%1: fn(Int) -> ()) -> () {
-      after[{}, {}](ms%0, fn() -> () {
-        (resume%1)(ms%0)
+      let resume%2: fn(Int) -> () ev = fn(x%3: Int, ev%4: evidence) -> () {
+        (resume%1)(x%3)
+      }
+      after[{}, {}](ms%0, fn(ev%5: evidence) -> () {
+        (resume%2)(ms%0, ev%5)
       })
     }
     now: fn() -> Int {
@@ -52,7 +55,10 @@ suspend fn naps(xs%0: List[Int], ev%1: evidence) -> List[Int] {
 fn InstantClock() -> handler Clock {
   handler InstantClock: Clock {
     sleep: fn(ms%0: Int, resume%1: fn(Int) -> ()) -> () {
-      (resume%1)(0)
+      let resume%2: fn(Int) -> () ev = fn(x%3: Int, ev%4: evidence) -> () {
+        (resume%1)(x%3)
+      }
+      (resume%2)(0, ())
     }
     now: fn() -> Int {
       0
@@ -63,7 +69,10 @@ fn InstantClock() -> handler Clock {
 fn FetchingClock() -> handler Clock {
   handler FetchingClock: Clock {
     sleep: suspend fn(ms%0: Int, resume%1: fn(Int) -> ()) -> () {
-      (resume%1)(@String.length(fetch_text("x")!))
+      let resume%2: fn(Int) -> () ev = fn(x%3: Int, ev%4: evidence) -> () {
+        (resume%1)(x%3)
+      }
+      (resume%2)(@String.length(fetch_text("x")!), ())
     }
     now: fn() -> Int {
       0

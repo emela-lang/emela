@@ -37,11 +37,11 @@ export suspend fn main(ev%0: evidence) -> () {
         }
         let _%16: () = {
           let tasks%17: handler Std.Task.Spawn[_, _] = h%6
-          let f%18: fn() -> () fails ev = fn() -> () fails {
+          let f%18: fn() -> () fails ev = fn(ev%19: evidence) -> () fails {
             fail Oops.Oops
           }
-          tasks%17.Std.Task.Spawn[_, _]#start(fn(ev%19: evidence) -> () fails {
-            (f%18)(provide(ev%19; Std.Task.Spawn[_, _] = tasks%17))?
+          tasks%17.Std.Task.Spawn[_, _]#start(fn(ev%20: evidence) -> () fails {
+            (f%18)(provide(ev%20; Std.Task.Spawn[_, _] = tasks%17))?
           })
         }
         ()

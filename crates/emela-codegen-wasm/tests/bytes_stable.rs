@@ -113,7 +113,7 @@ fn main() {
 }
 "#,
         36399,
-        0x86d0_0f12_68d6_eaa1,
+        0xa34e_5fa6_b898_111c,
     ),
     (
         "state_and_options",
@@ -132,8 +132,8 @@ fn main() {
   dbg(String.from_code_point(65))
 }
 "#,
-        15596,
-        0xf0ec_328c_81ee_7384,
+        15612,
+        0xd9e6_773e_1818_dd42,
     ),
     (
         "numeric",

@@ -93,6 +93,7 @@ impl Fixture {
             fails: false,
             suspends: false,
             ev: false,
+            uses: false,
             sets: None,
         });
         let thunk = core.func(FnType {
@@ -101,6 +102,7 @@ impl Fixture {
             fails: false,
             suspends: false,
             ev: false,
+            uses: false,
             sets: None,
         });
         let int_to_int_fails = core.func(FnType {
@@ -109,6 +111,7 @@ impl Fixture {
             fails: true,
             suspends: false,
             ev: false,
+            uses: false,
             sets: None,
         });
         let with_unit_ev = core.func(FnType {
@@ -117,6 +120,7 @@ impl Fixture {
             fails: false,
             suspends: false,
             ev: true,
+            uses: false,
             sets: None,
         });
         let some = core.some_ctor();

@@ -1,0 +1,10 @@
+exit: 0
+--- stdout
+log: 5
+[10, 8, 6]
+14
+double: 20
+plus k: 13
+log: 1
+[101, 2]
+--- stderr

@@ -1,0 +1,58 @@
+# A function value with a smaller R used as one with a larger R inside a list, a tuple and a list
+# of tuples, from an empty R and from an R of only a host effect (issue #717).
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler PrintLog: Log {
+  fn log(msg) { print("log: #{msg}") }
+}
+
+fn double(x: Int) -> Int { x * 2 }
+
+fn host_only(x: Int) -> Int uses { ProcessHost } { x + 100 }
+
+fn logged(x: Int) -> Int uses { Log } {
+  log <- Log
+  log.log("#{x}")
+  x + 1
+}
+
+fn widen_list(fs: List[fn(Int) -> Int uses {}]) -> List[fn(Int) -> Int uses { Log }] { fs }
+
+fn widen_pair(p: (fn(Int) -> Int uses {}, Int)) -> (fn(Int) -> Int uses { Log }, Int) { p }
+
+fn widen_nested(
+  xs: List[(String, fn(Int) -> Int uses {})],
+) -> List[(String, fn(Int) -> Int uses { Log })] {
+  xs
+}
+
+fn widen_host(
+  fs: List[fn(Int) -> Int uses { ProcessHost }],
+) -> List[fn(Int) -> Int uses { ProcessHost, Log }] {
+  fs
+}
+
+fn apply_all(fs: List[fn(Int) -> Int uses { Log }], x: Int) -> List[Int] uses { Log } {
+  List.map(fs, |f| f(x))
+}
+
+fn main() {
+  with PrintLog {
+    k = 3
+    fs = List.append(widen_list([double, |x| x + k]), [logged])
+    print("#{apply_all(fs, 5)}")
+    (g, n) = widen_pair((double, 7))
+    print("#{g(n)}")
+    named = widen_nested([("double", double), ("plus k", |x| x + k)])
+    List.each(named, |(name, f)| print("#{name}: #{f(10)}"))
+    hosts = List.append(widen_host([host_only]), [|x| logged(x)])
+    print("#{List.map(hosts, |f| f(1))}")
+  }
+}

@@ -564,10 +564,10 @@ impl StateRun {
             suspends: false,
         };
         // The function passed to update is pure (spec 8.8), so read, call and write happen in one
-        // step.
+        // step. Being a function value it takes the evidence table, which is empty for it.
         let update = set(Expr::Call {
             callee: Callee::Indirect(Box::new(Expr::Var(self.f))),
-            args: vec![get()],
+            args: vec![get(), Expr::Lit(Lit::Unit)],
             fails: false,
             suspends: false,
         });
@@ -848,7 +848,9 @@ impl<'a> Lowerer<'a> {
                     ret,
                     fails: !f.fails.is_empty(),
                     suspends: self.row_suspends(&f.uses),
-                    ev: self.row_needs_ev(&f.uses),
+                    // Function values always take the evidence table (`ty_takes_ev`).
+                    ev: true,
+                    uses: self.row_needs_ev(&f.uses),
                     sets: self.fn_sets(&f.fails, &f.uses),
                 })
             }
@@ -1455,10 +1457,14 @@ impl<'a> Lowerer<'a> {
         matches!(self.types.sigs.get(def).map(|s| &s.scheme.ty), Some(Ty::Fn(f)) if self.row_needs_ev(&f.uses))
     }
 
-    /// Whether to pass the evidence table when calling a value of function type: yes if the value
-    /// type's R has an element other than Async.
+    /// Whether to pass the evidence table when calling a value of function type: always, whatever
+    /// its R. A function value with a smaller R can be used as one with a larger R, also inside a
+    /// list or a tuple (spec 9.4), so every function value takes the table and a value never has
+    /// to be rewrapped to change its calling convention (#717). Top-level fns called directly
+    /// still take it only when their R needs it ([`Lowerer::takes_ev`]); monomorphization
+    /// references one used as a value through an entry that takes it (`Mono::ev_entry`).
     fn ty_takes_ev(&self, ty: &Ty) -> bool {
-        matches!(ty, Ty::Fn(f) if self.row_needs_ev(&f.uses))
+        matches!(ty, Ty::Fn(_))
     }
 
     /// Whether a function with effect set `row` needs an evidence table: yes if it has an element
@@ -1870,8 +1876,16 @@ impl<'a> Lowerer<'a> {
             // A suspend fn implementation takes the operation's parameters plus resume last
             // (spec 8.4). resume is an ordinary function value; calling it neither suspends nor
             // fails (its type is `fn(T) -> ()`).
-            let ps: Vec<Local> = op.params.iter().map(|p| self.local(p.local)).collect();
-            let lowered = self.expr(body);
+            let mut ps: Vec<Local> = op.params.iter().map(|p| self.local(p.local)).collect();
+            let mut lowered = self.expr(body);
+            // The runtime passes resume without the evidence table, but function values take it
+            // (`ty_takes_ev`), so the body sees resume through a lambda that takes the table and
+            // drops it.
+            if op.is_suspend
+                && let Some(user) = ps.pop()
+            {
+                lowered = self.resume_value(&mut ps, user, lowered);
+            }
             // If the body may suspend (awaiting an `@external suspend fn`, say), the implementation
             // is a generator too. Async that only calls resume later (spec 8.7) is not in the
             // body's R, so it does not suspend.
@@ -1898,6 +1912,7 @@ impl<'a> Lowerer<'a> {
                 fails: self.types.errors.get(body).is_some_and(|r| !r.is_empty()),
                 suspends,
                 ev: false,
+                uses: false,
                 sets: None,
             });
             tables[k][index] = Some(Expr::Lambda {
@@ -1950,6 +1965,42 @@ impl<'a> Lowerer<'a> {
             Expr::Tuple(values)
         };
         (params, ret, value)
+    }
+
+    /// Binds `user`, the resume parameter as the body of a suspend fn implementation sees it (a
+    /// function value taking the evidence table), around `body` to a lambda that calls the
+    /// resume the runtime passes, which is pushed onto `params` (`fn(T) -> ()` without the
+    /// table).
+    fn resume_value(&mut self, params: &mut Vec<Local>, user: Local, body: Expr) -> Expr {
+        let user_ty = self.module.locals[user].ty;
+        let Type::Fn(f) = self.module.ty(user_ty).clone() else {
+            unreachable!("resume has a function type");
+        };
+        let raw_ty = self.module.func(FnType::pure(f.params.clone(), f.ret));
+        let raw = self.module.local("resume", raw_ty);
+        params.push(raw);
+        let xs: Vec<Local> = f
+            .params
+            .iter()
+            .map(|&t| self.module.local("x", t))
+            .collect();
+        let mut lambda_params = xs.clone();
+        lambda_params.push(self.module.local("ev", TypeId::EVIDENCE));
+        Expr::Let {
+            var: user,
+            value: Box::new(Expr::Lambda {
+                params: lambda_params,
+                ty: user_ty,
+                body: Box::new(Expr::Call {
+                    callee: Callee::Indirect(Box::new(Expr::Var(raw))),
+                    args: xs.into_iter().map(Expr::Var).collect(),
+                    fails: false,
+                    suspends: false,
+                }),
+                suspends: false,
+            }),
+            body: Box::new(body),
+        }
     }
 
     /// Lowers the bodies of a stateful handler's init and release functions.
@@ -3257,7 +3308,9 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// The fn `def` referenced by `expr` as a value.
+    /// The fn `def` referenced by `expr` as a value. Function values always take the evidence
+    /// table (`ty_takes_ev`); monomorphization references a copy that does not through an entry
+    /// that takes it (`Mono::ev_entry`).
     fn fn_value(&mut self, def: DefId, expr: ExprId) -> Expr {
         Expr::Fn {
             f: self.fn_ref(def, expr),
@@ -3349,9 +3402,9 @@ impl<'a> Lowerer<'a> {
     /// `List.map(xs, Some)` becomes `List.map(xs, |x| Some(x))`. The arity comes from the
     /// reference's type.
     ///
-    /// If the reference type's R needs an evidence table, the lambda takes the table as its last
-    /// argument and uses it as the caller's table (`State.run`, and generic fns with effects with
-    /// type arguments in their R).
+    /// The lambda takes the evidence table as its last argument, as every function value does
+    /// (`ty_takes_ev`), and uses it as the caller's table (`State.run`, and generic fns with
+    /// effects with type arguments in their R).
     fn wrap_in_lambda(&mut self, id: ExprId, span: Span) -> Expr {
         let ev = self.ty_takes_ev(self.expr_ty(id)).then(|| self.ev_local());
         let (outer, bound) = (self.ev, std::mem::take(&mut self.bound));
@@ -3673,7 +3726,9 @@ impl<'a> Lowerer<'a> {
             ret: state,
             fails: false,
             suspends: false,
-            ev: false,
+            // A function value (`ty_takes_ev`), which is pure (spec 8.8).
+            ev: true,
+            uses: false,
             sets: None,
         });
         let cell_ty = self.module.cell(state);

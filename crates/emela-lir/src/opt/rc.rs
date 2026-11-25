@@ -545,6 +545,7 @@ mod tests {
                 fails: false,
                 suspends: false,
                 ev: false,
+                uses: false,
                 sets: None,
             });
             Fixture {

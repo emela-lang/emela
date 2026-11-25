@@ -280,6 +280,7 @@ impl Kit {
                     fails,
                     suspends: true,
                     ev: false,
+                    uses: false,
                     sets: None,
                 })
             }),
@@ -290,6 +291,7 @@ impl Kit {
                     fails: true,
                     suspends,
                     ev: false,
+                    uses: false,
                     sets: None,
                 })
             }),
@@ -529,6 +531,7 @@ fn fn_ty(params: Vec<TypeId>, ret: TypeId, suspends: bool) -> Type {
         fails: false,
         suspends,
         ev: false,
+        uses: false,
         sets: None,
     })
 }

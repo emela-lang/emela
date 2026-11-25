@@ -4,15 +4,15 @@ expression: "mine.join(\"\\n\\n\")"
 ---
 export fn main() -> Int {
   let k%0: Int = 10
-  let add_k%1: fn(Int) -> Int = fn(x%2: Int) -> Int {
+  let add_k%1: fn(Int) -> Int ev = fn(x%2: Int, ev%3: evidence) -> Int {
     (x%2 +[Int] k%0)
   }
-  let _%3: Int = @dbg[Int]((add_k%1)(1))
-  let _%4: List[Option[Int]] = @dbg[List[Option[Int]]](List.map[Int, Option[Int], {}, {}]([1, 2]: List[Int], fn(x%5: Int) -> Option[Int] {
-    Option.Some[Int](x%5)
+  let _%4: Int = @dbg[Int]((add_k%1)(1, ()))
+  let _%5: List[Option[Int]] = @dbg[List[Option[Int]]](List.map[Int, Option[Int], {}, {}]([1, 2]: List[Int], fn(x%6: Int, ev%7: evidence) -> Option[Int] {
+    Option.Some[Int](x%6)
   }, ()))
-  let _%6: List[Int] = @dbg[List[Int]](List.map[String, Int, {}, {}](["a", "bc"]: List[String], fn(x%7: String) -> Int {
-    @String.length(x%7)
+  let _%8: List[Int] = @dbg[List[Int]](List.map[String, Int, {}, {}](["a", "bc"]: List[String], fn(x%9: String, ev%10: evidence) -> Int {
+    @String.length(x%9)
   }, ()))
   @dbg[Int](apply[{}, {}](2, add_k%1, ()))
 }

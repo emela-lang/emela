@@ -60,27 +60,27 @@ export suspend fn main(ev%0: evidence) -> Int {
         }
         let b%15: Std.Task.Task[Int] = {
           let tasks%16: handler Std.Task.TaskGroup[_, _] = h%7
-          let f%17: fn() -> Int ev = fn() -> Int {
+          let f%17: fn() -> Int ev = fn(ev%18: evidence) -> Int {
             2
           }
-          tasks%16.Std.Task.TaskGroup[_, _]#start[Int, ()](fn(ev%18: evidence) -> Int {
-            (f%17)(provide(ev%18; Std.Task.TaskGroup[_, _] = tasks%16))
+          tasks%16.Std.Task.TaskGroup[_, _]#start[Int, ()](fn(ev%19: evidence) -> Int {
+            (f%17)(provide(ev%19; Std.Task.TaskGroup[_, _] = tasks%16))
           })
         }
-        let _%19: Bool = h%1.Std.Deferred.Deferred[Int]#complete(1)
-        let _%20: () = fiber#join(a%10)!
-        let e%21: Std.Exit.Exit[(), {}] = {
-          let f%22: fn() -> () ev = fn(ev%23: evidence) -> () {
-            (use[Log](ev%23)).Log#info("e")
+        let _%20: Bool = h%1.Std.Deferred.Deferred[Int]#complete(1)
+        let _%21: () = fiber#join(a%10)!
+        let e%22: Std.Exit.Exit[(), {}] = {
+          let f%23: fn() -> () ev = fn(ev%24: evidence) -> () {
+            (use[Log](ev%24)).Log#info("e")
           }
           fiber#attempt[Std.Exit.Exit](fn() -> () {
-            (f%22)(ev%9)
+            (f%23)(ev%9)
           })
         }
         (fiber#join(b%15)! +[Int] {
-          let h%24: handler Std.Deferred.Deferred[Int] = h%1
-          let cell%25: Std.Deferred.Deferred[Int] = h%24.Std.Deferred.Deferred[Int]#$cell()
-          fiber#deferred_await(cell%25)!
+          let h%25: handler Std.Deferred.Deferred[Int] = h%1
+          let cell%26: Std.Deferred.Deferred[Int] = h%25.Std.Deferred.Deferred[Int]#$cell()
+          fiber#deferred_await(cell%26)!
         })
       }
     })!

@@ -699,6 +699,7 @@ mod tests {
                 fails: false,
                 suspends: false,
                 ev: false,
+                uses: false,
                 sets: None,
             });
             let point_enum = core.add_enum(EnumDef {

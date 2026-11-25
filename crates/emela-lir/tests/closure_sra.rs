@@ -206,7 +206,7 @@ fn main() { dbg(run(1)) }
     assert_eq!(stats.sra_closure_deopts, 0);
     let body = text(&m, owner);
     assert!(!body.contains("make_closure"), "{body}");
-    let target = function(&m, "inc$fn");
+    let target = function(&m, "inc$ev$fn");
     let clone = specialised(&m, target).expect("not specialised");
     assert!(!text(&m, clone).contains("env["), "{}", text(&m, clone));
     assert_eq!(direct_calls_to(&m.functions[owner], clone), 1);
@@ -480,6 +480,7 @@ impl Fixture {
             fails: false,
             suspends: false,
             ev: false,
+            uses: false,
             sets: None,
         });
         let ty_fails = core.func(FnType {
@@ -488,6 +489,7 @@ impl Fixture {
             fails: true,
             suspends: false,
             ev: false,
+            uses: false,
             sets: None,
         });
         let ty_suspends = core.func(FnType {
@@ -496,6 +498,7 @@ impl Fixture {
             fails: false,
             suspends: true,
             ev: false,
+            uses: false,
             sets: None,
         });
         Fixture {

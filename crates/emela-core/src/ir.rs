@@ -768,9 +768,15 @@ pub struct FnType {
     /// Whether a call may suspend (the R is not Immediate, spec 9.5); the same as
     /// `Expr::Call::suspends` for `Callee::Indirect`.
     pub suspends: bool,
-    /// Whether the function takes the evidence table as its last argument (the R has effects
-    /// other than Async, spec 16.5).
+    /// Whether the function takes the evidence table as its last argument. Every function value
+    /// of the language does, whatever its R (`Lowerer::ty_takes_ev`, #717); function types that
+    /// lowering builds for the runtime (handler operation implementations, resume, the fiber
+    /// wrappers) do not.
     pub ev: bool,
+    /// Whether the R has an element that needs the evidence table (an effect other than a host
+    /// effect, or a set type parameter, spec 16.5): `false` means a call uses no handler. It
+    /// decides nothing about how the function is called.
+    pub uses: bool,
     /// The E and R when they contain set type parameters of the enclosing definition (`R(f)`),
     /// `None` otherwise. Then the flags above over-approximate every instantiation (a set type
     /// parameter counts as failing and needing the evidence table; whether it may suspend follows
@@ -788,6 +794,7 @@ impl FnType {
             fails: false,
             suspends: false,
             ev: false,
+            uses: false,
             sets: None,
         }
     }
@@ -912,8 +919,9 @@ impl TypeTable {
         subst_type(self, ty, args)
     }
 
-    /// The type with every [`Type::Set`] inside replaced by `()` and every [`FnType::sets`]
-    /// dropped (keeping the flags). For evidence table keys, which leave out E and R.
+    /// The type with every [`Type::Set`] inside replaced by `()`, every [`FnType::sets`] dropped
+    /// and [`FnType::uses`] cleared (keeping the flags that decide how a value is called). For
+    /// evidence table keys, which leave out E and R, and for comparing representations.
     pub fn erase_sets(&mut self, ty: TypeId) -> TypeId {
         let new = match self[ty].clone() {
             Type::Set(_) => return TypeId::UNIT,
@@ -925,6 +933,7 @@ impl TypeTable {
             Type::Fn(f) => Type::Fn(FnType {
                 params: f.params.iter().map(|&t| self.erase_sets(t)).collect(),
                 ret: self.erase_sets(f.ret),
+                uses: false,
                 sets: None,
                 ..f
             }),
@@ -1025,7 +1034,8 @@ fn subst_set(types: &TypeTable, set: &SetSummary, args: &[TypeId]) -> SetSummary
 
 /// A function type like `old` with parameters `params`, return type `ret`, E `errors` and R
 /// `effects` (both `Type::Set`). If neither set has set type parameters left, the flags come from
-/// them; otherwise `old`'s flags are kept, raised by the known parts.
+/// them; otherwise `old`'s flags are kept, raised by the known parts. Whether the function takes
+/// the evidence table is a calling convention fixed by lowering, not by R, and stays `old`'s.
 pub fn fn_with_sets(
     types: &TypeTable,
     params: Vec<TypeId>,
@@ -1043,7 +1053,8 @@ pub fn fn_with_sets(
             ret,
             fails: e.fails,
             suspends: r.suspends,
-            ev: r.ev,
+            ev: old.ev,
+            uses: r.ev,
             sets: None,
         }
     } else {
@@ -1052,7 +1063,8 @@ pub fn fn_with_sets(
             ret,
             fails: old.fails || e.fails,
             suspends: old.suspends || r.suspends,
-            ev: old.ev || r.ev,
+            ev: old.ev,
+            uses: old.uses || r.ev,
             sets: Some(FnSets { errors, effects }),
         }
     }

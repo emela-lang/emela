@@ -133,6 +133,7 @@ fn fn_ty(params: Vec<TypeId>, ret: TypeId) -> Type {
         fails: false,
         suspends: false,
         ev: false,
+        uses: false,
         sets: None,
     })
 }

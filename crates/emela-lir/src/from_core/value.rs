@@ -173,6 +173,7 @@ impl<'s> Lower<'s> {
             fails: func.fails,
             suspends: func.suspends,
             ev,
+            uses: ev,
             sets: None,
         };
         self.intern(Type::Fn(fn_ty))

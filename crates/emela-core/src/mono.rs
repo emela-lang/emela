@@ -240,6 +240,9 @@ struct Mono<'a> {
     /// The functions showing values of a type that does not satisfy Show for `dbg`
     /// ([`Mono::debug_val`]), by type.
     debug_fns: FxHashMap<TypeId, FnId>,
+    /// The entries of output functions that do not take the evidence table, for their use as
+    /// values ([`Mono::ev_entry`]).
+    ev_entries: FxHashMap<FnId, FnId>,
 }
 
 impl<'a> Mono<'a> {
@@ -275,6 +278,7 @@ impl<'a> Mono<'a> {
             derived_work: Vec::new(),
             error_seen: FxHashSet::default(),
             debug_fns: FxHashMap::default(),
+            ev_entries: FxHashMap::default(),
         }
     }
 
@@ -711,197 +715,87 @@ impl<'a> Mono<'a> {
         }
         let ret = new.ret;
         let body = self.expr(&old.body);
-        let body = self.coerce(&old.body, body, ret);
+        let body = self.coerce(body, ret);
         self.out.functions[spec.new].body = body;
     }
 
     // ---- Adapting values to their slots ----
 
-    /// `new` (the rewritten `old`) adapted to flow into a slot of type `slot`. Needed where the
-    /// value's calling convention differs from the slot's:
+    /// `new` adapted to flow into a slot of type `slot`: `()` passed where there is no evidence
+    /// table becomes the empty table, which the backends represent without allocating.
     ///
-    /// - `()` passed where there is no evidence table becomes an empty table;
-    /// - a function value without the evidence table flowing into a slot whose function type takes
-    ///   it (the type checker lets a function with a smaller R be used as one with a larger R:
-    ///   lambdas, spec 9.4, and references to function values) is wrapped in a lambda that takes
-    ///   the table and drops it. Parameters and results that are themselves such functions are
-    ///   adapted the same way, the other way round for parameters.
-    ///
-    /// Branches (`if`, `match`, `escape`) and the bodies of `let`, `with` and `loop` are adapted
-    /// separately, as each may produce a different value.
-    ///
-    /// JS ignores extra arguments, so it would run without this, but WASM's `call_indirect`
-    /// traps on a wrong argument count.
-    ///
-    /// A function inside an enum's type arguments or a list's element type cannot be adapted
-    /// (`List[fn() -> Int]` used as a `List[fn() -> Int ev]`). That does not happen today: the
-    /// type checker compares the type arguments of named types for equality, and list literals
-    /// adapt element by element. [`crate::verify_monomorphic`] would catch it. Function types that
-    /// lowering builds by hand (the fiber wrappers, `State.run`'s operations, handler operation
-    /// implementations) have no `sets`, so their flags stay approximate; none takes the evidence
-    /// table, so the argument count is right anyway.
-    fn coerce(&mut self, old: &'a Expr, new: Expr, slot: TypeId) -> Expr {
-        let slot_is_fn = matches!(self.out.ty(slot), Type::Fn(_));
-        if !slot_is_fn && slot != TypeId::EVIDENCE {
-            return new;
-        }
-        match (old, new) {
-            (
-                Expr::If {
-                    then: ot,
-                    else_: oe,
-                    ..
-                },
-                Expr::If { cond, then, else_ },
-            ) => Expr::If {
-                cond,
-                then: Box::new(self.coerce(ot, *then, slot)),
-                else_: Box::new(self.coerce(oe, *else_, slot)),
-            },
-            (Expr::Match { arms: oa, .. }, Expr::Match { scrutinee, arms }) => Expr::Match {
-                scrutinee,
-                arms: self.coerce_arms(oa, arms, slot),
-            },
-            (Expr::Escape { body: ob, arms: oa }, Expr::Escape { body, arms }) => Expr::Escape {
-                body: Box::new(self.coerce(ob, *body, slot)),
-                arms: self.coerce_arms(oa, arms, slot),
-            },
-            (Expr::Let { body: ob, .. }, Expr::Let { var, value, body }) => Expr::Let {
-                var,
-                value,
-                body: Box::new(self.coerce(ob, *body, slot)),
-            },
-            (Expr::With { body: ob, .. }, Expr::With { binds, body }) => Expr::With {
-                binds,
-                body: Box::new(self.coerce(ob, *body, slot)),
-            },
-            (Expr::Loop { body: ob, .. }, Expr::Loop { vars, inits, body }) => Expr::Loop {
-                vars,
-                inits,
-                body: Box::new(self.coerce(ob, *body, slot)),
-            },
-            (_, Expr::Lit(Lit::Unit)) if slot == TypeId::EVIDENCE => Expr::Provide {
+    /// Function values need no adapting: every function value takes the evidence table whatever
+    /// its R (`Lowerer::ty_takes_ev`), so a value with a smaller R is already called as one with
+    /// a larger R, also inside a list, a tuple or an enum (#717).
+    fn coerce(&mut self, new: Expr, slot: TypeId) -> Expr {
+        match new {
+            Expr::Lit(Lit::Unit) if slot == TypeId::EVIDENCE => Expr::Provide {
                 base: None,
                 bindings: Vec::new(),
             },
-            (old, new) => {
-                let from = self.value_ty(old, &new);
-                if self.needs_adapter(from, slot) {
-                    self.adapter(new, from, slot)
-                } else {
-                    new
-                }
-            }
+            new => new,
         }
     }
 
-    fn coerce_arms(&mut self, old: &'a [Arm], new: Vec<Arm>, slot: TypeId) -> Vec<Arm> {
-        old.iter()
-            .zip(new)
-            .map(|(o, n)| Arm {
-                body: self.coerce(&o.body, n.body, slot),
-                ..n
-            })
-            .collect()
-    }
-
-    /// The type of the rewritten expression `new` (of `old`).
-    fn value_ty(&mut self, old: &'a Expr, new: &Expr) -> TypeId {
-        match new {
-            Expr::Var(l) => self.out.locals[*l].ty,
-            Expr::Lambda { ty, .. } => *ty,
-            Expr::Lit(lit) => crate::typing::lit_type(lit),
-            Expr::Fn { f: id, .. } => {
-                let ev = self.out.takes_ev(*id);
-                let f = &self.out.functions[*id];
-                let declared = &f.params[..f.params.len() - usize::from(ev)];
-                let ty = FnType {
-                    params: declared.iter().map(|&p| self.out.locals[p].ty).collect(),
-                    ret: f.ret,
-                    fails: f.fails,
-                    suspends: f.suspends,
-                    ev,
-                    sets: None,
-                };
-                self.out.func(ty)
-            }
-            _ => {
-                let t = self.typer.type_of(old);
-                let t = self.import(t);
-                self.ty(t)
-            }
+    /// `f` itself if it takes the evidence table, otherwise its entry `f$ev`, created on first
+    /// use: the same parameters plus the table, which it drops, calling `f` directly. A function
+    /// value always takes the table (`Lowerer::ty_takes_ev`), so a function referenced as a value
+    /// is referenced through its entry. The entry has no captures, so the value needs no
+    /// allocation.
+    fn ev_entry(&mut self, f: FnId) -> FnId {
+        if self.out.takes_ev(f) {
+            return f;
         }
-    }
-
-    /// Whether a function value of type `from` needs an adapter to be used as a `to`.
-    fn needs_adapter(&self, from: TypeId, to: TypeId) -> bool {
-        if from == to {
-            return false;
+        if let Some(&e) = self.ev_entries.get(&f) {
+            return e;
         }
-        match (self.out.ty(from), self.out.ty(to)) {
-            (Type::Fn(a), Type::Fn(b)) => {
-                (b.ev && !a.ev)
-                    || a.params.len() == b.params.len()
-                        && (a
-                            .params
-                            .iter()
-                            .zip(&b.params)
-                            .any(|(&p, &q)| self.needs_adapter(q, p))
-                            || self.needs_adapter(a.ret, b.ret))
-            }
-            _ => false,
-        }
-    }
-
-    /// `fn(xs.., ev) { adapt(v(adapt(xs).., [ev])) }` with `v` bound to `value`, of type `to`.
-    fn adapter(&mut self, value: Expr, from: TypeId, to: TypeId) -> Expr {
-        let (Type::Fn(a), Type::Fn(b)) = (self.out.ty(from).clone(), self.out.ty(to).clone())
-        else {
-            unreachable!("adapters are made between function types");
-        };
-        let v = self.out.local("f", from);
-        let mut params: Vec<Local> = b.params.iter().map(|&t| self.out.local("x", t)).collect();
-        let mut args: Vec<Expr> = params
+        let func = &self.out.functions[f];
+        let (fname, fparams, ret, fails, suspends) = (
+            func.name.clone(),
+            func.params.clone(),
+            func.ret,
+            func.fails,
+            func.suspends,
+        );
+        let mut params: Vec<Local> = fparams
             .iter()
-            .zip(&a.params)
-            .map(|(&p, &want)| {
-                let have = self.out.locals[p].ty;
-                let x = Expr::Var(p);
-                if self.needs_adapter(have, want) {
-                    self.adapter(x, have, want)
-                } else {
-                    x
-                }
+            .map(|&p| {
+                let data = &self.out.locals[p];
+                let (hint, ty) = (data.hint.clone(), data.ty);
+                self.out.local(&hint, ty)
             })
             .collect();
-        if b.ev {
-            let ev = self.out.local("ev", TypeId::EVIDENCE);
-            params.push(ev);
-            if a.ev {
-                args.push(Expr::Var(ev));
-            }
+        let args = params.iter().map(|&p| Expr::Var(p)).collect();
+        params.push(self.out.local("ev", TypeId::EVIDENCE));
+        let name = self.fresh_name(format!("{fname}$ev"));
+        let entry = self.out.functions.alloc(Function {
+            name,
+            exported: false,
+            host_exports: Vec::new(),
+            params,
+            ret,
+            type_params: 0,
+            set_params: Vec::new(),
+            fails,
+            body: Expr::Call {
+                callee: Callee::Direct {
+                    f,
+                    ty_args: Vec::new(),
+                },
+                args,
+                fails,
+                suspends,
+            },
+            external: None,
+            suspends,
+            constant: false,
+            sets: None,
+        });
+        if let Some(&old) = self.origins.get(f) {
+            self.origins.insert(entry, old);
         }
-        let call = Expr::Call {
-            callee: Callee::Indirect(Box::new(Expr::Var(v))),
-            args,
-            fails: a.fails,
-            suspends: a.suspends,
-        };
-        let body = if self.needs_adapter(a.ret, b.ret) {
-            self.adapter(call, a.ret, b.ret)
-        } else {
-            call
-        };
-        Expr::Let {
-            var: v,
-            value: Box::new(value),
-            body: Box::new(Expr::Lambda {
-                params,
-                ty: to,
-                body: Box::new(body),
-                suspends: a.suspends,
-            }),
-        }
+        self.ev_entries.insert(f, entry);
+        entry
     }
 
     // ---- The Core tree ----
@@ -935,7 +829,7 @@ impl<'a> Mono<'a> {
             .map(|(i, e)| {
                 let new = self.expr(e);
                 match slots.get(i) {
-                    Some(&slot) => self.coerce(e, new, slot),
+                    Some(&slot) => self.coerce(new, slot),
                     None => new,
                 }
             })
@@ -945,7 +839,7 @@ impl<'a> Mono<'a> {
     /// Rewrites a value flowing into a slot of type `slot`.
     fn value(&mut self, e: &'a Expr, slot: TypeId) -> Expr {
         let new = self.expr(e);
-        self.coerce(e, new, slot)
+        self.coerce(new, slot)
     }
 
     fn local_tys(&self, ls: &[Local]) -> Vec<TypeId> {
@@ -961,8 +855,9 @@ impl<'a> Mono<'a> {
             },
             Expr::Fn { f, ty_args } => {
                 let args = self.tys(ty_args);
+                let f = self.target(*f, &args).f;
                 Expr::Fn {
-                    f: self.target(*f, &args).f,
+                    f: self.ev_entry(f),
                     ty_args: Vec::new(),
                 }
             }
@@ -1078,19 +973,7 @@ impl<'a> Mono<'a> {
                 suspends,
             } => {
                 let new_ty = self.ty(*ty);
-                // A lambda whose R turned out not to need the evidence table drops its parameter.
-                let drops_ev = matches!(
-                    (self.m.ty(*ty), self.out.ty(new_ty)),
-                    (Type::Fn(a), Type::Fn(b)) if a.ev && !b.ev
-                );
-                let mut ps = Vec::new();
-                for (i, &p) in params.iter().enumerate() {
-                    if drops_ev && i + 1 == params.len() {
-                        self.locals.insert(p, NewLocal::Unit);
-                    } else {
-                        ps.push(self.bind(p));
-                    }
-                }
+                let ps = params.iter().map(|&p| self.bind(p)).collect();
                 let ret = match self.out.ty(new_ty) {
                     Type::Fn(f) => f.ret,
                     _ => TypeId::ANY,
@@ -1685,7 +1568,7 @@ impl<'a> Mono<'a> {
                         a => self.expr(a),
                     };
                     new_args.push(match slots.get(i) {
-                        Some(&slot) => self.coerce(a, new, slot),
+                        Some(&slot) => self.coerce(new, slot),
                         None => new,
                     });
                 }
@@ -1703,9 +1586,9 @@ impl<'a> Mono<'a> {
                 let old_ty = self.typer.type_of(c);
                 let old_ty = self.import(old_ty);
                 let new_ty = self.ty(old_ty);
-                let (old_ev, new) = match (self.out.ty(old_ty), self.out.ty(new_ty)) {
-                    (Type::Fn(a), Type::Fn(b)) => (a.ev, Some(b.clone())),
-                    _ => (false, None),
+                let new = match self.out.ty(new_ty) {
+                    Type::Fn(b) => Some(b.clone()),
+                    _ => None,
                 };
                 let callee = Callee::Indirect(Box::new(self.expr(c)));
                 let (new_args, fails, suspends) = match new {
@@ -1714,12 +1597,6 @@ impl<'a> Mono<'a> {
                         if b.ev {
                             slots.push(TypeId::EVIDENCE);
                         }
-                        // The evidence table is passed exactly when the value takes it.
-                        let args = if old_ev && !b.ev {
-                            &args[..args.len() - 1]
-                        } else {
-                            args
-                        };
                         (
                             self.values(args, &slots),
                             fails && b.fails,

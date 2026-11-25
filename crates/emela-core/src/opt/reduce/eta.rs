@@ -14,6 +14,11 @@
 //! calling convention of the value's type (whether it takes the evidence table, whether it may
 //! fail or suspend). A type that only matches up to compatibility is left alone.
 //!
+//! Function values of the language take the evidence table as their last parameter (#717). The
+//! wrapper `fn(x…, ev) { f(x…, ev) }` forwards it, and `fn(x…, ev) { f(x…) }` drops it for an `f`
+//! that does not take it; both are the function value `f`, which as a value takes the table and
+//! drops it when `f` does not (monomorphization's entry, `Mono::ev_entry`).
+//!
 //! # Contract
 //!
 //! ```text
@@ -21,8 +26,9 @@
 //! Theory: η conversion of the lambda calculus
 //! Equation: λx. f x → f
 //! Preconditions: the body is exactly a call whose arguments are the lambda's parameters, in
-//!                order (nothing dropped, reordered, added or captured); the lambda's function
-//!                type does not take the evidence table and has no set type parameters; the
+//!                order (nothing dropped, reordered, added or captured, except the evidence
+//!                table, dropped for a direct callee that does not take it); the lambda's
+//!                function type has no set type parameters; the
 //!                lambda does not suspend; the call is direct to a non-external, non-const,
 //!                non-suspending function whose instantiated type is exactly the lambda's, or
 //!                indirect through a local of exactly the lambda's type that does not suspend.
@@ -31,7 +37,7 @@
 //! Preserves: evaluation order, effects, failures, suspension points, and the order and count of
 //!            the releases of `with`. Reference-count drop points and memory use may change
 //!            (`[dyn.memory]`).
-//! Deopt: a lambda that takes the evidence table or has set type parameters, suspends, drops,
+//! Deopt: a lambda that has set type parameters, suspends, drops,
 //!        reorders, adds or captures an argument (partial application included), whose body is
 //!        not the call, or whose type is not exactly the callee's; an external, const or
 //!        suspending callee; a call through anything but a local of exactly the lambda's type.
@@ -106,33 +112,50 @@ fn reduction(m: &mut Module, e: &Expr, deopt: &mut u32) -> Option<Expr> {
         return None;
     };
     // A set type parameter makes the flags an over-approximation of every instantiation (the
-    // evidence table would be passed where the instantiation does not need it), and the evidence
-    // table is a calling convention the value's type has to state exactly.
-    if ft.ev || ft.sets.is_some() {
+    // evidence table would be passed where the instantiation does not need it).
+    if ft.sets.is_some() {
         *deopt += 1;
         return None;
     }
     let ft = ft.clone();
-    if args.len() != params.len() {
+    // A wrapper that takes the evidence table (every function value of the language does) has it
+    // as its last parameter, which the call passes on last or, to a function that does not take
+    // it, drops.
+    let declared = params.len().saturating_sub(usize::from(ft.ev));
+    if ft.params.len() != declared {
         *deopt += 1;
         return None;
     }
-    // Every argument is the matching parameter, in order: the wrapper is the identity on them.
-    if !args
-        .iter()
-        .zip(params)
-        .all(|(arg, &param)| matches!(arg, Expr::Var(l) if *l == param))
-    {
-        *deopt += 1;
-        return None;
-    }
+    let forwards = |n: usize| {
+        args.len() == n
+            && args
+                .iter()
+                .zip(params)
+                .all(|(arg, &param)| matches!(arg, Expr::Var(l) if *l == param))
+    };
     let value = match callee {
-        Callee::Direct { f, ty_args } => reduction_direct(m, *f, ty_args, &ft),
+        // Every argument is the matching parameter, in order: the wrapper is the identity on
+        // them. A function value takes the table whether or not the function does, so a call
+        // that drops the wrapper's table forwards it as well.
+        Callee::Direct { f, ty_args } => {
+            let ev = m.takes_ev(*f);
+            if ft.ev && (forwards(params.len()) && ev || forwards(declared) && !ev)
+                || !ft.ev && forwards(params.len())
+            {
+                reduction_direct(m, *f, ty_args, &ft)
+            } else {
+                None
+            }
+        }
         Callee::Indirect(callee) => {
             let Expr::Var(g) = &**callee else {
                 *deopt += 1;
                 return None;
             };
+            if !forwards(params.len()) {
+                *deopt += 1;
+                return None;
+            }
             // The local replaces the lambda as a value, so it must have the lambda's type. Its
             // type decides how a call passes arguments, including the evidence table.
             if m.locals[*g].ty != *ty {
@@ -157,7 +180,11 @@ fn reduction(m: &mut Module, e: &Expr, deopt: &mut u32) -> Option<Expr> {
     value
 }
 
-/// The function value for a direct call to `f`, if the instantiated function has exactly `ft`.
+/// The function value for a direct call to `f`, if the instantiated function has exactly the
+/// lambda's type `ft` as a value: the same parameters, result and flags, taking the evidence table
+/// exactly when `ft` does. As a value, `f` takes the table whether or not `f` itself does
+/// ([`crate::typing::Typer::fn_value`]); whether its R needs one is not part of how it is called,
+/// so it is not compared.
 fn reduction_direct(m: &mut Module, f: FnId, ty_args: &[TypeId], ft: &FnType) -> Option<Expr> {
     let (params, ret, fails, suspends, ev, type_params, external, constant, sets) = {
         let func = &m.functions[f];
@@ -175,11 +202,12 @@ fn reduction_direct(m: &mut Module, f: FnId, ty_args: &[TypeId], ft: &FnType) ->
     };
     // A const has its own evaluation rule, an external function is the host's, and `suspends`
     // covers both the wrapper's `suspends: false` and the value's non-suspending type. `sets`
-    // makes the flags over-approximate the instantiation, as in [`reduction`].
-    if external || constant || suspends || ev || sets || ty_args.len() != type_params {
+    // makes the flags over-approximate the instantiation, as in [`reduction`]. A wrapper without
+    // the table cannot become a function value, which takes it.
+    if external || constant || suspends || sets || !ft.ev || ty_args.len() != type_params {
         return None;
     }
-    let params: Vec<TypeId> = params
+    let params: Vec<TypeId> = params[..params.len() - usize::from(ev)]
         .iter()
         .map(|&p| m.locals[p].ty)
         .map(|t| m.types.subst(t, ty_args))
@@ -190,7 +218,8 @@ fn reduction_direct(m: &mut Module, f: FnId, ty_args: &[TypeId], ft: &FnType) ->
         ret,
         fails,
         suspends,
-        ev,
+        ev: true,
+        uses: ft.uses,
         sets: None,
     };
     if &value != ft {
@@ -219,6 +248,14 @@ mod tests {
 
     /// A module with `f`, an `Int` → `Int` function whose body is `x`, and `main`, whose body is
     /// the lambda `|x| f(x)`. `fails` sets whether `f` may fail. Returns the module and `main`.
+    /// The type of a function value of the language, which takes the evidence table.
+    fn value_type(m: &mut Module, params: Vec<TypeId>, ret: TypeId) -> TypeId {
+        m.func(FnType {
+            ev: true,
+            ..FnType::pure(params, ret)
+        })
+    }
+
     fn wrapper_module(fails: bool) -> (Module, FnId) {
         let mut m = Module::new();
         let f = m.declare("f", false);
@@ -228,9 +265,10 @@ mod tests {
 
         let main = m.declare("main", true);
         let x = m.local("x", TypeId::INT);
-        let ty = m.fn_type(vec![TypeId::INT], TypeId::INT);
+        let ev = m.local("ev", TypeId::EVIDENCE);
+        let ty = value_type(&mut m, vec![TypeId::INT], TypeId::INT);
         let body = Expr::Lambda {
-            params: vec![x],
+            params: vec![x, ev],
             ty,
             body: Box::new(Expr::Call {
                 callee: Callee::Direct {
@@ -338,16 +376,17 @@ mod tests {
         assert!(matches!(m.functions[main].body, Expr::Lambda { .. }));
     }
 
-    /// A lambda whose type takes the evidence table or has set type parameters is left alone.
+    /// A lambda whose type does not take the evidence table its parameters end with, or whose
+    /// type has set type parameters, is left alone.
     #[test]
     fn ev_and_sets_do_not_reduce() {
         let sets = FnSets {
             errors: TypeId::UNIT,
             effects: TypeId::UNIT,
         };
-        for (ev, sets) in [(true, None), (false, Some(sets))] {
+        for (ev, sets) in [(false, None), (true, Some(sets))] {
             let (mut m, main) = wrapper_module(false);
-            let ty = m.fn_type(vec![TypeId::INT], TypeId::INT);
+            let ty = value_type(&mut m, vec![TypeId::INT], TypeId::INT);
             let Type::Fn(ft) = m.ty(ty).clone() else {
                 panic!("the wrapper's type is a function type");
             };
@@ -378,9 +417,10 @@ mod tests {
 
             let main = m.declare("main", true);
             let x = m.local("x", TypeId::INT);
-            let ty = m.fn_type(vec![TypeId::INT], TypeId::INT);
+            let ev = m.local("ev", TypeId::EVIDENCE);
+            let ty = value_type(&mut m, vec![TypeId::INT], TypeId::INT);
             let body = Expr::Lambda {
-                params: vec![x],
+                params: vec![x, ev],
                 ty,
                 body: Box::new(Expr::Call {
                     callee: Callee::Direct { f, ty_args },

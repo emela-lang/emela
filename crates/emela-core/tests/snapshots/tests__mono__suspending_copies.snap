@@ -9,7 +9,7 @@ export fn main() -> List[Int] {
   } {
     @dbg[List[Int]](naps([1, 2]: List[Int], ev%2)!)
   }
-  @dbg[List[Int]](List.map[Int, Int, {}, {}]([1]: List[Int], fn(x%3: Int) -> Int {
+  @dbg[List[Int]](List.map[Int, Int, {}, {}]([1]: List[Int], fn(x%3: Int, ev%4: evidence) -> Int {
     x%3
   }))
 }
@@ -21,9 +21,9 @@ suspend fn naps(xs%0: List[Int], ev%1: evidence) -> List[Int] {
   }, ev%1)!
 }
 
-fn List.map[Int, Int, {}, {}](xs%0: List[Int], f%1: fn(Int) -> Int) -> List[Int] {
-  List.reverse[Int](List.fold[Int, List[Int], {}, {}](xs%0, []: List[Int], fn(acc%2: List[Int], x%3: Int) -> List[Int] {
-    [(f%1)(x%3), ..acc%2]: List[Int]
+fn List.map[Int, Int, {}, {}](xs%0: List[Int], f%1: fn(Int) -> Int ev) -> List[Int] {
+  List.reverse[Int](List.fold[Int, List[Int], {}, {}](xs%0, []: List[Int], fn(acc%2: List[Int], x%3: Int, ev%4: evidence) -> List[Int] {
+    [(f%1)(x%3, ev%4), ..acc%2]: List[Int]
   }))
 }
 

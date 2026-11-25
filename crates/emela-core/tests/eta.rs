@@ -230,10 +230,10 @@ fn main() {
     assert!(body_dump(&dump(&m), "main").contains("fn("), "{}", dump(&m));
 }
 
-/// A lambda whose R needs the evidence table takes it as a last parameter, so its type is not the
-/// callee's and a call to the value would pass the table differently.
+/// A lambda takes the evidence table as a last parameter and passes it on to a callee whose R
+/// needs it: the wrapper is the callee's function value.
 #[test]
-fn a_lambda_that_takes_the_evidence_table_is_not_reduced() {
+fn a_lambda_that_forwards_the_evidence_table_is_reduced() {
     let files = [(
         "main.emel",
         "\
@@ -260,8 +260,12 @@ fn main() {
 ",
     )];
     let (m, stats) = lower_files_with_rules(&files, eta_only().rules);
-    assert_eq!(stats.eta, 0, "{stats:?}");
-    assert!(body_dump(&dump(&m), "main").contains("fn("), "{}", dump(&m));
+    assert!(stats.eta > 0, "{stats:?}");
+    assert!(
+        !body_dump(&dump(&m), "main").contains("= fn("),
+        "{}",
+        dump(&m)
+    );
 }
 
 /// A suspending lambda is a suspension point of its own; its value is not the callee's.
