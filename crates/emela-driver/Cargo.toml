@@ -12,6 +12,7 @@ emela-fmt.workspace = true
 emela-resolve.workspace = true
 emela-types.workspace = true
 emela-core.workspace = true
+emela-lir.workspace = true
 emela-codegen-js.workspace = true
 emela-codegen-c.workspace = true
 emela-codegen-wasm.workspace = true

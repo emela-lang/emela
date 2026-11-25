@@ -307,8 +307,8 @@ fn function_facts(
             continue;
         }
         // The environment parameter of a lifted function is borrowed by the caller, unless a frame
-        // may keep it (`owned_env`); reference counting then dups it at the start, so it is not the
-        // only owner either way. Any other parameter is kept by the caller when the borrow
+        // may keep it (`owned_borrowed`); reference counting then dups it at the start, so it is
+        // not the only owner either way. Any other parameter is kept by the caller when the borrow
         // analysis proves the callee may borrow it; an owned parameter may or may not have been
         // duplicated at the call site, so its uniqueness is not known.
         let env = index == 0 && f.env.is_some();

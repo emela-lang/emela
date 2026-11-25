@@ -9,6 +9,7 @@ mod wasm_common;
 mod actions;
 mod algebra;
 mod backends;
+mod borrow_opt;
 mod c;
 mod dependencies;
 mod diagnostics;

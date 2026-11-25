@@ -5,13 +5,16 @@
 //! 2. [`explicit_defects`]: defects and the cleanups of `protect` become explicit control.
 //! 3. [`state_machines`]: suspending functions become resumable state machines, with their
 //!    suspension points and the frames they save explicit.
-//! 4. [`insert_rc`]: `dup` and `drop` (Perceus), last, on the final control flow (the suspension
+//! 4. [`insert_borrow_signature`]: which parameters are borrowed, from the borrow facts
+//!    ([`opt::LirRules::borrow`], off by default; C2b).
+//! 5. [`insert_rc`]: `dup` and `drop` (Perceus), last, on the final control flow (the suspension
 //!    edges included).
 //!
 //! Each pass rebuilds the functions it changes (`copy::compact`), numbering the reachable
-//! variables, statements, sequences and labels in the order met, so the dump's numbers differ
-//! from those before the pass.
+//! variables, statements, sequences and labels in the order met, so the dump's numbers differ from
+//! those before the pass.
 
+mod borrow;
 mod closures;
 mod copy;
 mod defects;
@@ -20,6 +23,7 @@ pub(crate) mod rc;
 pub(crate) mod rc_check;
 pub(crate) mod suspend;
 
+pub use borrow::{BorrowReport, insert_borrow_signature};
 pub use closures::convert_closures;
 pub(crate) use copy::compact;
 pub(crate) use defects::may_defect;
@@ -43,15 +47,41 @@ pub fn to_heap(m: &mut Module) {
 /// then the Heap IR optimisation passes run, with `dup` and `drop` explicit. The returned
 /// [`opt::Stats`] is what all of them changed, so a build that turns optimisation off gets an
 /// empty one.
+///
+/// This is [`to_heap_with_options`] with [`opt::Options::default`]: borrow inference and the other
+/// off-by-default passes do not run, and the result is byte-identical to the pipeline before
+/// C2/PR-026.
 pub fn to_heap_with(m: &mut Module, optimize: bool) -> opt::Stats {
+    to_heap_with_options(m, optimize, opt::Options::default())
+}
+
+/// [`to_heap_with`] with the LIR pass flags chosen by `options`.
+///
+/// The sequence is the one of [`to_heap_with`]. When `optimize` is on and
+/// [`opt::LirRules::borrow`] is set, borrow inference runs after [`state_machines`] and before
+/// [`insert_rc`], so reference counting follows each function's borrowed-parameter signature. With
+/// `optimize` off no optimisation runs, borrow inference included; with [`opt::Options::default`]
+/// this is exactly [`to_heap_with`].
+pub fn to_heap_with_options(m: &mut Module, optimize: bool, options: opt::Options) -> opt::Stats {
     let mut stats = opt::run_flow(m, optimize);
     convert_closures(m);
     // SRA and closure devirtualisation need lifted closures, and must run before `state_machines`
     // fixes `Suspend::saved` (parent plan §4.3).
-    stats.merge(opt::run_mid(m, optimize));
+    stats.merge(if optimize {
+        opt::run_mid_with(m, options)
+    } else {
+        opt::run_mid(m, false)
+    });
     explicit_defects(m);
     state_machines(m);
+    if optimize && options.rules.borrow {
+        stats.merge(insert_borrow_signature(m).into_stats());
+    }
     insert_rc(m);
-    stats.merge(opt::run_heap(m, optimize));
+    stats.merge(if optimize {
+        opt::run_heap_with(m, options)
+    } else {
+        opt::run_heap(m, false)
+    });
     stats
 }

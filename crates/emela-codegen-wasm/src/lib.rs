@@ -126,6 +126,20 @@ pub fn compile_with(
     entry: &Entry,
     optimize: bool,
 ) -> Result<WasmOutput, Vec<WasmError>> {
+    compile_with_lir(core, entry, optimize, emela_lir::opt::Options::default())
+}
+
+/// [`compile_with`] with the LIR pass flags chosen by `lir_options`.
+///
+/// This is the entry point a test uses to compile a program with, for example, borrow inference on
+/// while the default build keeps it off. Optimisation never changes what the program prints, its
+/// exit status or the order of effects, failures and releases, whichever LIR passes run.
+pub fn compile_with_lir(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+    lir_options: emela_lir::opt::Options,
+) -> Result<WasmOutput, Vec<WasmError>> {
     let service = matches!(entry, Entry::Main) && core.http_service;
     let roots: Vec<FnId> = match entry {
         // An HTTP service starts from the fn `@entry(Http.serve)` made: its `wasm` export is
@@ -182,7 +196,7 @@ pub fn compile_with(
     if !errors.is_empty() {
         return Err(errors);
     }
-    emela_lir::to_heap_with(&mut lir, optimize);
+    emela_lir::to_heap_with_options(&mut lir, optimize, lir_options);
     if cfg!(debug_assertions)
         && let Err(errors) = emela_lir::verify(&lir)
     {

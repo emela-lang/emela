@@ -33,6 +33,7 @@
 //! | Pass | Counter | Stage | Status |
 //! |---|---|---|---|
 //! | [`analysis`] (`escape`, `liveness`, `borrow`, `ownership`) | — | every stage | `escape` and its parameter summary implemented (B3/PR-022); the others answer `Unknown` until B4/PR-023 and B6/PR-024 |
+//! | borrow inference | [`Stats::borrow_functions`], [`Stats::borrow_params`], [`Stats::borrow_args`] | between `state_machines` and `insert_rc` | [`LirRules::borrow`], off by default (C2/PR-026). Not a rewrite: it writes the calling convention reference counting follows |
 //! | [`sra`] | [`Stats::sra_tuples`], [`Stats::sra_records`] | [`run_mid`] | scalar tuples; scalar records behind [`LirRules::sra_records`] (C5/PR-043). The closure half of C5 is deferred to E5/PR-037 |
 //! | [`devirt`] | [`Stats::devirt`] | [`run_mid`] | closure records only called in their function (E5/PR-037) |
 //! | [`rc`] cleanup | [`Stats::rc_pairs`], [`Stats::rc_borrow_pairs`] | [`run_heap`] | `dup`/`drop` pairs; C1/PR-025 adds the local-base borrow elision behind [`LirRules::rc_borrow`] |
@@ -45,15 +46,17 @@
 //!
 //! # Feature flags
 //!
-//! [`LirRules`] has one flag per LIR pass that exists today ([`sra`], [`devirt`] and the `rc`
-//! cleanup), one that extends SRA to records, and one for the `rc` cleanup's local-base borrow
-//! elision ([`LirRules::rc_borrow`]), and [`Options`] holds them. [`run_mid_with`] and
-//! [`run_heap_with`] take the options; [`run_mid`] and [`run_heap`] keep their old signatures and
-//! use [`Options::default`], which leaves the stage's output as it was before closure
-//! devirtualisation and the borrow elision existed and before records were decomposed. The flags
-//! are a programmatic API only: no command-line flag is added in this skeleton. Closure
-//! devirtualisation and the borrow elision are off by default; the later LIR passes (drop
-//! specialisation, reuse, DCE, frame pruning) get their own flags when they land.
+//! [`LirRules`] has one flag per LIR pass that exists today ([`sra`], its [`devirt`] extension,
+//! the `rc` cleanup with its local-base borrow elision ([`LirRules::rc_borrow`]), and borrow
+//! inference ([`LirRules::borrow`], run by
+//! [`to_heap_with_options`](crate::to_heap_with_options) between `state_machines` and `insert_rc`),
+//! and [`Options`] holds them. [`run_mid_with`] and [`run_heap_with`] take the options; [`run_mid`]
+//! and [`run_heap`] keep their old signatures and use [`Options::default`], which leaves the
+//! stage's output as it was before closure devirtualisation, record SRA, the borrow elision and
+//! borrow inference existed. The flags are a programmatic API only: no command-line flag is added
+//! in this skeleton. Record SRA, closure devirtualisation, the borrow elision and borrow inference
+//! are off by default; the later LIR passes (drop specialisation, reuse, DCE, frame pruning) get
+//! their own flags when they land.
 //!
 //! [`LirRules::sra_records`] is off by default so that a default build's output, the WASM byte pins
 //! and the differential tests stay what they were. It only takes part when [`LirRules::sra`] is on
@@ -94,6 +97,20 @@ pub struct Stats {
     pub rc_borrow_pairs: u32,
     /// Pairs [`rc`] left alone because liveness or ownership answered `Unknown`, one per pair.
     pub rc_borrow_deopts: u32,
+    /// Functions borrow inference gave a non-empty borrowed-parameter signature
+    /// ([`LirRules::borrow`], C2/PR-026).
+    ///
+    /// This and the two counters below are facts about the calling convention, not a rewrite: the
+    /// signature itself changes no statement. The observable effect is the `dup`s the caller no
+    /// longer emits, counted by [`borrow_args`](Self::borrow_args).
+    pub borrow_functions: u32,
+    /// Borrowed parameter slots written into the signatures of those functions.
+    pub borrow_params: u32,
+    /// Direct-call argument positions that reference counting treats as borrowed because of a
+    /// signature: a counted argument at a marked parameter position (the environment argument of a
+    /// lifted call is not one). This is the number of call-site `dup`s the flag can remove when the
+    /// argument stays live; the pass counts positions, not the `dup`s `insert_rc` actually omits.
+    pub borrow_args: u32,
 }
 
 impl Stats {
@@ -107,6 +124,9 @@ impl Stats {
         self.devirt_deopts += other.devirt_deopts;
         self.rc_borrow_pairs += other.rc_borrow_pairs;
         self.rc_borrow_deopts += other.rc_borrow_deopts;
+        self.borrow_functions += other.borrow_functions;
+        self.borrow_params += other.borrow_params;
+        self.borrow_args += other.borrow_args;
     }
 }
 
@@ -133,6 +153,12 @@ pub struct LirRules {
     /// of a uniquely owned local base that stays alive for the whole region. Off by default, so a
     /// default build's output is unchanged; it needs the liveness (B4) and ownership (B6) facts.
     pub rc_borrow: bool,
+    /// Borrow inference between `state_machines` and `insert_rc` (C2/PR-026): write each
+    /// function's borrowed-parameter signature from the borrow facts, so reference counting does
+    /// not `dup` an argument the callee only reads and does not `drop` that parameter. Off by
+    /// default, so a default build's Heap IR (and both backends' output) is unchanged. This is not
+    /// a rewrite of the Heap IR: it changes the calling convention the counting pass follows.
+    pub borrow: bool,
 }
 
 impl LirRules {
@@ -144,6 +170,7 @@ impl LirRules {
             devirt: true,
             rc_cleanup: true,
             rc_borrow: true,
+            borrow: true,
         }
     }
 
@@ -155,14 +182,15 @@ impl LirRules {
             devirt: false,
             rc_cleanup: false,
             rc_borrow: false,
+            borrow: false,
         }
     }
 }
 
 impl Default for LirRules {
     /// The passes that are on by default: SRA and the `rc` cleanup. Record SRA, closure
-    /// devirtualisation and the local-base borrow elision are off until a later change turns them
-    /// on, so a default build's output is unchanged.
+    /// devirtualisation, the local-base borrow elision and borrow inference are off until a later
+    /// change turns them on, so a default build's output is unchanged.
     fn default() -> Self {
         Self {
             sra: true,
@@ -170,6 +198,7 @@ impl Default for LirRules {
             devirt: false,
             rc_cleanup: true,
             rc_borrow: false,
+            borrow: false,
         }
     }
 }
@@ -178,7 +207,7 @@ impl Default for LirRules {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Options {
     /// Which LIR passes to run. [`LirRules::default`] by default: SRA and the `rc` cleanup, with
-    /// record SRA, closure devirtualisation and the borrow elision off.
+    /// record SRA, closure devirtualisation, the borrow elision and borrow inference off.
     pub rules: LirRules,
 }
 
@@ -460,6 +489,9 @@ mod tests {
             devirt_deopts: 2,
             rc_borrow_pairs: 1,
             rc_borrow_deopts: 1,
+            borrow_functions: 1,
+            borrow_params: 2,
+            borrow_args: 3,
         });
         total.merge(Stats {
             sra_tuples: 3,
@@ -470,6 +502,9 @@ mod tests {
             devirt_deopts: 1,
             rc_borrow_pairs: 2,
             rc_borrow_deopts: 2,
+            borrow_functions: 2,
+            borrow_params: 3,
+            borrow_args: 4,
         });
         total.merge(Stats::default());
         assert_eq!(total.sra_tuples, 5);
@@ -480,21 +515,39 @@ mod tests {
         assert_eq!(total.devirt_deopts, 3);
         assert_eq!(total.rc_borrow_pairs, 3);
         assert_eq!(total.rc_borrow_deopts, 3);
+        assert_eq!(total.borrow_functions, 3);
+        assert_eq!(total.borrow_params, 5);
+        assert_eq!(total.borrow_args, 7);
     }
 
     /// `LirRules::all` turns every flag on; `none` turns every flag off. Record SRA, closure
-    /// devirtualisation and the local-base borrow elision are off in `Default`, so a default build
-    /// keeps the output as it was before C5/PR-043, E5/PR-037 and C1/PR-025.
+    /// devirtualisation, the local-base borrow elision and borrow inference are off in `Default`,
+    /// so a default build keeps the output as it was before C5/PR-043, E5/PR-037, C1/PR-025 and
+    /// C2/PR-026.
     #[test]
     fn the_lir_rule_flags_have_conservative_defaults() {
         let all = LirRules::all();
-        assert!(all.sra && all.sra_records && all.rc_cleanup && all.devirt && all.rc_borrow);
+        assert!(
+            all.sra
+                && all.sra_records
+                && all.rc_cleanup
+                && all.rc_borrow
+                && all.devirt
+                && all.borrow
+        );
         let default = LirRules::default();
         assert!(default.sra && default.rc_cleanup);
-        assert!(!default.sra_records && !default.devirt && !default.rc_borrow);
+        assert!(!default.sra_records);
+        assert!(!default.rc_borrow);
+        assert!(!default.devirt && !default.borrow);
         let none = LirRules::none();
         assert!(
-            !none.sra && !none.sra_records && !none.rc_cleanup && !none.devirt && !none.rc_borrow
+            !none.sra
+                && !none.sra_records
+                && !none.rc_cleanup
+                && !none.rc_borrow
+                && !none.devirt
+                && !none.borrow
         );
     }
 

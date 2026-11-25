@@ -44,6 +44,26 @@
 //! and the least fixed point is the smallest sound set: a cycle whose members only pass the value
 //! to each other stays `false`, because no member proves it is safe first.
 //!
+//! # The signature cost model (C2)
+//!
+//! The facts say when a borrow is safe; they do not say when it pays. Borrow inference keeps a
+//! position only if the function has a counted view whose base chain reaches the parameter and
+//! which is not consumed under the tentative signatures. Such a view is what reference counting
+//! would otherwise have to give its own `dup`/`drop` pair; when every view of the parameter is
+//! consumed (stored, returned, or passed at an owned position), borrowing the parameter only moves
+//! a drop from the callee to each caller and saves no work, so the position is cleared. Clearing a
+//! position can make a view consumed at a call site, which can clear the caller's own position, so
+//! the rule runs to a fixpoint.
+//!
+//! Soundness does not depend on the cost model: it only clears `true` slots of the facts, and the
+//! owned convention that replaces a cleared position is what the balance check (`rc_check`) already
+//! verifies on every path. The facts themselves keep `Unknown` for an owned parameter, so a
+//! consumer of the facts does not turn the narrower signature into a stale borrowed assumption.
+//!
+//! Measured on the benchmark suite: the regressions that motivated the rule (`closures` 1.10x wasm
+//! / 1.05x C, `map-set` 1.06x / 1.07x against borrow off) are gone, `rc-alloc` keeps its 1.24x /
+//! 1.17x win, and `mixed-app` gives up about 2% of its 4% gain.
+//!
 //! # Stage and the calling convention
 //!
 //! The facts describe the calling convention *before* reference counting. At [`crate::Stage::RefCounted`]
@@ -53,7 +73,7 @@
 //! `heap::rc::value_uses`, `rc_check`, `insert_rc`, the shared `ir.rs` and both backends (C
 //! `-DEMELA_LEAK_CHECK`, WASM) before a caller may omit a `dup`; the audit
 //! (`/tmp/opencode/audit-c0-e0.md`, C0 "Hazards by item") names the same five places. This module
-//! computes the facts only; no pass reads them yet.
+//! computes the facts; borrow inference reads them and narrows them with the cost model above.
 //!
 //! # Status
 //!
