@@ -66,6 +66,19 @@ pub struct TestEntry {
 /// The start of a test result line (the same as the JS test runner's).
 pub const TEST_EVENT_PREFIX: &str = "\u{1e}emela-test ";
 
+/// Which representation choices the emitter makes. The default is the boxed representation
+/// everywhere, so the emitted bytes do not change.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WasmOptions {
+    /// E1 step 2: hold eligible records and tuples by value in local variables (a span of WASM
+    /// locals, one per scalar leaf) instead of allocating a heap object per value.
+    ///
+    /// Off by default. It changes only the local representation: function signatures, descriptors,
+    /// statics, arrays, lists, enum payloads, closure captures and suspension frames keep the
+    /// boxed form.
+    pub values: bool,
+}
+
 /// The output of [`compile`].
 #[derive(Debug, Clone)]
 pub struct WasmOutput {
@@ -140,6 +153,20 @@ pub fn compile_with_lir(
     optimize: bool,
     lir_options: emela_lir::opt::Options,
 ) -> Result<WasmOutput, Vec<WasmError>> {
+    compile_with_wasm_options(core, entry, optimize, lir_options, WasmOptions::default())
+}
+
+/// [`compile_with_lir`] with the emitter's representation choices (see [`WasmOptions`]).
+///
+/// The default [`WasmOptions`] is the boxed representation. This entry point is for tests that
+/// compile the same program both ways and compare what it prints.
+pub fn compile_with_wasm_options(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+    lir_options: emela_lir::opt::Options,
+    options: WasmOptions,
+) -> Result<WasmOutput, Vec<WasmError>> {
     let service = matches!(entry, Entry::Main) && core.http_service;
     let roots: Vec<FnId> = match entry {
         // An HTTP service starts from the fn `@entry(Http.serve)` made: its `wasm` export is
@@ -202,7 +229,7 @@ pub fn compile_with_lir(
     {
         return Err(internal("the Heap IR verifier", errors));
     }
-    emit::emit(&lir, &entry, &reach)
+    emit::emit(&lir, &entry, &reach, options)
 }
 
 fn internal<E: std::fmt::Display>(stage: &str, errors: Vec<E>) -> Vec<WasmError> {

@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use emela_codegen_wasm::{Entry, TestEntry, WasmError, WasmOutput, compile};
+use emela_codegen_wasm::{
+    Entry, TestEntry, WasmError, WasmOptions, WasmOutput, compile, compile_with_wasm_options,
+};
 use emela_core::Roots;
 use wasmparser::{Parser, Payload};
 
@@ -81,6 +83,20 @@ pub fn to_output(src: &str) -> WasmOutput {
     let m = support::try_lower(&[("main.emel", src)], Roots::Exported)
         .unwrap_or_else(|e| panic!("lowering failed: {e:#?}"));
     compile(&m, &Entry::Main).unwrap_or_else(|e| panic!("WASM compilation failed: {e:#?}"))
+}
+
+/// [`to_output`] with the emitter's representation choices (E1's by-value locals).
+pub fn to_output_with(src: &str, options: WasmOptions) -> WasmOutput {
+    let m = support::try_lower(&[("main.emel", src)], Roots::Exported)
+        .unwrap_or_else(|e| panic!("lowering failed: {e:#?}"));
+    compile_with_wasm_options(
+        &m,
+        &Entry::Main,
+        true,
+        emela_lir::opt::Options::default(),
+        options,
+    )
+    .unwrap_or_else(|e| panic!("WASM compilation failed: {e:#?}"))
 }
 
 /// Lowers `src` with every function as a root and compiles the named `@test` functions with

@@ -21,6 +21,7 @@ mod smoke;
 mod suspend;
 mod task;
 mod unicode;
+mod values;
 
 /// Every `.rs` file in this directory that is not a test binary of its own is declared
 /// above. Without the declaration Cargo would not build it, and its tests would not run.
