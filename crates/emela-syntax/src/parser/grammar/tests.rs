@@ -94,7 +94,7 @@ fn capability_の型() {
     insta::assert_snapshot!(dump_all(
         &[
             "use Db",
-            "use Std.Fiber.Scope",
+            "use Std.Task.TaskGroup",
             "use State[Int]",
             "use R",
             "List[use Db]",

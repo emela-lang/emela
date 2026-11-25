@@ -20,7 +20,8 @@ fn search_request(query: String, page: Int) -> Request {
 
 ## The first line of the results for `query`. Fails unless the status is 2xx.
 fn first_line(query: String) {
-  res = (use Http).send(search_request(query, 1)) |> Response.require_ok
+  http <- Http
+  res = http.send(search_request(query, 1)) |> Response.require_ok
   Option.or(List.head(String.split(res.body, "\n")), "")
 }
 
@@ -45,7 +46,7 @@ fn respond(req: Request, n: Int) -> Option[Response] {
 
 fn main() {
   with Platform {
-    console = use Console
+    console <- Console
     (_, server) = State.run(TestServer(respond:, sent: []), || {
       with TestHttp {
         console.print_line(first_result("emela"))

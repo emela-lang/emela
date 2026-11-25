@@ -1,6 +1,7 @@
 # Functions on Option. Option itself is the Prelude enum (prelude.emel).
 # The Option comes first as `opt`, so calls read as `opt.map(f)`.
 
+## Applies `f` to the contents of a `Some`. `None` stays `None`.
 pub fn map[A, B](opt: Option[A], f: fn(A) -> B) -> Option[B] {
   opt match {
     Some(x) -> Some(f(x))
@@ -8,6 +9,8 @@ pub fn map[A, B](opt: Option[A], f: fn(A) -> B) -> Option[B] {
   }
 }
 
+## Applies `f`, which returns an Option, to the contents of a `Some` and flattens the
+## result. `None` stays `None`.
 pub fn and_then[A, B](opt: Option[A], f: fn(A) -> Option[B]) -> Option[B] {
   opt match {
     Some(x) -> f(x)
@@ -23,6 +26,7 @@ pub fn or[A](opt: Option[A], default: A) -> A {
   }
 }
 
+## Whether it is `Some`.
 pub fn is_some[A](opt: Option[A]) -> Bool {
   opt match {
     Some(_) -> True
@@ -30,6 +34,7 @@ pub fn is_some[A](opt: Option[A]) -> Bool {
   }
 }
 
+## Whether it is `None`.
 pub fn is_none[A](opt: Option[A]) -> Bool {
   opt match {
     Some(_) -> False
@@ -37,7 +42,7 @@ pub fn is_none[A](opt: Option[A]) -> Bool {
   }
 }
 
-## Fails with `err` if `None` (spec 7.2). Turns an Option into a failure, as in
+## Fails with `err` if `None` (`[error.fail]`). Turns an Option into a failure, as in
 ## `users.find(id).or_fail(NotFound(id:))`.
 pub fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
   opt match {
@@ -46,8 +51,8 @@ pub fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
   }
 }
 
-# The built-in impls (spec 10.6). The value inside is compared and shown through its own impl.
-# Ord puts `None` first: `None < Some(_)`, as in Haskell's `Nothing < Just _`.
+# The built-in impls (`[trait.builtin]`). The value inside is compared and shown through its own
+# impl. Ord puts `None` first: `None < Some(_)`, as in Haskell's `Nothing < Just _`.
 
 impl Option[A: Eq]: Eq {
   fn eq(self, other) {

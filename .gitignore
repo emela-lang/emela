@@ -6,3 +6,6 @@
 /tests/laws/target
 /proposals/drafts/
 /mutants.out*
+# insta writes these when a snapshot does not match; `cargo insta review` takes them in.
+*.pending-snap
+*.snap.new

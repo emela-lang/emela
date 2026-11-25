@@ -9,7 +9,7 @@
 //! The observable behaviour is checked by the differential harness; the tests here fix the shape
 //! the rule leaves behind and the deopt decisions.
 
-mod support;
+use crate::support;
 
 use emela_core::opt::{CoreFns, Options, Rules, Stats, fusion::Laws, run_with};
 use emela_core::{Expr, Lit, Local, Module, TypeId, dump};

@@ -1142,15 +1142,27 @@ fn main() {
         "call_order",
         include_str!("../../emela-codegen-c/tests/programs/call_order.emel"),
     ),
-    // `[fiber.semaphore]` and `[fiber.queue]`: the lines of waiting fibers, interruption while
-    // waiting, and the end of the scope.
+    // `[task.semaphore]` and `[task.queue]`: the lines of waiting tasks, interruption while
+    // waiting, and the end of the group.
     (
-        "fiber_semaphore",
-        include_str!("../../emela-codegen-c/tests/programs/fiber_semaphore.emel"),
+        "task_semaphore",
+        include_str!("../../emela-codegen-c/tests/programs/task_semaphore.emel"),
     ),
     (
-        "fiber_queue",
-        include_str!("../../emela-codegen-c/tests/programs/fiber_queue.emel"),
+        "task_queue",
+        include_str!("../../emela-codegen-c/tests/programs/task_queue.emel"),
+    ),
+    // `[task.deferred]`, `[task.queue]`, `[task.semaphore]`: the built-in handlers as items of a
+    // with, Permits and TryPermits, their defects, and dbg of the capabilities.
+    (
+        "builtin_handlers",
+        include_str!("../../emela-codegen-c/tests/programs/builtin_handlers.emel"),
+    ),
+    // `[task.background]`: the release waits without interrupting, on_failure, a defect in it, and
+    // an interruption from outside passed on to the tasks.
+    (
+        "task_background",
+        include_str!("../../emela-codegen-c/tests/programs/task_background.emel"),
     ),
     // `[trait.derive]`: derived Encode, Decode, ObjectKey and Shaped, with `@key` and `@tag`.
     (
@@ -1261,6 +1273,81 @@ fn main() {
       with d = Counters.Open(3) { dbg(twice(d)) }
     }
   }
+}
+"#,
+    ),
+    // `[effect.handler]`, `[effect.with]`, `[effect.layer]`, `[effect.label]`: handlers with type
+    // parameters, copied for the type arguments of each item.
+    (
+        "generic_handler",
+        r#"
+import Std.State.{State}
+
+effect Cell[A] {
+  fn read() -> A
+}
+
+handler Memory[A](initial: A): Cell[A] {
+  init(initial: A) {
+    dbg(initial)
+    Memory(initial:)
+  }
+
+  release {
+    dbg(self.initial)
+  }
+
+  fn read() { self.initial }
+}
+
+handler Pass[S]: State[S] {
+  fn get() {
+    st <- State[S]
+    st.get()
+  }
+
+  fn set(value) {
+    st <- State[S]
+    st.set(value)
+  }
+
+  fn update(f) {
+    st <- State[S]
+    st.update(f)
+  }
+}
+
+effect Hits of State[Int]
+
+fn ints() -> Int uses { Cell[Int] } {
+  c <- Cell[Int]
+  c.read() + 1
+}
+
+fn names() -> String uses { Cell[String] } {
+  c <- Cell[String]
+  c.read()
+}
+
+fn hits() -> Int uses { Hits } {
+  h <- Hits
+  h.update(|n| n + 10)
+  h.get()
+}
+
+fn touch() { with x = Pass { x.set(x.get()) } }
+
+layer Both {
+  Memory(initial: 7)
+  Memory[String](initial: "seven")
+}
+
+fn main() {
+  with Memory(initial: 1) { dbg(ints()) }
+  with c = Memory[List[Int]](initial: [2]) { dbg(c.read()) }
+  with Both { dbg((ints(), names())) }
+  dbg(State.run(5, || with Hits by Pass { hits() }))
+  dbg(State.run("touched", || touch()))
 }
 "#,
     ),

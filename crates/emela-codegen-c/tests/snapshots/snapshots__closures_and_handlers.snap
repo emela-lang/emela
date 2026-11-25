@@ -53,7 +53,7 @@ static void e0_main(void) {
     v2 = em_ev_new(NULL, 1);
     em_ev_set(v2, 1, 0, 0, v1);
     em_drop(v2);
-    if (em_handler_ok(v1)) {
+    {
       v5 = ((int32_t (*)(em_ref))em_closure_fn(v1->slots[1].p))(v1->slots[1].p);
     }
     if (em_defect != NULL) {

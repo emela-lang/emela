@@ -10,10 +10,16 @@
 //! suspend but whose type says a call may gets `may_suspend`. Everything the IR distinguishes is
 //! written distinctly. It is not meant to be parsed back.
 //!
+//! The `n` of a local counts from 0 in each function, in the order in which the locals are first
+//! written: the parameters, then the body. It is not the raw [`Local`] index, which counts across
+//! the whole module (the standard library included), so that a snapshot of a function does not
+//! change when a binding is added to another function. Two locals of one function never share a
+//! number. `verify` writes the raw index.
+//!
 //! Type arguments follow the name in brackets: direct calls and function values
 //! (`List.map[Shape, Float](xs%1, f%2)`), constructors (`Option.None[Int]`,
 //! `Option.Some[Int](1)`), builtins (`@dbg[Int](x%0)`) and operation calls
-//! (`s%6.Std.Fiber.Scope[_, _]#deferred[Int]()`). A list literal is followed by its type
+//! (`s%6.Std.Task.TaskGroup[_, _]#start[Int]()`). A list literal is followed by its type
 //! (`[1, 2]: List[Int]`), and a lambda by its return type (`fn(x%0: Int) -> Int { .. }`).
 //!
 //! Effects list their operations' types, and an effect with type arguments also what it
@@ -32,7 +38,10 @@
 //! }
 //! ```
 
+use std::cell::RefCell;
 use std::fmt::Write;
+
+use rustc_hash::FxHashMap;
 
 use crate::ir::{
     Arm, AssertCond, BinOp, Callee, CtorRef, EffectDef, EnumDef, Expr, FiberOp, HostModule,
@@ -45,6 +54,7 @@ pub fn dump(m: &Module) -> String {
         m,
         out: String::new(),
         indent: 0,
+        numbers: RefCell::default(),
     };
     for (_, def) in m.enums.iter() {
         p.enum_def(def);
@@ -55,6 +65,7 @@ pub fn dump(m: &Module) -> String {
         p.out.push('\n');
     }
     for (_, f) in m.functions.iter() {
+        p.numbers.borrow_mut().clear();
         if f.exported {
             p.out.push_str("export ");
         }
@@ -110,6 +121,9 @@ struct Printer<'a> {
     m: &'a Module,
     out: String,
     indent: usize,
+    /// The number written for each local of the current function, given in the order of first
+    /// writing (see the module documentation). Cleared at the start of each function.
+    numbers: RefCell<FxHashMap<Local, u32>>,
 }
 
 impl Printer<'_> {
@@ -181,7 +195,10 @@ impl Printer<'_> {
     }
 
     fn local(&self, l: Local) -> String {
-        format!("{}%{}", self.m.locals[l].hint, u32::from(l.into_raw()))
+        let mut numbers = self.numbers.borrow_mut();
+        let next = u32::try_from(numbers.len()).expect("a function has fewer than 2^32 locals");
+        let n = *numbers.entry(l).or_insert(next);
+        format!("{}%{n}", self.m.locals[l].hint)
     }
 
     /// A local where it is bound, with its type.
@@ -552,7 +569,10 @@ impl Printer<'_> {
             Expr::Fiber { op, args } => {
                 write!(self.out, "fiber#{}", op.name()).unwrap();
                 match op {
-                    FiberOp::Await { exit } | FiberOp::Attempt { exit, .. } => {
+                    FiberOp::Scope {
+                        background: true, ..
+                    } => self.out.push_str("[background]"),
+                    FiberOp::Attempt { exit, .. } => {
                         write!(self.out, "[{}]", self.m.enums[*exit].name).unwrap();
                     }
                     FiberOp::CauseKind { kind } => {

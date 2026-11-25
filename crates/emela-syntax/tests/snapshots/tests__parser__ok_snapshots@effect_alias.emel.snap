@@ -1,0 +1,192 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/effect_alias.emel
+---
+ROOT@0..213
+  FN_DECL@0..212
+    FN_KW@0..2 "fn"
+    WHITESPACE@2..3 " "
+    LOWER_NAME@3..8 "greet"
+    PARAM_LIST@8..17
+      L_PAREN@8..9 "("
+      PARAM@9..16
+        LOWER_NAME@9..11 "id"
+        COLON@11..12 ":"
+        WHITESPACE@12..13 " "
+        PATH_TYPE@13..16
+          PATH@13..16
+            TYPE_NAME@13..16 "Int"
+      R_PAREN@16..17 ")"
+    WHITESPACE@17..18 " "
+    BLOCK_EXPR@18..212
+      L_BRACE@18..19 "{"
+      NEWLINE@19..20 "\n"
+      WHITESPACE@20..22 "  "
+      EFFECT_ALIAS@22..35
+        LOWER_NAME@22..25 "log"
+        WHITESPACE@25..26 " "
+        LEFT_ARROW@26..28 "<-"
+        WHITESPACE@28..29 " "
+        PATH@29..35
+          TYPE_NAME@29..35 "Logger"
+      NEWLINE@35..36 "\n"
+      WHITESPACE@36..38 "  "
+      EFFECT_ALIAS@38..54
+        LOWER_NAME@38..40 "st"
+        WHITESPACE@40..41 " "
+        LEFT_ARROW@41..43 "<-"
+        WHITESPACE@43..44 " "
+        PATH@44..49
+          TYPE_NAME@44..49 "State"
+        TYPE_ARG_LIST@49..54
+          L_BRACK@49..50 "["
+          PATH_TYPE@50..53
+            PATH@50..53
+              TYPE_NAME@50..53 "Int"
+          R_BRACK@53..54 "]"
+      NEWLINE@54..55 "\n"
+      WHITESPACE@55..57 "  "
+      EFFECT_ALIAS@57..69
+        LOWER_NAME@57..59 "db"
+        WHITESPACE@59..60 " "
+        LEFT_ARROW@60..62 "<-"
+        WHITESPACE@62..63 " "
+        PATH@63..69
+          TYPE_NAME@63..66 "App"
+          DOT@66..67 "."
+          TYPE_NAME@67..69 "Db"
+      NEWLINE@69..70 "\n"
+      WHITESPACE@70..72 "  "
+      CALL_EXPR@72..89
+        FIELD_EXPR@72..80
+          NAME_REF@72..75
+            LOWER_NAME@72..75 "log"
+          DOT@75..76 "."
+          LOWER_NAME@76..80 "info"
+        ARG_LIST@80..89
+          L_PAREN@80..81 "("
+          STRING@81..88
+            STRING_QUOTE@81..82 "\""
+            STRING_TEXT@82..87 "hello"
+            STRING_QUOTE@87..88 "\""
+          R_PAREN@88..89 ")"
+      NEWLINE@89..90 "\n"
+      WHITESPACE@90..92 "  "
+      CALL_EXPR@92..112
+        FIELD_EXPR@92..98
+          NAME_REF@92..94
+            LOWER_NAME@92..94 "st"
+          DOT@94..95 "."
+          LOWER_NAME@95..98 "set"
+        ARG_LIST@98..112
+          L_PAREN@98..99 "("
+          BIN_EXPR@99..111
+            CALL_EXPR@99..107
+              FIELD_EXPR@99..105
+                NAME_REF@99..101
+                  LOWER_NAME@99..101 "st"
+                DOT@101..102 "."
+                LOWER_NAME@102..105 "get"
+              ARG_LIST@105..107
+                L_PAREN@105..106 "("
+                R_PAREN@106..107 ")"
+            WHITESPACE@107..108 " "
+            PLUS@108..109 "+"
+            WHITESPACE@109..110 " "
+            LITERAL@110..111
+              INT@110..111 "1"
+          R_PAREN@111..112 ")"
+      NEWLINE@112..113 "\n"
+      WHITESPACE@113..115 "  "
+      BINDING@115..127
+        NAME_REF@115..116
+          LOWER_NAME@115..116 "f"
+        WHITESPACE@116..117 " "
+        EQ@117..118 "="
+        WHITESPACE@118..119 " "
+        FIELD_EXPR@119..127
+          NAME_REF@119..122
+            LOWER_NAME@119..122 "log"
+          DOT@122..123 "."
+          LOWER_NAME@123..127 "info"
+      NEWLINE@127..128 "\n"
+      WHITESPACE@128..130 "  "
+      BINDING@130..201
+        NAME_REF@130..132
+          LOWER_NAME@130..132 "xs"
+        WHITESPACE@132..133 " "
+        EQ@133..134 "="
+        WHITESPACE@134..135 " "
+        CALL_EXPR@135..201
+          FIELD_EXPR@135..143
+            PATH_EXPR@135..139
+              PATH@135..139
+                TYPE_NAME@135..139 "List"
+            DOT@139..140 "."
+            LOWER_NAME@140..143 "map"
+          ARG_LIST@143..201
+            L_PAREN@143..144 "("
+            LIST_EXPR@144..147
+              L_BRACK@144..145 "["
+              LITERAL@145..146
+                INT@145..146 "1"
+              R_BRACK@146..147 "]"
+            COMMA@147..148 ","
+            WHITESPACE@148..149 " "
+            LAMBDA_EXPR@149..200
+              PARAM_LIST@149..152
+                PIPE@149..150 "|"
+                PARAM@150..151
+                  LOWER_NAME@150..151 "n"
+                PIPE@151..152 "|"
+              WHITESPACE@152..153 " "
+              BLOCK_EXPR@153..200
+                L_BRACE@153..154 "{"
+                NEWLINE@154..155 "\n"
+                WHITESPACE@155..159 "    "
+                EFFECT_ALIAS@159..171
+                  LOWER_NAME@159..160 "c"
+                  WHITESPACE@160..161 " "
+                  LEFT_ARROW@161..163 "<-"
+                  WHITESPACE@163..164 " "
+                  PATH@164..171
+                    TYPE_NAME@164..171 "Console"
+                NEWLINE@171..172 "\n"
+                WHITESPACE@172..176 "    "
+                CALL_EXPR@176..196
+                  FIELD_EXPR@176..188
+                    NAME_REF@176..177
+                      LOWER_NAME@176..177 "c"
+                    DOT@177..178 "."
+                    LOWER_NAME@178..188 "print_line"
+                  ARG_LIST@188..196
+                    L_PAREN@188..189 "("
+                    STRING@189..195
+                      STRING_QUOTE@189..190 "\""
+                      INTERP@190..194
+                        INTERP_START@190..192 "#{"
+                        NAME_REF@192..193
+                          LOWER_NAME@192..193 "n"
+                        INTERP_END@193..194 "}"
+                      STRING_QUOTE@194..195 "\""
+                    R_PAREN@195..196 ")"
+                NEWLINE@196..197 "\n"
+                WHITESPACE@197..199 "  "
+                R_BRACE@199..200 "}"
+            R_PAREN@200..201 ")"
+      NEWLINE@201..202 "\n"
+      WHITESPACE@202..204 "  "
+      BIN_EXPR@204..210
+        NAME_REF@204..205
+          LOWER_NAME@204..205 "a"
+        WHITESPACE@205..206 " "
+        LT@206..207 "<"
+        WHITESPACE@207..208 " "
+        PREFIX_EXPR@208..210
+          MINUS@208..209 "-"
+          LITERAL@209..210
+            INT@209..210 "1"
+      NEWLINE@210..211 "\n"
+      R_BRACE@211..212 "}"
+  NEWLINE@212..213 "\n"
