@@ -25,7 +25,7 @@
 //! |---|---|---|
 //! | `reduce::zeta` | [`Stats::zeta`] | ζ reduction (A2/PR-011) |
 //! | `reduce::beta` | [`Stats::beta`] | β reduction (A3/PR-012) |
-//! | `hoist::hoist` | [`Stats::hoist`] | Loop hoisting |
+//! | `loop::unswitch` | [`Stats::hoist`] | Loop unswitching (A9/PR-018) |
 //! | `fusion::run`: `option_or` | [`Stats::option_or`] | Option fusion |
 //! | `fusion::run`: `array_get_match` | [`Stats::array_get_match`] | Option fusion |
 //! | `fusion::run`: `range_fold` | [`Stats::range_fold`] | range fusion |
@@ -43,10 +43,11 @@
 //!   passes see the names and constructors without an intermediate binding, and β removes a
 //!   linear lambda call before the inliner has to. The reductions only shrink, so running them
 //!   before the fusions cannot hide a fusion pattern.
-//! - **The hoisting and the fusions keep their previous place.** Hoisting runs before the Option
-//!   fusion because it matches the `match Array.get` that the fusion replaces by a bounds test; the
-//!   fusions run before δ because they match the calls the source wrote, and expanding a function
-//!   such as `List.fold` first would dissolve the call the range fusion looks for.
+//! - **The unswitch and the fusions keep their previous place.** The unswitch matches the bounds
+//!   test the Option fusion built on the previous sweep, and runs before that fusion again so it
+//!   sees the test before the fusion can reshape it; the fusions run before δ because they match
+//!   the calls the source wrote, and expanding a function such as `List.fold` first would dissolve
+//!   the call the range fusion looks for.
 //!   `range_map_array` comes before `range_map`, which would otherwise rewrite the `List.map`
 //!   inside the `Array.from_list` it is looking for. The order of the laws is the registry order
 //!   of [`fusion::laws`], not a second list in this pipeline.
@@ -102,8 +103,9 @@
 //! not even a deopt; [`fusion::Laws::none`] therefore turns the fusions off without touching the
 //! rest of the pipeline. The reserved laws have no body and never run, whatever their flag says.
 //!
-//! `hoist` and δ (`reduce::delta`) do not have a flag yet; A10/PR-019 unifies their gating with the
-//! reduction rules. `Rules::none()` with `Laws::none()` therefore still runs hoisting and δ.
+//! `loop::unswitch` and δ (`reduce::delta`) do not have a flag yet; A10/PR-019 unifies their
+//! gating with the reduction rules. `Rules::none()` with `Laws::none()` therefore still runs the
+//! unswitch and δ.
 //! [`Rules::delta`] is reserved for A10/PR-019 and is not consulted yet: δ is existing behaviour, so
 //! turning the flag off would change the default pipeline. A10/PR-019 makes the flag control the
 //! rule and unifies [`Stats::inline`] with [`Stats::delta`].
@@ -198,7 +200,6 @@ use crate::ir::{Expr, FnId, Lit, Module};
 
 pub mod analysis;
 pub mod fusion;
-mod hoist;
 pub mod r#loop;
 pub mod reduce;
 
@@ -227,8 +228,8 @@ impl RuleStats {
 /// A new rule is off in [`Rules::default`] until its implementation and tests have landed; the
 /// integrator turns the defaults on at A10/PR-019. [`Rules::all`] turns every rule on, which the
 /// per-rule tests use. `bounds` and `cse` are reserved for A11/PR-040 and A12/PR-041; no pass reads
-/// them yet. The existing passes of this module (`hoist`, `option`, `range`) are not gated here
-/// yet; A10/PR-019 unifies the gating, so [`Rules::none`] still runs them. [`Rules::delta`] is
+/// them yet. The unswitch of [`r#loop`] and the fusion laws of [`fusion`] are not gated here; the
+/// unswitch has no flag, and the laws have their own. [`Rules::delta`] is
 /// reserved for A10/PR-019 too and is not consulted: δ is existing behaviour and always runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rules {
@@ -340,8 +341,9 @@ pub type CoreFns = FxHashMap<FnId, CoreFn>;
 /// declined, which is also not a change, so it does not keep [`run_with`] looping either.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Stats {
-    /// Parts of a loop that do not change between its iterations copied out of it, and a bounds
-    /// test unswitched out of it.
+    /// Bounds tests unswitched out of a loop by [`r#loop::unswitch`], with the load the test
+    /// guards. The historical name; it no longer counts a `let` copied out of a loop, because copy
+    /// propagation is ζ reduction.
     pub hoist: u32,
     /// `Option.or(Array.get(a, i), d)` rewritten to the internal `ArrayGetOr`.
     pub option_or: u32,
@@ -469,7 +471,7 @@ pub fn run(m: &mut Module, core_fns: &CoreFns, optimize: bool) -> Stats {
 ///
 /// The sequence is the order in the pipeline table above. A rule whose flag is off is skipped
 /// entirely, so its counter stays zero; a fusion law whose flag is off is skipped entirely too and
-/// contributes nothing. Hoisting and inlining have no flag and still run. Like [`run`], this
+/// contributes nothing. The unswitch and inlining have no flag and still run. Like [`run`], this
 /// applies the whole sweep until it changes nothing and records the sweep count in
 /// [`Stats::passes`].
 pub fn run_with(m: &mut Module, core_fns: &CoreFns, options: Options) -> Stats {
@@ -494,7 +496,7 @@ pub fn run_with(m: &mut Module, core_fns: &CoreFns, options: Options) -> Stats {
             sweep.deopt += done.deopt;
             check(m);
         }
-        sweep.merge(hoist::hoist(m));
+        sweep.merge(r#loop::unswitch(m));
         check(m);
         // The fusion laws run in the registry's order, which is the order of the table above.
         // `fusion::run` adds their counters and verifies after each law that runs.

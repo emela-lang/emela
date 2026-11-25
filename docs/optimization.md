@@ -87,7 +87,7 @@ changing behaviour is not.
 | Where | What |
 |---|---|
 | [`crates/emela-core/src/opt/mod.rs`](../crates/emela-core/src/opt/mod.rs) | The Core IR pipeline: the order of the passes, the fixed point, `Stats`, the pass contract, and the δ-only stage after monomorphisation. |
-| [`crates/emela-core/src/opt/`](../crates/emela-core/src/opt/) | The Core IR passes: `hoist`, the `reduce` kernel (including δ, the inliner), `option`, `range`. |
+| [`crates/emela-core/src/opt/`](../crates/emela-core/src/opt/) | The Core IR passes: the `loop` unswitch, the `reduce` kernel (including δ, the inliner), the `fusion` laws. |
 | [`crates/emela-lir/src/opt/mod.rs`](../crates/emela-lir/src/opt/mod.rs) | The LIR stages (`run_flow`, `run_mid`, `run_heap`), `Stats`, the shared analyses. |
 | [`crates/emela-lir/src/opt/`](../crates/emela-lir/src/opt/) | The LIR passes and analyses: `escape`, `rc`, `sra`. |
 | [`crates/emela-codegen-c/`](../crates/emela-codegen-c/) | The C backend: representation and layout. |
