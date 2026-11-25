@@ -24,6 +24,7 @@ mod library_project;
 mod navigation;
 mod opt_diff;
 mod prune;
+mod record_sra;
 mod reuse;
 mod run;
 mod suspend_parity;
