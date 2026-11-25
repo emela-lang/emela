@@ -20,10 +20,10 @@
 //!
 //! # Status
 //!
-//! B0/PR-002 fixes the API. B2/PR-021 implements [`uses`] and [`callgraph`]: their [`Analysis`]
-//! implementations return `Known` for a well-formed module. [`effect`] (B1/PR-020) and [`ranges`]
-//! (B5/PR-024) still return `Unknown`, as do the analyses of the LIR
-//! (`emela_lir::opt::analysis`) until their own pull requests land.
+//! B0/PR-002 fixes the API. B1/PR-020 implements [`effect`], B2/PR-021 implements [`uses`] and
+//! [`callgraph`], and B5/PR-024 implements [`ranges`]: their [`Analysis`] implementations return
+//! `Known` for a well-formed module. The analyses of the LIR (`emela_lir::opt::analysis`) are
+//! implemented by their own pull requests (B3, B4, B6).
 
 use std::any::Any;
 
@@ -211,14 +211,11 @@ mod tests {
         assert_eq!(effect::Effect::ID, AnalysisId::Effect);
         assert_eq!(uses::Uses::ID, AnalysisId::Uses);
         assert_eq!(callgraph::CallGraphAnalysis::ID, AnalysisId::CallGraph);
-    }
-
-    /// The analyses that are still stubs are conservative: they answer `Unknown`, not an empty
-    /// summary.
-    #[test]
-    fn the_stub_analyses_are_unknown() {
-        let m = Module::new();
-        assert!(ranges::analyze(&m).is_unknown());
+        assert_eq!(ranges::RangesAnalysis::ID, AnalysisId::Ranges);
+        assert_eq!(
+            ranges::analyze(&m),
+            Fact::Known(ranges::ModuleRanges::default())
+        );
     }
 
     /// A cached fact is returned until it is invalidated on its own.

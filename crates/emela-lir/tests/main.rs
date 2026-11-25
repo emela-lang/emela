@@ -7,8 +7,10 @@ mod common;
 #[path = "../../emela-core/tests/support/mod.rs"]
 mod support;
 
+mod analysis_borrow;
 mod analysis_escape;
 mod analysis_liveness;
+mod analysis_ownership;
 mod dump;
 mod from_core;
 mod heap;
