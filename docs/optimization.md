@@ -72,7 +72,8 @@ element inline. `WasmOptions::boxed()` selects the representation from before E1
 Closure devirtualisation (E5/PR-037) and closure SRA (C5/PR-043, closure half) run by default. This
 is a default change, not a rule change: their contracts, preconditions, deopts and counters are
 unchanged, and a build that sets the flags off gets exactly the previous output. The default changed
-because, with both on, the `effects` benchmark measured 0.892–0.906x on WASM and 0.849–0.852x on C,
+because, with both on, the `effects` benchmark measured 0.86–0.91x on WASM and 0.85x on C across
+the isolated and integrated runs,
 the WASM output of the other 16 benchmark cases was byte-identical, and the passes are covered end to
 end by `crates/emela-driver/tests/closure_sra.rs`. Record SRA stays off because it rewrites nothing
 on the corpus.
