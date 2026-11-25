@@ -250,6 +250,12 @@ impl<'m> Builder<'m> {
                     self.internal(format!("`ArrayGetOr` of () in {}", cx.f.name));
                     return;
                 }
+                // A value held in locals is unboxed from the boxed element or read leaf by leaf
+                // from the inline element (E1 step 5).
+                if cx.aggregate(dst).is_some() {
+                    self.array_get_or_value(cx, ins, dst, args);
+                    return;
+                }
                 if let Operand::Var(v) = &args[0]
                     && let Some(elem) = self.inline_array_elem_desc(cx.f.vars[*v].ty)
                 {
@@ -300,6 +306,10 @@ impl<'m> Builder<'m> {
                 let repr = self.repr(cx.f.vars[dst].ty);
                 if repr == Repr::Void {
                     self.internal(format!("`ArrayLoadUnchecked` of () in {}", cx.f.name));
+                    return;
+                }
+                if cx.aggregate(dst).is_some() {
+                    self.array_load_value(cx, ins, dst, args);
                     return;
                 }
                 if let Operand::Var(v) = &args[0]
@@ -463,8 +473,40 @@ impl<'m> Builder<'m> {
                     Operand::Var(v) => self.inline_array_elem(cx.f.vars[*v].ty).is_some(),
                     Operand::Const(_) => false,
                 };
+                // A value held in locals is boxed for the call and the box is released after it;
+                // the array keeps its own reference (`array_set` dups it) or copies the slots
+                // (`array_set_agg`).
+                let boxed = match &args[2] {
+                    Operand::Var(v) => cx.aggregate(*v).is_some(),
+                    Operand::Const(_) => false,
+                };
                 self.operand(cx, ins, &args[0]);
                 self.operand(cx, ins, &args[1]);
+                if boxed {
+                    let Operand::Var(v) = &args[2] else {
+                        unreachable!()
+                    };
+                    let v = *v;
+                    self.box_value(cx, ins, v);
+                    if agg {
+                        let f = self.rt("array_set_agg");
+                        ins.call(f);
+                    } else {
+                        ins.i64_extend_i32_u();
+                        let f = self.rt("array_set");
+                        ins.call(f);
+                    }
+                    // The call leaves the array on the stack; release the temporary box.
+                    let Some(box_ref) = cx.box_ref else {
+                        self.internal(format!("no box local in {}", cx.f.name));
+                        return;
+                    };
+                    ins.local_get(box_ref);
+                    let drop = self.rt("drop");
+                    ins.call(drop);
+                    self.assign(cx, ins, dst, Repr::Ref);
+                    return;
+                }
                 if agg {
                     // The value stays a reference in the IR; its box's slots are copied into
                     // the inline element, so the caller keeps its own reference.
@@ -659,6 +701,134 @@ impl<'m> Builder<'m> {
             other => {
                 self.internal(format!("builtin {other:?} left in {}", cx.f.name));
             }
+        }
+    }
+
+    /// Copies the inline array element at `index` of `a` into the locals of the value in `dst`
+    /// (E1 step 5). `slots` is the element stride of the array descriptor.
+    fn load_inline_element(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        a: &Operand,
+        index: &Operand,
+        dst: VarId,
+        slots: usize,
+    ) {
+        let Some(base) = cx.box_ref else {
+            self.internal(format!("no box local in {}", cx.f.name));
+            return;
+        };
+        let leaves = match self.leaves(cx.f.vars[dst].ty) {
+            Some(leaves) => leaves.to_vec(),
+            None => {
+                self.internal(format!("an inline element has no layout in {}", cx.f.name));
+                return;
+            }
+        };
+        // The address of the element.
+        self.operand(cx, ins, a);
+        ins.i32_const((HDR + 8) as i32);
+        ins.i32_add();
+        self.operand(cx, ins, index);
+        ins.i32_const((slots * 8) as i32);
+        ins.i32_mul();
+        ins.i32_add();
+        ins.local_set(base);
+        for (k, &r) in leaves.iter().enumerate() {
+            ins.local_get(base);
+            Self::load_mem(ins, k as u32 * 8, r);
+            ins.local_set(cx.leaf(dst, k as u32));
+        }
+    }
+
+    /// Copies the boxed array element at `index` of `a` into the locals of the value in `dst`
+    /// (E1 step 5). The array keeps its own reference to the box.
+    fn load_boxed_element(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        a: &Operand,
+        index: &Operand,
+        dst: VarId,
+    ) {
+        let Some(box_ref) = cx.box_ref else {
+            self.internal(format!("no box local in {}", cx.f.name));
+            return;
+        };
+        self.operand(cx, ins, a);
+        ins.i32_const((HDR + 8) as i32);
+        ins.i32_add();
+        self.operand(cx, ins, index);
+        ins.i32_const(3);
+        ins.i32_shl();
+        ins.i32_add();
+        ins.i32_load(mem(0, 4));
+        ins.local_set(box_ref);
+        self.unbox_from(cx, ins, dst, box_ref);
+    }
+
+    /// `Array.GetOr` with a destination held by value: the element when the index is in range,
+    /// otherwise `d`. Both are copies (E1 step 5), so no box is allocated.
+    fn array_get_or_value(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: VarId,
+        args: &[Operand],
+    ) {
+        let Operand::Var(a) = &args[0] else {
+            self.internal(format!("`ArrayGetOr` of a constant in {}", cx.f.name));
+            return;
+        };
+        let array_ty = cx.f.vars[*a].ty;
+        let inline = self.inline_array_elem(array_ty);
+        // `index >= 0 && index < array.len`, unsigned for the negative case.
+        self.operand(cx, ins, &args[1]);
+        ins.i32_const(0);
+        ins.i32_ge_s();
+        self.operand(cx, ins, &args[1]);
+        self.operand(cx, ins, &args[0]);
+        ins.i32_load(mem(HDR, 4));
+        ins.i32_lt_s();
+        ins.i32_and();
+        ins.if_(BlockType::Empty);
+        match &inline {
+            Some(layout) => {
+                let slots = layout.slots();
+                self.load_inline_element(cx, ins, &args[0], &args[1], dst, slots);
+            }
+            None => self.load_boxed_element(cx, ins, &args[0], &args[1], dst),
+        }
+        ins.else_();
+        // `d` has the destination's type, so a value held in locals is copied leaf by leaf.
+        self.operand(cx, ins, &args[2]);
+        self.assign(cx, ins, Some(dst), Repr::Ref);
+        ins.end();
+    }
+
+    /// `Array.LoadUnchecked` with a destination held by value: copy the element (E1 step 5).
+    fn array_load_value(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: VarId,
+        args: &[Operand],
+    ) {
+        let Operand::Var(a) = &args[0] else {
+            self.internal(format!(
+                "`ArrayLoadUnchecked` of a constant in {}",
+                cx.f.name
+            ));
+            return;
+        };
+        let array_ty = cx.f.vars[*a].ty;
+        match self.inline_array_elem(array_ty) {
+            Some(layout) => {
+                let slots = layout.slots();
+                self.load_inline_element(cx, ins, &args[0], &args[1], dst, slots);
+            }
+            None => self.load_boxed_element(cx, ins, &args[0], &args[1], dst),
         }
     }
 
