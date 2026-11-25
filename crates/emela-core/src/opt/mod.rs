@@ -35,6 +35,7 @@
 //! | `reduce::iota` | [`Stats::iota`] | ι reduction (A5/PR-014) |
 //! | `reduce::fold` | [`Stats::constant`] | constant folding (A6/PR-015) |
 //! | `reduce::algebra` | [`Stats::algebra`] | algebraic reduction (A7/PR-016) |
+//! | `reduce::cse` | [`Stats::cse`] | common subexpression elimination (A12/PR-041) |
 //! | `reduce::eta` | [`Stats::eta`] | η reduction (A4/PR-013) |
 //!
 //! The positions are chosen for the patterns each pass exposes:
@@ -59,6 +60,10 @@
 //! - **ι, then constant folding and algebra.** δ and β expose a known constructor and a constant
 //!   condition; ι removes the match, and folding and the algebraic laws simplify the values and
 //!   conditions it leaves in the same sweep.
+//! - **CSE after the reductions.** Folding and the algebraic laws leave the operands of a pure
+//!   expression in their simplest form, so two occurrences that were written differently but are
+//!   now equal become one. CSE only rewrites `let` chains, so it neither disturbs the fusions nor
+//!   hides a pattern from a later sweep.
 //! - **η last.** The range fusion copies its lambda into a loop; running η before it would turn
 //!   that lambda into a function value and make the loop's step an indirect call. The algebraic
 //!   laws also remove forwarding bodies, which leaves more wrapper lambdas for η to see.
@@ -73,8 +78,9 @@
 //! [`run_with`] with [`Options::default`] run the whole pipeline. A rule whose flag is off is
 //! skipped entirely and contributes nothing to [`Stats`], not even a deopt.
 //!
-//! `bounds` and `cse` stay off in [`Rules::default`]: their rules do not exist yet (A11/PR-040,
-//! A12/PR-041) and [`Rules::all`] turns them on for the tests that will fill them.
+//! `bounds` stays off in [`Rules::default`] because its rule does not exist yet (A11/PR-040).
+//! `cse` is implemented (A12/PR-041) but also stays off until the M5 integration; [`Rules::all`]
+//! turns both on.
 //!
 //! # Fusion laws
 //!
@@ -88,14 +94,15 @@
 //!
 //! # Feature flags
 //!
-//! [`Rules`] has one flag per reduction rule of [`reduce`], plus reserved flags for the later
-//! bounds-check and CSE rules. [`fusion::Laws`] has one flag per fusion law. [`Options`] holds both
+//! [`Rules`] has one flag per reduction rule of [`reduce`], plus a reserved flag for the later
+//! bounds-check rule. [`fusion::Laws`] has one flag per fusion law. [`Options`] holds both
 //! and is the argument of [`run_with`]; [`run`] keeps its old signature and uses
 //! [`Options::default`].
 //!
-//! [`Rules::default`] turns every implemented reduction rule on: `zeta`, `beta`, `eta`, `iota`,
-//! `delta`, `fold` and `algebra`. `bounds` and `cse` are off, because their rules do not exist yet;
-//! [`Rules::all`] turns every flag on and [`Rules::none`] turns every flag off. `loop::unswitch` is
+//! [`Rules::default`] turns every implemented reduction rule of the default pipeline on: `zeta`,
+//! `beta`, `eta`, `iota`, `delta`, `fold` and `algebra`. `bounds` is off because its rule does not
+//! exist yet, and `cse` is off until the M5 integration; [`Rules::all`] turns every flag on and
+//! [`Rules::none`] turns every flag off. `loop::unswitch` is
 //! a loop transformation, not a reduction rule, and has no flag: it runs whatever the flags say.
 //! The flags are a programmatic API only: no command-line flag is added.
 //!
@@ -219,11 +226,11 @@ impl RuleStats {
 
 /// The reduction rules [`run_with`] may run, one flag per rule.
 ///
-/// [`Rules::default`] turns on every implemented rule, which is the default pipeline. `bounds` and
-/// `cse` are reserved for A11/PR-040 and A12/PR-041; no pass reads them yet, so they stay off.
-/// [`Rules::all`] turns every flag on, which the per-rule tests use, and [`Rules::none`] turns
-/// every flag off. The unswitch of [`r#loop`] and the fusion laws of [`fusion`] are not gated here;
-/// the unswitch has no flag, and the laws have their own.
+/// [`Rules::default`] turns on every implemented rule of the default pipeline. `bounds` is
+/// reserved for A11/PR-040 and stays off; `cse` is implemented (A12/PR-041) but stays off until
+/// the M5 integration. [`Rules::all`] turns every flag on, which the per-rule tests use, and
+/// [`Rules::none`] turns every flag off. The unswitch of [`r#loop`] and the fusion laws of
+/// [`fusion`] are not gated here; the unswitch has no flag, and the laws have their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rules {
     /// ζ reduction: `let x = v in e → e[x := v]` and the dead trivial let.
@@ -242,7 +249,8 @@ pub struct Rules {
     pub algebra: bool,
     /// Bounds-check elimination. Reserved; no rule reads it yet (A11/PR-040).
     pub bounds: bool,
-    /// Common subexpression elimination. Reserved; no rule reads it yet (A12/PR-041).
+    /// Common subexpression elimination of a straight-line `let` chain (A12/PR-041). Off in
+    /// [`Rules::default`] until the M5 integration.
     pub cse: bool,
 }
 
@@ -279,10 +287,11 @@ impl Rules {
 }
 
 impl Default for Rules {
-    /// Every implemented rule on; `bounds` and `cse` reserved and off.
+    /// Every rule of the default pipeline on; `bounds` reserved and off, `cse` implemented but
+    /// off until the M5 integration.
     ///
-    /// This is the default pipeline (A10/PR-019). [`Rules::all`] differs only in the two reserved
-    /// flags.
+    /// This is the default pipeline (A10/PR-019). [`Rules::all`] differs only in `bounds` and
+    /// `cse`.
     fn default() -> Self {
         Self {
             zeta: true,
@@ -378,7 +387,7 @@ pub struct Stats {
     pub algebra: u32,
     /// Bounds checks removed. Reserved for A11/PR-040; zero until then.
     pub bounds: u32,
-    /// Common subexpressions removed. Reserved for A12/PR-041; zero until then.
+    /// Common subexpressions removed by [`reduce::cse`] (A12/PR-041).
     pub cse: u32,
     /// Sites a rule examined and left alone: a failed precondition, or an analysis that answered
     /// `Unknown`. A deopt is not a rewrite and does not keep the fixed-point loop going.
@@ -523,6 +532,12 @@ pub fn run_with(m: &mut Module, core_fns: &CoreFns, options: Options) -> Stats {
         if rules.algebra {
             let done = reduce::algebra(m);
             sweep.algebra += done.applied;
+            sweep.deopt += done.deopt;
+            check(m);
+        }
+        if rules.cse {
+            let done = reduce::cse(m);
+            sweep.cse += done.applied;
             sweep.deopt += done.deopt;
             check(m);
         }
