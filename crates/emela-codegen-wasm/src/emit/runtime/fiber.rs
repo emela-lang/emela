@@ -85,12 +85,18 @@ const S_CTAIL: u32 = HDR + 40;
 const S_CLOSER: u32 = HDR + 48; // raw: the wait for the last child
 const S_SLOTS: i32 = 7;
 
+/// No more starts (a group only): the body ended or a task failed. A background does not close
+/// (`[task.background]`).
 pub(super) const SF_CLOSED: i32 = 1;
 const SF_BODY_DONE: i32 = 2;
 const SF_ENDED: i32 = 4;
 /// A background (`[task.background]`): its tasks are not interrupted when the body ends or a task
 /// fails.
 const SF_BACKGROUND: i32 = 8;
+/// A background whose with was interrupted from outside after its body ended (the body unwound by
+/// an interruption, or one arrived while the release waits). While the body runs,
+/// `fb_scope_interrupted` looks at the fiber instead.
+const SF_INTERRUPTED: i32 = 16;
 
 // ---- the Deferred record ----
 
@@ -445,6 +451,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ("fb_scope_body_resume", &[ValType::I32], &[]),
     ("fb_scope_close_resume", &[ValType::I32], &[]),
     ("fb_scope_failed", &[ValType::I32, ValType::I32], &[]),
+    ("fb_scope_interrupted", &[ValType::I32], &[ValType::I32]),
     ("fb_scope_child_ended", &[ValType::I32, ValType::I32], &[]),
     (
         "fb_scope_finish",
@@ -556,6 +563,7 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "fb_scope_body_resume" => vec![(3, ValType::I32), (1, ValType::I64)],
         "fb_scope_close_resume" => vec![(6, ValType::I32), (1, ValType::I64)],
         "fb_scope_failed" => i32s(4),
+        "fb_scope_interrupted" => i32s(3),
         "fb_scope_child_ended" => i32s(4),
         "fb_scope_finish" => i32s(5),
         "fb_scope_body_done" => i32s(10),
@@ -880,6 +888,7 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "fb_scope_body_resume" => scope_body_resume(b, ins),
         "fb_scope_close_resume" => scope_close_resume(b, ins),
         "fb_scope_failed" => scope_failed(b, ins),
+        "fb_scope_interrupted" => scope_interrupted(b, ins),
         "fb_scope_child_ended" => scope_child_ended(b, ins),
         "fb_scope_finish" => scope_finish(b, ins),
         "fb_scope_body_done" => scope_body_done(b, ins),
@@ -3222,7 +3231,7 @@ fn scope(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_set(WORD);
     ins.global_get(G_SUSPENDING);
     ins.if_(BlockType::Empty);
-    // The body suspended: close the scope when its continuation returns.
+    // The body suspended: end the body when its continuation returns.
     c(ins, bdesc as i32);
     c(ins, table as i32);
     c(ins, 0);
@@ -3270,7 +3279,7 @@ fn scope(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(done);
 }
 
-/// `fb_scope_body_done(so, mode, word, repr) -> word`: the body ended; close the scope. A group
+/// `fb_scope_body_done(so, mode, word, repr) -> word`: the body ended; a group closes. A group
 /// interrupts the tasks left; a background only when the body unwound by an interruption or one
 /// is pending (`[task.background]`).
 fn scope_body_done(b: &mut Builder<'_>, ins: &mut InstructionSink) {
@@ -3294,8 +3303,18 @@ fn scope_body_done(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     g(ins, 0);
     let remove = b.rt("fb_pending_remove");
     ins.call(remove);
+    // A group closes; a background does not (`[task.background]`).
     ldl(ins, 0, S_FLAGS);
-    c(ins, SF_CLOSED | SF_BODY_DONE);
+    c(ins, SF_BODY_DONE);
+    ins.i32_or();
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BACKGROUND);
+    ins.i32_and();
+    ins.if_(BlockType::Result(ValType::I32));
+    c(ins, 0);
+    ins.else_();
+    c(ins, SF_CLOSED);
+    ins.end();
     ins.i32_or();
     ins.local_set(TMP);
     stl(ins, 0, S_FLAGS, TMP);
@@ -3366,6 +3385,12 @@ fn scope_body_done(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_ne();
     ins.i32_or();
     ins.if_(BlockType::Empty);
+    // For a background, the with was interrupted from outside (only a background reads the flag).
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_INTERRUPTED);
+    ins.i32_or();
+    ins.local_set(TMP);
+    stl(ins, 0, S_FLAGS, TMP);
     ldl(ins, 0, S_CHEAD);
     ins.local_set(CHILD);
     ins.block(BlockType::Empty);
@@ -3620,7 +3645,7 @@ fn scope_finish(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.local_get(2);
 }
 
-/// `fb_scope_body_resume(frame)`: the body's continuation returned; close the scope.
+/// `fb_scope_body_resume(frame)`: the body's continuation returned; end the body.
 fn scope_body_resume(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const SO: u32 = 1;
     const REPR: u32 = 2;
@@ -3833,6 +3858,68 @@ fn scope_failed(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
 }
 
+/// `fb_scope_interrupted(so) -> i32`: whether the with of a background was interrupted from
+/// outside (`[task.background]`). While the body runs, an interruption of the whole fiber or of the
+/// body of an enclosing scope (a smaller depth), pending or unwinding, reaches the with from
+/// outside; one of an inner scope does not.
+fn scope_interrupted(_b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const F: u32 = 1;
+    const P: u32 = 2;
+    const T: u32 = 3;
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_INTERRUPTED);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    c(ins, 1);
+    ins.return_();
+    ins.end();
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BODY_DONE);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    c(ins, 0);
+    ins.return_();
+    ins.end();
+    ldl(ins, 0, S_FIBER);
+    ins.local_set(F);
+    ldl(ins, F, F_FLAGS);
+    c(ins, FF_UNWINDING);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    c(ins, 1);
+    ins.return_();
+    ins.end();
+    for head in [F_PHEAD, F_UHEAD] {
+        ldl(ins, F, head);
+        ins.local_set(P);
+        ins.block(BlockType::Empty);
+        ins.loop_(BlockType::Empty);
+        g(ins, P);
+        ins.i32_eqz();
+        ins.br_if(1);
+        ldl(ins, P, N_TARGET);
+        ins.local_tee(T);
+        ins.i32_eqz();
+        ins.if_(BlockType::Empty);
+        c(ins, 1);
+        ins.return_();
+        ins.end();
+        ldl(ins, T, S_DEPTH);
+        ldl(ins, 0, S_DEPTH);
+        ins.i32_lt_s();
+        ins.if_(BlockType::Empty);
+        c(ins, 1);
+        ins.return_();
+        ins.end();
+        ldl(ins, P, N_NEXT);
+        ins.local_set(P);
+        ins.br(0);
+        ins.end();
+        ins.end();
+    }
+    c(ins, 0);
+}
+
 /// `fb_scope_child_ended(so, child)`: a child finished. Unlinks it, records its failure and wakes
 /// a scope that waits for its last child.
 fn scope_child_ended(b: &mut Builder<'_>, ins: &mut InstructionSink) {
@@ -3956,6 +4043,23 @@ fn fork(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     stl(ins, 0, S_CHEAD, C);
     ins.end();
     stl(ins, 0, S_CTAIL, C);
+    // A background does not close: a task started after its with was interrupted from outside is
+    // interrupted before it starts running, so it ends without calling `f` and `on_failure` is not
+    // called for it. The release waits for it like any other task (`[task.background]`).
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BACKGROUND);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    g(ins, 0);
+    let interrupted = b.rt("fb_scope_interrupted");
+    ins.call(interrupted);
+    ins.if_(BlockType::Empty);
+    g(ins, C);
+    c(ins, 0);
+    let push = b.rt("fb_pending_push");
+    ins.call(push);
+    ins.end();
+    ins.end();
     // The child starts when the parent next suspends (spec 11.2: fork is not a suspension point).
     c(ins, JK_BEGIN);
     g(ins, C);
@@ -4384,6 +4488,11 @@ fn interrupt_fiber(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ldl(ins, 0, F_WAITING);
     ins.local_tee(W);
     ins.if_(BlockType::Empty);
+    ldl(ins, W, S_FLAGS);
+    c(ins, SF_INTERRUPTED);
+    ins.i32_or();
+    ins.local_set(CHAIN);
+    stl(ins, W, S_FLAGS, CHAIN);
     ldl(ins, W, S_CHEAD);
     ins.local_set(P);
     ins.block(BlockType::Empty);

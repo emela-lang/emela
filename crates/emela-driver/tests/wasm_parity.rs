@@ -1164,6 +1164,13 @@ fn main() {
         "task_background",
         include_str!("../../emela-codegen-c/tests/programs/task_background.emel"),
     ),
+    // `[task.background]`: a background does not close. Tasks start siblings after the body has
+    // ended and after a task failed, `on_failure` starts a task, and a task started after the with
+    // was interrupted from outside is interrupted before it starts running.
+    (
+        "task_background_open",
+        include_str!("../../emela-codegen-c/tests/programs/task_background_open.emel"),
+    ),
     // `[trait.derive]`: derived Encode, Decode, ObjectKey and Shaped, with `@key` and `@tag`.
     (
         "derive_encode_decode",

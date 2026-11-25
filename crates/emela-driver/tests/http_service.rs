@@ -920,6 +920,54 @@ console.log("ended");
     assert_eq!(stderr, "error: Broken\nerror: Broken\n");
 }
 
+const FOLLOW_UP: &str = r##"import Std.Http
+import Std.Http.Request.{Request}
+import Std.Http.Response.{Response}
+import Std.Task.{Spawn}
+import Std.Console.{Console, SystemConsole}
+
+fn say(line: String) -> () {
+  with SystemConsole {
+    console <- Console
+    console.print_line(line)
+  }
+}
+
+@entry(Http.serve)
+pub fn app(request: Request) -> Response uses { Spawn[{}, { Async }] } {
+  spawn <- Spawn
+  spawn.start(|| {
+    say("audit runs after the response")
+    spawn.start(|| say("follow-up started by audit"))
+  })
+  Response.new(200, "ok")
+}
+"##;
+
+/// A task started with Spawn starts a further task after the fn has returned, and the release of
+/// the background of the launch waits for it too: a background does not close
+/// (`[lib.http-service]`, `[task.background]`).
+#[test]
+fn a_spawned_task_starts_a_follow_up_after_the_response() {
+    let dir = build_service("follow-up-js", FOLLOW_UP);
+    let (stdout, stderr) = harness(
+        &dir,
+        r#"import service from "./main.mjs";
+const waits = [];
+const ctx = { waitUntil: (p) => waits.push(p) };
+const res = await service.fetch(new Request("http://example.com/"), {}, ctx);
+await Promise.all(waits);
+console.log("ended", res.status, await res.text());
+"#,
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        stdout,
+        "audit runs after the response\nfollow-up started by audit\nended 200 ok\n"
+    );
+    assert_eq!(stderr, "");
+}
+
 /// On WASM the response is returned with `task.return`, and the tasks run after it in the same
 /// `handle` (`[target.wasm.output]`): the response does not wait for them.
 #[test]
