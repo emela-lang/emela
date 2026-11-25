@@ -44,7 +44,7 @@ export fn main() -> Int {
     }
     let h%15: handler Execute = h%13
     let h%16: handler Query = h%11
-    let ev%17: evidence = provide(; Execute = h%15 Query = h%16)
+    let ev%17: evidence = provide(;)
   } {
     (read_only[{ev}](match hs%10 {
       (x%18, _) -> x%18

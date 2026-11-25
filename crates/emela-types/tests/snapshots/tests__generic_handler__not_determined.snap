@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/generic_handler.rs
-expression: "repo(r#\"\nhandler Fixed: State[Int] {\n  fn get() { 0 }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nhandler Empty[A]: State[List[A]] {\n  fn get() { [] }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nfn ints() -> List[Int] uses { State[List[Int]] } { (use State[List[Int]]).get() }\n\nfn strings() -> List[String] uses { State[List[String]] } { (use State[List[String]]).get() }\n\nhandler Blank[A](xs: List[A]): Logger {\n  init() { Blank(xs: []) }\n  fn info(msg) { () }\n}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nfn nothing() { with Pass { () } }\n\nfn unknown() { with Blank { () } }\n\nfn declared() -> () uses { State[Int] } { with Pass { () } }\n\nfn two_fit() { with Empty { (ints(), strings()) } }\n\nfn may_override() { with Fixed, Pass { (use State[Int]).get() } }\n\nfn written_override() { with Fixed, Pass[Int] { (use State[Int]).get() } }\n\nfn init_narrows() { with Constant(value: [1]) { (ints(), strings()) } }\n\"#)"
+expression: "repo(r#\"\nhandler Fixed: State[Int] {\n  fn get() { 0 }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nhandler Empty[A]: State[List[A]] {\n  fn get() { [] }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nfn ints() -> List[Int] uses { State[List[Int]] } { (use State[List[Int]]).get() }\n\nfn strings() -> List[String] uses { State[List[String]] } { (use State[List[String]]).get() }\n\nhandler Blank[A](xs: List[A]): Logger {\n  init() { Blank(xs: []) }\n  fn info(msg) { () }\n}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nfn nothing() { with Pass { () } }\n\nfn unknown() { with Blank { () } }\n\nfn declared() -> () uses { State[Int] } { with Pass { () } }\n\nfn two_fit() { with Empty { (ints(), strings()) } }\n\nfn may_override() { with Fixed, Pass { (use State[Int]).get() } }\n\nfn written_override() { with Fixed, Pass[Int] { (use State[Int]).get() } }\n\nfn init_narrows() { with Constant(value: [1]) { (ints(), strings()) } }\n\nfn bound_two_fit() {\n  with x = Empty {\n    x.set([\"s\"])\n    (ints(), strings())\n  }\n}\n\nfn bound_may_override() { with Fixed, x = Pass { x.get() + 1 } }\n\"#)"
 ---
 ints: fn() -> List[Int] uses { State[List[Int]] }
 strings: fn() -> List[String] uses { State[List[String]] }
@@ -11,6 +11,10 @@ two_fit: fn() -> (List[Int], List[String]) uses { State[List[String]] }
 may_override: fn() -> Int
 written_override: fn() -> Int uses { State[Int] }
 init_narrows: fn() -> (List[Int], List[String]) uses { State[List[String]] }
+bound_two_fit: fn() -> (List[Int], List[String]) uses { State[List[Int]], State[List[String]] }
+  x: use State[List[String]]
+bound_may_override: fn() -> Int
+  x: use State[Int]
 handler InMemoryRepo: use State[List[('0, '1)]]
 handler Constant: use {}
 handler Pass: use State['0]
@@ -24,6 +28,8 @@ item Empty: [Int]
 item Pass: [Int]
 item Pass: [Int]
 item Constant: [List[Int]]
+item Empty: [String]
+item Pass: [Int]
 `Eq` UnusedDerive { trait_name: "Eq", ty: "UserId" }
 `Blank` HandlerArgsUnknown { handler: "Blank[A]", reason: Unknown }
 `Empty` HandlerArgsUnknown { handler: "Empty[A]", reason: Several { first: "State[List[Int]]", second: "State[List[String]]" } }
@@ -85,3 +91,13 @@ with Constant(value: [1]) { (ints(), strings()) }: State[List[String]]
 (ints(), strings()): { State[List[Int]], State[List[String]] }
 ints(): State[List[Int]]
 strings(): State[List[String]]
+{   with x = Empty {     x.set(["s"])     (ints(), strings())   } }: { State[List[Int]], State[List[String]] }
+with x = Empty {     x.set(["s"])     (ints(), strings())   }: { State[List[Int]], State[List[String]] }
+{     x.set(["s"])     (ints(), strings())   }: { State[List[Int]], State[List[String]], x }
+x.set(["s"]): x
+(ints(), strings()): { State[List[Int]], State[List[String]] }
+ints(): State[List[Int]]
+strings(): State[List[String]]
+{ x.get() + 1 }: x
+x.get() + 1: x
+x.get(): x

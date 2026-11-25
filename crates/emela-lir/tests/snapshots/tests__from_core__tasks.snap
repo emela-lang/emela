@@ -22,7 +22,7 @@ export suspend fn main() -> i32 (Int) {
     return deferred%1
   }
   h%9: ref (handler Std.Deferred.Deferred[()]) = handler Deferred: Std.Deferred.Deferred[()] { complete: f%3, await: f%5, poll: f%7, $cell: f%8 }
-  ev%10: ref (evidence) = ev_extend([Std.Deferred.Deferred[()]: h%9])
+  ev%10: ref (evidence) = ev_extend([])
   f%33: ref (fn(fiber_scope) -> Int suspends) = suspend closure(s%11: ref (fiber_scope)) [ev%10, h%9] {
     f%16: ref (fn(fn(evidence) -> any suspends) -> any) = closure(g%12: ref (fn(evidence) -> any suspends)) [ev%10, s%11] {
       f%14: ref (fn() -> any suspends) = suspend closure() [g%12, ev%10] {

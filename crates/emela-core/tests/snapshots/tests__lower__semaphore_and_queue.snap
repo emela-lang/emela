@@ -41,7 +41,7 @@ export suspend fn main(ev%0: evidence) -> Int fails {
         }
       }
     }
-    let ev%8: evidence = provide(ev%0; Std.Semaphore.Semaphore = h%2)
+    let ev%8: evidence = provide(ev%0;)
   } {
     with {
       let arg%9: Int = 1
@@ -78,7 +78,7 @@ export suspend fn main(ev%0: evidence) -> Int fails {
           }
         }
       }
-      let ev%17: evidence = provide(ev%8; Std.Queue.Queue[String] = h%10)
+      let ev%17: evidence = provide(ev%8;)
     } {
       let _%18: String = passed$suspend1[{suspends, ev}](h%10, ev%17)!?
       let _%19: Option[Int] = tried$suspend1[{suspends, ev}](h%2, ev%17)!

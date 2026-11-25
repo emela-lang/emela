@@ -103,6 +103,7 @@ impl BodyInfer<'_> {
             // (`[ext.boundary]`). A capability is allowed: the callback reaches its handler
             // through it. Host effects (Async) are left to the check of Immediate.
             let mut callback: Vec<SmolStr> = Vec::new();
+            let mut callback_defs: Vec<DefId> = Vec::new();
             if let ImmediateSource::ExternalCallback { .. } = &ob.source {
                 for e in row.elems() {
                     if let RowElem::Tag(effect) = e
@@ -111,6 +112,7 @@ impl BodyInfer<'_> {
                         let name = program.defs[effect.def].name.clone();
                         if !callback.contains(&name) {
                             callback.push(name);
+                            callback_defs.push(effect.def);
                         }
                     }
                 }
@@ -143,11 +145,13 @@ impl BodyInfer<'_> {
                 let ImmediateSource::ExternalCallback { callee } = &ob.source else {
                     unreachable!("only callbacks are collected");
                 };
+                let bound_item = !self.callback_redirects(ob.owner, ob.span, &callback_defs);
                 self.diags.push(Diagnostic {
                     span: Some(ob.span),
                     kind: DiagnosticKind::CallbackEffects {
                         effects: callback.clone(),
                         callee: Some(callee.clone()),
+                        bound_item,
                     },
                 });
             }

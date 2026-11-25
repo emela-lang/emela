@@ -1,0 +1,102 @@
+## `[effect.with]`: a bound item makes its capability and provides nothing by name. The uses of
+## an effect by name inside its body go to the withs around it (`[effect.use]`, `[effect.label]`,
+## `[effect.handler]`).
+
+effect Conn {
+  fn who() -> String
+}
+
+effect Db {
+  fn name() -> String
+  handler Open(label: String): Conn
+}
+
+effect Side of Db
+
+handler PrimaryDb: Db {
+  fn name() { "primary" }
+
+  handler Open(label: String): Conn {
+    init(label: String) { Self(label:) }
+    fn who() { "primary #{self.label}" }
+  }
+}
+
+handler ReplicaDb: Db {
+  fn name() { "replica" }
+
+  handler Open(label: String): Conn {
+    init(label: String) { Self(label:) }
+    fn who() { "replica #{self.label}" }
+  }
+}
+
+# A handler whose init opens a handler member of Db by name.
+handler Pool(conn: use Conn, other: use Conn): Conn {
+  init {
+    with replica = ReplicaDb {
+      _ = dbg(replica.name())
+      Pool(conn: Db.Open("pool"), other: (use Db).Open("use"))
+    }
+  }
+
+  fn who() { "pool of #{self.conn.who()} and #{self.other.who()}" }
+}
+
+fn write_side() -> String uses { Db } {
+  db <- Db
+  db.name()
+}
+
+fn show(side: use Side) -> String { side.name() }
+
+fn main() {
+  with PrimaryDb {
+    # An effect alias, `(use E).op` and the R of a function go to the outer handler.
+    with replica = ReplicaDb {
+      db <- Db
+      _ = dbg("#{replica.name()} #{write_side()} #{db.name()}")
+      _ = dbg((use Db).name())
+    }
+    # So does an item that opens a handler member through the effect.
+    with replica = ReplicaDb {
+      with by_effect = Db.Open("e"), through = replica.Open("c") {
+        _ = dbg("#{by_effect.who()} #{through.who()}")
+      }
+    }
+    # And a label item that makes no handler, and a label member item.
+    with Side by PrimaryDb {
+      with side = Side by ReplicaDb {
+        with Side {
+          db <- Db
+          _ = dbg("#{db.name()} #{side.name()}")
+        }
+      }
+    }
+    with replica = ReplicaDb {
+      with Side by Db {
+        side <- Side
+        _ = dbg(show(use Side))
+        with c = Side.Open("l") {
+          _ = dbg(c.who())
+        }
+        _ = dbg(side.name())
+      }
+    }
+    # A bound label item plugged into a handler makes a capability of the label only.
+    with side = Side by ReplicaDb {
+      _ = dbg("#{show(side)} #{write_side()}")
+    }
+    # A bound item is never overridden, and does not override an unbound item.
+    with ReplicaDb, a = PrimaryDb {
+      _ = dbg("#{a.name()} #{write_side()}")
+    }
+    with a = ReplicaDb, b = PrimaryDb {
+      _ = dbg("#{a.name()} #{b.name()} #{write_side()}")
+    }
+    # An init that opens a handler member of Db by name opens that of the outer handler.
+    with p = Pool {
+      _ = dbg(p.who())
+    }
+  }
+}

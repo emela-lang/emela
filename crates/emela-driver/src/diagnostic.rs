@@ -22,6 +22,10 @@ use crate::target::Target;
 /// The prefix of notes that are help.
 pub const HELP_PREFIX: &str = "help: ";
 
+/// The part of the helps of W0403 and E0453 that suggests a bound item. The help is left out
+/// where a bound item would change meaning ([`emela_types::ProgramTypes::bound_item_redirects`]).
+pub(crate) const NAMED_ITEM_SUGGESTION: &str = "a named item `with x = H`";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
     Error,
@@ -334,7 +338,7 @@ impl Diagnostic {
                     Some(emela_resolve::DeprecatedRewrite::Binding { alias }) => {
                         format!("write `{alias} <- {effect}`")
                     }
-                    None => format!("write `x <- {effect}`, or a named item `with x = H`"),
+                    None => format!("write `x <- {effect}`, or {NAMED_ITEM_SUGGESTION}"),
                 });
                 (
                     Severity::Warning,
@@ -343,7 +347,7 @@ impl Diagnostic {
                 )
             }
             DiagnosticKind::EffectAliasAsValue { name } => {
-                help = Some("for a fixed value, use a named item `with x = H`".to_owned());
+                help = Some(format!("for a fixed value, use {NAMED_ITEM_SUGGESTION}"));
                 (
                     Severity::Error,
                     code::EFFECT_ALIAS_MISUSE,
@@ -981,6 +985,7 @@ impl Diagnostic {
                 in_task,
                 hosts,
                 process,
+                bound,
             } => {
                 if *in_task {
                     note = Some(
@@ -1050,6 +1055,19 @@ impl Diagnostic {
                         format!("{list} {verb} not provided in test function `{name}`")
                     }
                 };
+                // A bound item provides nothing by name (`[effect.with]`).
+                if let Some(bound) = bound {
+                    let emela_types::BoundItem { span, name, effect } = bound.as_ref();
+                    note = Some(format!(
+                        "`{name}` is a bound item, so it does not provide `{effect}` by name"
+                    ));
+                    help = Some(format!(
+                        "remove `{name} =` to provide it by name, or call through `{name}`"
+                    ));
+                    if let Some(&file) = files.get(span.module) {
+                        label = Some((Span::new(file, span.range), format!("`{name}` is bound here")));
+                    }
+                }
                 // A with cannot provide a host effect (`[effect.host]`).
                 if hosts.len() == effects.len() {
                     help = None;
@@ -1163,6 +1181,16 @@ impl Diagnostic {
                     "layer `{layer}` cannot be bound to a name: it provides more than one effect"
                 ),
             ),
+            TypeDiagnosticKind::BoundLabelItem { item, name, effect } => {
+                help = Some(format!(
+                    "list it without a name, and write `{name} <- {effect}` in the body"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::MEMBER_ITEM_FORM),
+                    format!("label item `{item}` cannot be bound to a name: it makes no handler"),
+                )
+            }
             TypeDiagnosticKind::MemberOutsideInit { member, effect } => {
                 help = Some(format!(
                     "open it as an item of `with`: `with x = {effect}.{member}(...) {{ ... }}`"
@@ -1747,10 +1775,16 @@ impl Diagnostic {
                 "`@borrowed` can only be written on a parameter of function type of an external function"
                     .to_owned(),
             ),
-            TypeDiagnosticKind::CallbackEffects { effects, callee } => {
-                help = Some(
-                    "capture the capability of a named item (`with g = H { ... }`) and call its operations".to_owned(),
-                );
+            TypeDiagnosticKind::CallbackEffects {
+                effects,
+                callee,
+                bound_item,
+            } => {
+                if *bound_item {
+                    help = Some(
+                        "capture the capability of a named item (`with g = H { ... }`) and call its operations".to_owned(),
+                    );
+                }
                 let list = quoted_list("effect", "effects", effects);
                 let message = match callee {
                     Some(callee) => format!(

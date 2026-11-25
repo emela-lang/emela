@@ -36,7 +36,7 @@ export suspend fn main(ev%0: evidence) -> Int {
         }
       }
     }
-    let ev%5: evidence = provide(ev%0; Std.Deferred.Deferred[Int] = h%1)
+    let ev%5: evidence = provide(ev%0;)
   } {
     fiber#scope(suspend fn(s%6: fiber_scope) -> Int {
       with {
@@ -47,7 +47,7 @@ export suspend fn main(ev%0: evidence) -> Int {
             })
           }
         }
-        let ev%9: evidence = provide(ev%5; Std.Task.TaskGroup[_, _] = h%7)
+        let ev%9: evidence = provide(ev%5;)
       } {
         let a%10: Std.Task.Task[()] = {
           let tasks%11: handler Std.Task.TaskGroup[_, _] = h%7

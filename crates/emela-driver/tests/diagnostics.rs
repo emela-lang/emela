@@ -3234,3 +3234,100 @@ fn declared() -> () uses { Async } {
     let tasks = render(&analysis.diagnostics, &analysis.sources, false);
     insta::assert_snapshot!(format!("{fiber}\n{tasks}"));
 }
+
+/// `[effect.with]`: a bound item provides nothing by name. E0402 names the bound item on the way
+/// to the use by name; a label item that makes no handler cannot be bound (E0447). The helps
+/// that suggest a bound item (W0403, E0453, E0454) are left out when the body of the `with` that
+/// provides the effect also uses it by name, since a bound item would send those uses elsewhere.
+#[test]
+fn bound_item_diagnostics() {
+    let analysis = check_files_with_deprecated(
+        &[(
+            "home/main.emel",
+            r##"effect Db {
+  fn name() -> String
+}
+
+effect Side of Db
+
+handler PrimaryDb: Db {
+  fn name() { "primary" }
+}
+
+handler ReplicaDb: Db {
+  fn name() { "replica" }
+}
+
+@external(js, "./host.mjs", "later")
+fn later(f: fn() -> ()) -> () uses {}
+
+fn write_side() -> String uses { Db } {
+  db <- Db
+  db.name()
+}
+
+fn show(d: use Db) -> String { d.name() }
+
+fn main() {
+  with replica = ReplicaDb {
+    _ = "#{replica.name()} #{write_side()}"
+  }
+}
+
+fn bound_labels() {
+  with PrimaryDb {
+    with side = Side by Db, db = Side { "#{side.name()} #{db.name()}" }
+  }
+}
+
+fn use_with_uses_by_name() -> String {
+  with PrimaryDb {
+    x = use Db
+    "#{show(x)} #{write_side()}"
+  }
+}
+
+fn use_alone() -> String {
+  with PrimaryDb {
+    x = use Db
+    show(x)
+  }
+}
+
+fn alias_with_uses_by_name() -> String {
+  with PrimaryDb {
+    d <- Db
+    "#{show(d)} #{write_side()}"
+  }
+}
+
+fn alias_alone() -> String {
+  with PrimaryDb {
+    d <- Db
+    "#{show(d)} #{d.name()}"
+  }
+}
+
+fn callback_with_uses_by_name() {
+  with PrimaryDb {
+    _ = write_side()
+    later(|| {
+      _ = write_side()
+    })
+  }
+}
+
+fn callback_alone() {
+  with PrimaryDb {
+    later(|| {
+      _ = write_side()
+    })
+  }
+}
+"##,
+        )],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}

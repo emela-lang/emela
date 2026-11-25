@@ -163,6 +163,7 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
             in_task,
             hosts,
             process,
+            bound,
         } => {
             let mut note = if *in_task {
                 " [provide outside the group]".to_owned()
@@ -174,6 +175,9 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
             }
             if *process {
                 note.push_str(" [use Process]");
+            }
+            if let Some(bound) = bound {
+                note.push_str(&format!(" [bound item `{}`]", bound.name));
             }
             format!(
                 "`{text}` unhandled effects {} ({context:?}){note}",

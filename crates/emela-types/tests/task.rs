@@ -614,7 +614,8 @@ fn wrapped() -> List[Int] uses { Wrap } {
 /// A task may start its siblings (`[task.group]`): the R of a task may have the capability of its
 /// group, or TaskGroup by name, provided by the group it was started in. The errors and effects of
 /// the siblings it starts still reach the group. A function that uses TaskGroup by name starts
-/// tasks recursively.
+/// tasks recursively under an unbound group; a bound group provides nothing by name
+/// (`[effect.with]`), so its body's TaskGroup is left to the caller.
 #[test]
 fn tasks_start_siblings() {
     insta::assert_snapshot!(render(
@@ -660,6 +661,10 @@ fn spawn_tree(depth: Int) -> () uses { TaskGroup[Boom, {}] } {
 }
 
 fn recursive() {
+  with Task.Group { spawn_tree(3) }
+}
+
+fn bound_group_by_name() {
   with tasks = Task.Group { spawn_tree(3) }
 }
 "#

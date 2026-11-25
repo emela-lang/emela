@@ -93,6 +93,10 @@ pub struct ProgramTypes {
     /// Handler members opened inside an init through a handler that a `with` inside the init
     /// provides → that `with`, at whose end they are released (`[effect.handler]`).
     pub member_open_withs: ArenaMap<ExprId, ExprId>,
+    /// The `use E` expressions (W0403) and the effect aliases written as a value (E0453) whose
+    /// help does not suggest a bound item: a bound item provides nothing by name, and the body
+    /// of the `with` that provides E also uses E by name (`[effect.with]`).
+    pub bound_item_redirects: Vec<Span>,
     /// Method calls (the `Field` callee of `x.f(a)`, `[type.rules]`) → the fn of the module of the
     /// type of x, or the trait function, that it calls. The callee has that function's
     /// instantiated type and its `type_args` and `type_rows`, as a `Path` to it would, and the
@@ -221,6 +225,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         narrowings: ArenaMap::default(),
         self_caps: Default::default(),
         member_open_withs: ArenaMap::default(),
+        bound_item_redirects: Vec::new(),
         layer_args: ArenaMap::default(),
         with_ty_args: ArenaMap::default(),
         layer_ty_args: ArenaMap::default(),
@@ -297,6 +302,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         types
             .member_open_withs
             .extend(body.member_open_withs.iter().map(|(id, &w)| (id, w)));
+        types.bound_item_redirects.extend(body.bound_item_redirects);
         types
             .methods
             .extend(body.methods.iter().map(|(id, &def)| (id, def)));
