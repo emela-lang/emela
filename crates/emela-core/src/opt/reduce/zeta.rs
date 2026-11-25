@@ -93,9 +93,8 @@
 //! # Status
 //!
 //! A2/PR-011 implements both rules on top of the substitution engine of A1/PR-010. The rule runs
-//! only when `Rules::zeta` is set, which is off by default until A10/PR-019, so the default
-//! pipeline's output does not change yet. R1 adds the capture-scoped precondition of "Captures
-//! and closures"; it refuses copies only.
+//! only when `Rules::zeta` is set; A10/PR-019 turns it on in `Rules::default`. R1 adds the
+//! capture-scoped precondition of "Captures and closures"; it refuses copies only.
 
 use rustc_hash::FxHashMap;
 

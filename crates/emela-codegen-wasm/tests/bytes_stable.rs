@@ -46,8 +46,8 @@ fn main() {
   dbg("ab" == "ab")
 }
 "#,
-        13034,
-        0x6174_ee9c_e5a5_034f,
+        12886,
+        0xce3b_f855_b1c2_b1d3,
     ),
     (
         "lists_enums_strings",
@@ -81,8 +81,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        24117,
-        0xa639_018b_a702_97e7,
+        23978,
+        0xc3b2_ca3d_6a48_2881,
     ),
     (
         "floats",
@@ -96,8 +96,8 @@ fn main() {
   dbg(Float.to_string(Float.parse("2.5") escape { ParseError(_) -> 0.0 }))
 }
 "#,
-        22411,
-        0xb504_4745_2677_5e6f,
+        22404,
+        0x686a_4035_cf6c_d594,
     ),
     (
         "platform_console",
@@ -158,8 +158,8 @@ fn main() {
   dbg(Float.from_int(7) % Float.from_int(2) > 0.5)
 }
 "#,
-        13289,
-        0x61b3_5060_8ba7_3288,
+        13252,
+        0xde55_f3e1_8caf_92c1,
     ),
 ];
 

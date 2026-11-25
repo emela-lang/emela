@@ -20,7 +20,8 @@ to observable behaviour. Optimisation never appears in `spec/` as a guarantee.
 Core IR (target-neutral, before monomorphisation)
   1 reductions      β ζ η ι δ, constant folding, algebra
   2 fusion          range / map / fold / filter, Option and Array.get, strings
-  3 loops           hoisting, unswitching, induction variables
+  3 loops           unswitching; loop-invariant motion and induction
+                    variables are reserved
   4 analyses        effects and defects, uses, call graph, ranges
 Monomorphic Core IR (after monomorphisation)
   5 δ stage         one δ-only pass over the monomorphic copies: the rule of
@@ -87,17 +88,17 @@ changing behaviour is not.
 | Where | What |
 |---|---|
 | [`crates/emela-core/src/opt/mod.rs`](../crates/emela-core/src/opt/mod.rs) | The Core IR pipeline: the order of the passes, the fixed point, `Stats`, the pass contract, and the δ-only stage after monomorphisation. |
-| [`crates/emela-core/src/opt/`](../crates/emela-core/src/opt/) | The Core IR passes: the `loop` unswitch, the `reduce` kernel (including δ, the inliner), the `fusion` laws. |
+| [`crates/emela-core/src/opt/reduce/`](../crates/emela-core/src/opt/reduce/) | The reduction kernel: `subst`, `zeta`, `beta`, `eta`, `iota`, `delta`, `fold`, `algebra`. |
+| [`crates/emela-core/src/opt/fusion/`](../crates/emela-core/src/opt/fusion/) | The fusion laws: the registry, their order and their budget. |
+| [`crates/emela-core/src/opt/loop/`](../crates/emela-core/src/opt/loop/) | Loop transformations: the unswitch; LICM and induction variables are reserved. |
+| [`crates/emela-core/src/opt/analysis/`](../crates/emela-core/src/opt/analysis/) | The shared Core IR analyses: effects and defects, uses, call graph, ranges. |
 | [`crates/emela-lir/src/opt/mod.rs`](../crates/emela-lir/src/opt/mod.rs) | The LIR stages (`run_flow`, `run_mid`, `run_heap`), `Stats`, the shared analyses. |
-| [`crates/emela-lir/src/opt/`](../crates/emela-lir/src/opt/) | The LIR passes and analyses: `escape`, `rc`, `sra`. |
+| [`crates/emela-lir/src/opt/analysis/`](../crates/emela-lir/src/opt/analysis/) | The shared LIR analyses: escape, liveness, borrow, ownership. |
+| [`crates/emela-lir/src/opt/`](../crates/emela-lir/src/opt/) | The LIR passes: escape, rc cleanup, drop specialisation, reuse, scalar replacement of tuples, records and closures. |
 | [`crates/emela-codegen-c/`](../crates/emela-codegen-c/) | The C backend: representation and layout. |
 | [`crates/emela-codegen-wasm/`](../crates/emela-codegen-wasm/) | The WASM backend: representation, dead code elimination, switches. |
 
-The Core IR passes are being grouped into `crates/emela-core/src/opt/reduce/` (the reduction
-kernel), `fusion/` (the library laws), `loop/` (hoisting and unswitching) and `analysis/` (the
-shared analyses). The LIR passes are being grouped into `analysis/`, `rc/` and `sra/` under
-`crates/emela-lir/src/opt/`, with closure devirtualisation and suspension frame pruning beside
-them. A pass's rustdoc states the contract; the module rustdoc states the pipeline and the fixed
+A pass's rustdoc states the contract; the module rustdoc states the pipeline and the fixed
 point.
 
 ## Detailed procedures

@@ -70,7 +70,7 @@ fn main() {
 ",
     )];
     let (m, stats) = lower_files_with_stats(&files, true);
-    assert_eq!(stats.inline, 1, "{stats:?}");
+    assert_eq!(stats.delta, 1, "{stats:?}");
     let double = function(&m, "double");
     assert_eq!(calls_anywhere(&m, double), 0, "{}", dump(&m));
     let ir = dump(&m);
@@ -121,7 +121,7 @@ fn main() {
 ",
     )];
     let (m, stats) = lower_files_with_stats(&files, true);
-    assert_eq!(stats.inline, 3, "{stats:?}");
+    assert_eq!(stats.delta, 3, "{stats:?}");
     let ir = dump(&m);
     // Only the body of `main`: the same literals occur in other functions of the module.
     let main = ir
@@ -129,11 +129,12 @@ fn main() {
         .nth(1)
         .expect("main is in the dump");
     let main = main.split("\nfn ").next().unwrap();
+    // ζ propagates the `let` bindings δ makes, so the argument is printed where it was written.
     let first = main
-        .find(": Int = 1")
+        .find("@dbg[Int](1)")
         .unwrap_or_else(|| panic!("the first argument is evaluated:\n{main}"));
     let second = main
-        .find(": Int = 2")
+        .find("@dbg[Int](2)")
         .unwrap_or_else(|| panic!("the second argument is evaluated:\n{main}"));
     assert!(
         first < second,
@@ -145,12 +146,12 @@ fn main() {
         "each argument is printed once, and the result once:\n{main}"
     );
     assert_eq!(
-        main.matches(": Int = 1").count(),
+        main.matches("@dbg[Int](1)").count(),
         1,
         "the first argument is evaluated once:\n{main}"
     );
     assert_eq!(
-        main.matches(": Int = 2").count(),
+        main.matches("@dbg[Int](2)").count(),
         1,
         "the second argument is evaluated once:\n{main}"
     );
@@ -174,7 +175,7 @@ fn main() {
 ",
     )];
     let (m, stats) = lower_files_with_stats(&files, true);
-    assert_eq!(stats.inline, 1, "{stats:?}");
+    assert_eq!(stats.delta, 1, "{stats:?}");
     assert_eq!(calls_anywhere(&m, function(&m, "shout")), 0);
 }
 
@@ -284,7 +285,7 @@ fn main() {
     )];
     let (m, stats) = lower_files_with_stats(&files, true);
     assert_eq!(calls_anywhere(&m, function(&m, "pair")), 0);
-    assert!(stats.inline >= 2, "{stats:?}");
+    assert!(stats.delta >= 2, "{stats:?}");
     let ir = dump(&m);
     assert!(ir.contains(": Int"), "{ir}");
     assert!(ir.contains(": String"), "{ir}");
@@ -356,7 +357,7 @@ fn main() {
     let mut m = lower_files_with(&files, false);
     let ids = CoreFns::default();
     let first = opt::run(&mut m, &ids, true);
-    assert!(first.inline > 0, "{first:?}");
+    assert!(first.delta > 0, "{first:?}");
     let once = dump(&m);
     let second = opt::run(&mut m, &ids, true);
     assert!(second.is_empty(), "a second run changed the IR: {second:?}");
