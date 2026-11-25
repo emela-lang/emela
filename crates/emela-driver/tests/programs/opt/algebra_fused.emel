@@ -1,0 +1,35 @@
+# A mutation pair for algebraic reduction: `&&` and `||` with a constant on the side that decides
+# the value, `!!flag`, and an `if` whose condition is a literal. `algebra_expanded.emel` is the same
+# program with those sides already taken, so a `note` the short-circuit does not evaluate is not
+# written at all. Each `note` prints before it returns, so a side that runs and a side that does not
+# are visible in stderr. stdout and stderr must agree with optimisation on and off, and with the
+# expansion.
+#
+# The left side of `note(...) && False` and `note(...) || True` is evaluated today, so the rule
+# leaves it alone: both files keep those calls.
+
+fn note(label: String, value: Bool) -> Bool {
+  dbg("#{label} #{value}")
+  value
+}
+
+fn main() {
+  flag = True
+  # The left side is a literal, so the right side decides.
+  dbg(True && flag)
+  dbg(False && note("skipped-and", True))
+  # A constant on the right keeps the left side, and only the left side.
+  dbg(flag && True)
+  dbg(False || flag)
+  dbg(flag || False)
+  dbg(True || note("skipped-or", False))
+  # The left side runs even though its value cannot decide the result: a call is not trivial, so
+  # the rule keeps it.
+  dbg(note("left-and", True) && False)
+  dbg(note("left-or", False) || True)
+  # `!!e` is `e`.
+  dbg(!!flag)
+  # An `if` on a literal is the arm it takes.
+  dbg(if True { 1 } else { 2 })
+  dbg(if False { "then" } else { "else" })
+}

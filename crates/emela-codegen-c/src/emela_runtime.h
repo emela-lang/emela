@@ -20,12 +20,17 @@
  *
  * followed by 8-byte slots (`em_word`). Static data is marked by a count of 0 (as in Roc), so
  * string literals, constructors without fields and closures without captures cost neither an
- * allocation nor counting, and `em_dup` / `em_drop` need no other test. While an object is being freed, its first 8 bytes hold
- * the link of the free stack, so freeing never recurses (long lists and deep enums).
+ * allocation nor counting, and `em_dup` / `em_drop` need no other test. While an object is being
+ * freed, or is free in a size-class bin (fixed-size objects of at most 256 bytes; see
+ * `em_alloc`), its first 8 bytes hold the link of the free list or bin, so freeing never recurses
+ * (long lists and deep enums).
  *
  * Strings are UTF-8 with their length in slot 0 and the bytes (with a terminating NUL that is
  * not part of the string) from slot 1. Lists are cons cells (slot 0 the head, slot 1 the tail).
- * Arrays have their length in slot 0 and an element per slot from slot 1.
+ * Arrays have their length in slot 0 and an element per slot from slot 1; an element of an array
+ * of records or tuples held by value takes `value_size` bytes of the slots instead of one. Records
+ * and tuples themselves are held by value by the program, and boxed (a heap object whose slots are
+ * the bytes of the value) only where a reference is needed.
  * Closures are `{function pointer, captures...}`. Handlers are `{retired flag, operations...}`.
  *
  * Single-threaded (only the completions of `emela.h` may come from other threads, through a locked
@@ -89,6 +94,10 @@ typedef struct em_desc {
   em_ref (*show)(em_ref);
   /* Per slot, 1 if it holds a reference. */
   const uint8_t *refs;
+  /* For a record or tuple that the emitter holds by value (`em_a3` in `main.c`): the size in
+   * bytes of one value, a multiple of 8. It is the size of the box of the value and the size of
+   * one element of an array of it; 0 where the object is not such a value. */
+  uint32_t value_size;
   /* For EM_KIND_RUNTIME: releases what the object holds. */
   void (*fin)(em_ref);
 } em_desc;
@@ -118,6 +127,10 @@ struct em_obj {
 /* ---- Reference counting ---- */
 
 void em_free(em_ref o);
+/* Frees the block of a value whose payload holds no reference and has no finalizer (drop
+ * specialisation, C3/PR-027): the same block release as `em_free`, without the descriptor switch
+ * or the worklist. The caller checked that the count reached zero. */
+void em_free_block(em_ref o);
 
 static inline void em_dup(em_ref o) {
   if (o != NULL && o->hdr.u.h.rc != 0) o->hdr.u.h.rc++;
@@ -125,6 +138,12 @@ static inline void em_dup(em_ref o) {
 
 static inline void em_drop(em_ref o) {
   if (o != NULL && o->hdr.u.h.rc != 0 && --o->hdr.u.h.rc == 0) em_free(o);
+}
+
+/* `em_drop` for a value whose type proves that its block holds no reference and has no
+ * finalizer. Static data (`rc == 0`) is still never touched. */
+static inline void em_drop_block(em_ref o) {
+  if (o != NULL && o->hdr.u.h.rc != 0 && --o->hdr.u.h.rc == 0) em_free_block(o);
 }
 
 em_ref em_alloc(const em_desc *desc, size_t nslots);
@@ -208,6 +227,14 @@ em_ref em_box(em_word w);
 em_ref em_host_box(void *h);
 static inline void *em_host_get(em_ref o) { return o->slots[0].h; }
 
+/* The bytes of a box of a value the emitter holds by value (a record or tuple in an `em_word`):
+ * a box has the bytes of the value in its slots, so this is the value. */
+static inline void em_unbox_value(void *out, em_ref o) {
+  unsigned char *to = out;
+  const unsigned char *from = (const unsigned char *)o->slots;
+  for (uint32_t i = 0; i < o->hdr.desc->value_size; i++) to[i] = from[i];
+}
+
 /* ---- Integers (spec 16.1): wrapping, without undefined behavior ---- */
 
 static inline int32_t em_iadd(int32_t a, int32_t b) { return (int32_t)((uint32_t)a + (uint32_t)b); }
@@ -242,6 +269,9 @@ int32_t em_str_eq(em_ref a, em_ref b);
 int32_t em_str_cmp(em_ref a, em_ref b);
 int32_t em_string_byte_size(em_ref s);
 em_ref em_string_append(em_ref a, em_ref b);
+/* The parts joined in order in one allocation (at least two): each part is borrowed and the result
+ * is owned. At most one non-empty part returns a reference to that part, as `em_string_append`. */
+em_ref em_string_concat(const em_ref *parts, size_t n);
 int32_t em_string_contains(em_ref s, em_ref sub);
 int32_t em_string_starts_with(em_ref s, em_ref prefix);
 int32_t em_string_ends_with(em_ref s, em_ref suffix);
@@ -250,6 +280,12 @@ em_ref em_string_join(em_ref parts, em_ref sep);
 em_ref em_string_trim(em_ref s);
 em_ref em_string_code_points(em_ref s);
 em_ref em_string_from_code_point(int32_t n);
+/* `String.ascii_lower` and `String.ascii_upper`, the builtins under `to_ascii_lowercase` and
+ * `to_ascii_uppercase`: only the ASCII letters change case, and every other byte, including each
+ * byte of a multi-byte UTF-8 sequence, is copied as it is, so the result has the byte length of
+ * the argument. */
+em_ref em_string_ascii_lower(em_ref s);
+em_ref em_string_ascii_upper(em_ref s);
 /* A Bytes (`[api.std.bytes]`) is an EM_KIND_STRING object whose bytes need not be UTF-8. */
 em_ref em_bytes_from_list(em_ref xs);
 em_ref em_bytes_to_list(em_ref b);
@@ -258,17 +294,72 @@ em_ref em_bytes_slice(em_ref b, int32_t from, int32_t to);
 em_ref em_bytes_concat(em_ref parts);
 /* The same object, owned once more: `encode_utf8`, and `decode_utf8` of bytes already checked. */
 em_ref em_bytes_same(em_ref b);
-/* Arrays (`[api.std.array]`). `ref` tells whether the elements are references, for the functions
- * that may make an array without reading one. Every function borrows its arguments except
+/* Arrays (`[api.std.array]`). `desc` is the descriptor of the array to make: its `refs[0]` says
+ * whether the elements are references, and its `value_size` is the size of one element where the
+ * elements are values (0: one `em_word`). Every function borrows its arguments except
  * `em_array_set`, which consumes the array: it writes in place when that was the last reference
  * (a count of 1), and copies otherwise. */
-em_ref em_array_from_list(em_ref xs, bool ref);
+extern const em_desc em_desc_array_val;
+extern const em_desc em_desc_array_ref;
+em_ref em_array_from_list(em_ref xs, const em_desc *desc);
+/* A new array of `n` elements, uninitialized: what `$Array.map_range` fills. `desc` is the
+ * descriptor of the array to make, as for `em_array_from_list`, so that an array of values gets
+ * the size of one element. Its loop writes each element before the next call; a defect from the
+ * mapped function stops the loop there, shortens the array to the elements already written and
+ * releases it, so no unwritten slot is ever released. An element type with no representation
+ * writes nothing, and such an array has no reference elements to drop. */
+em_ref em_array_new(int64_t n, const em_desc *desc);
 em_ref em_array_to_list(em_ref a);
-int32_t em_array_size(em_ref a);
+/* An array is an EM_KIND_ARRAY object: slot 0 the length n, then the n elements, one after
+ * another in the slots. An element is one `em_word`, or, in an array of a record or tuple that the
+ * emitter holds by value, the bytes of the value: `value_size` in the array's descriptor says
+ * which. The layout and the word reads are here rather than in `emela_runtime.c` because a
+ * program's inner loops call them once per element. Through a call, neither the length nor a
+ * bounds test folds into the loop around it, and neither the C compiler nor the LIR can then
+ * hoist or merge them.
+ *
+ * These reads are for an array whose elements are one `em_word`. An array of values held by value
+ * is read by the `_agg` functions below, which copy the element out; the emitter picks between
+ * the two from the element type (`layout::element`).
+ *
+ * The reads are told whether their elements are references (`ref`) instead of reading that from
+ * the descriptor, as `em_array_get` and `em_array_set` still do: the caller knows the element type
+ * statically, and the flag lets the inlined body omit a load and a branch per element. An array is
+ * made with a descriptor that says the same (`em_array_from_list`, `em_array_concat`), so both
+ * ways agree. */
+#define EM_ARRAY_LEN(a) ((a)->slots[0].l)
+#define EM_ARRAY_REFS(a) ((a)->hdr.desc->refs[0] != 0)
+static inline int32_t em_array_size(em_ref a) { return (int32_t)EM_ARRAY_LEN(a); }
 em_ref em_array_get(em_ref a, int32_t index);
+/* The Core IR fusion of `Option.or(Array.get(a, index), d)`. `d` is borrowed; a reference
+ * result (the element or `d`) is owned once more. */
+static inline em_word em_array_get_or(em_ref a, int32_t index, bool ref, em_word d) {
+  if (index < 0 || index >= EM_ARRAY_LEN(a)) {
+    if (ref) em_dup(d.p);
+    return d;
+  }
+  if (ref) em_dup(a->slots[1 + index].p);
+  return a->slots[1 + index];
+}
+/* The Core IR fusion of `match Array.get(a, index)`: the caller has checked that `index` is in
+ * range. A reference result is owned once more. */
+static inline em_word em_array_load_unchecked(em_ref a, int32_t index, bool ref) {
+  if (ref) em_dup(a->slots[1 + index].p);
+  return a->slots[1 + index];
+}
 em_ref em_array_set(em_ref a, int32_t index, em_word value);
 em_ref em_array_slice(em_ref a, int32_t from, int32_t to);
-em_ref em_array_concat(em_ref parts, bool ref);
+em_ref em_array_concat(em_ref parts, const em_desc *desc);
+/* The same for an array whose elements are records or tuples held by value (`em_a3` in
+ * `main.c`): the bytes of each element are stored inline. `elem` is the descriptor of one element,
+ * for the box that takes it out of the array (a box is an object whose slots are the bytes). */
+em_ref em_array_get_agg(em_ref a, int32_t index, const em_desc *elem);
+em_ref em_array_to_list_agg(em_ref a, const em_desc *elem);
+void em_array_get_or_agg(em_ref a, int32_t index, const void *d, void *out);
+void em_array_load_unchecked_agg(em_ref a, int32_t index, void *out);
+em_ref em_array_set_agg(em_ref a, int32_t index, const void *value);
+/* The box of a value held by value: slots that are the bytes of the value. */
+em_ref em_box_value(const void *value, const em_desc *desc);
 em_ref em_int_to_string(int32_t n);
 em_ref em_int_parse(em_ref s);
 em_ref em_int_checked_add(int32_t a, int32_t b);
@@ -429,5 +520,19 @@ void em_test_done(void);
  * Returns the exit code: otherwise 0, or the `ExitCode` that main returned (`em_set_exit_code`).
  * `cleanup` releases the program's const values. */
 int em_exit(void (*cleanup)(void));
+
+/* ---- Measurement builds ----
+ *
+ * Two preprocessor definitions add diagnostics for measurements to the runtime's compilation (a
+ * build passes them to the C compiler, for example in EMELA_CC_ARGS). Neither is part of the
+ * language; a normal build has neither.
+ *
+ * - `-DEMELA_LEAK_CHECK` makes the leak check of `em_exit` unconditional. Without it the check
+ *   runs only when the environment variable EMELA_LEAK_CHECK is set.
+ * - `-DEMELA_ALLOC_STATS` counts the objects allocated for each descriptor name and, at exit,
+ *   prints the counts on standard error, the most numerous first and ties by name, then their
+ *   total: one `emela-alloc NAME COUNT` line per name and a last `emela-alloc-total COUNT`. The
+ *   report is a diagnostic, so the build pays for it: a table and a call in `em_alloc` that a
+ *   normal build does not have. */
 
 #endif

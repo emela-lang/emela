@@ -7,9 +7,26 @@ mod common;
 #[path = "../../emela-core/tests/support/mod.rs"]
 mod support;
 
+mod analysis_borrow;
+mod analysis_consistency;
+mod analysis_escape;
+mod analysis_liveness;
+mod analysis_ownership;
+mod borrow_call;
+mod closure_sra;
+mod dce;
+mod devirt;
+mod drop_spec;
 mod dump;
+mod frame_prune;
 mod from_core;
 mod heap;
+mod rc_borrow;
+mod reach;
+mod reach_program;
+mod reuse;
+mod sra;
+mod sra_records;
 mod verify;
 
 /// Every `.rs` file in this directory that is not a test binary of its own is declared

@@ -92,8 +92,10 @@ The parity tests need node, a C compiler and wasmtime; without them they are ski
 
 1. Set the proposal's `status` to `implemented` in the same pull request. If the work is split into several pull requests, only the last one does this; the others say "Part of proposals/<slug>.md".
 2. Commits follow the repository's convention (Conventional Commits, `feat:` for the language change, subject in Japanese). Do not put a bare `@name` in a commit message.
+   - Use `feat!:` (or `fix!:`) only when a program that uses only stable features stops compiling or changes meaning. It makes the next release a minor one (`docs/release.md`). A change of an experimental feature, a new warning or a deprecation stays `feat:`.
+   - If the proposal says the change first lands as an experimental feature, gate it on that feature (`crates/emela-driver/src/experimental.rs`) and keep the title `feat:`.
 3. Open the pull request:
-   - Title: `feat: <what users can now write>`
+   - Title: `feat: <what users can now write>` (`feat!:` under the rule above)
    - Body: the first line is `Implements: proposals/<slug>.md`, then `Closes #<issue>` for the implementation issue, the list of rules from step 1.3 with the test that checks each one, the diagnostic codes assigned, and anything skipped or reported.
 4. Do not merge it. The author reviews and merges.
 

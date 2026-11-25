@@ -1,0 +1,171 @@
+# The Core IR range fusion: `List.fold(List.range(lo, hi), init, f)` and
+# `List.map(List.range(lo, hi), f)` must give what the hand-written loops give, in the same call
+# order, with the same failures and effects. Tests run this on JS and C (with the leak check) and
+# on WASM.
+import Std.Task.{Task}
+import Std.State.{State}
+
+const MAX = 2147483647
+const MIN = -2147483647 - 1
+
+# The hand-written shape of `List.fold(List.range(lo, hi), init, f)`.
+fn fold_loop(lo: Int, hi: Int, acc: Int, f: fn(Int, Int) -> Int) -> Int {
+  if lo >= hi { acc } else { fold_loop(lo + 1, hi, f(acc, lo), f) }
+}
+
+# The hand-written shape of `List.map(List.range(lo, hi), f)`.
+fn map_loop(lo: Int, hi: Int, f: fn(Int) -> Int) -> List[Int] {
+  if lo >= hi { [] } else { [f(lo), ..map_loop(lo + 1, hi, f)] }
+}
+
+fn add(acc: Int, x: Int) -> Int {
+  acc + x
+}
+
+fn count_calls(from: Int, to: Int) -> Int {
+  List.fold(List.range(from, to), 0, |n, _| n + 1)
+}
+
+fn traced_int(label: String, value: Int) -> Int {
+  dbg(label)
+  value
+}
+
+fn traced_f() -> fn(Int, Int) -> Int {
+  dbg("f evaluated")
+  |acc, x| {
+    dbg("call #{x}")
+    acc + x
+  }
+}
+
+error Missing(what: String)
+
+fn failing_fold(from: Int, to: Int) -> Int fails Missing {
+  List.fold(List.range(from, to), 0, |acc, x| {
+    dbg("failing #{x}")
+    if x == 2 { fail Missing(what: "boom") } else { acc + x }
+  })
+}
+
+fn suspending_fold(from: Int, to: Int) -> Int {
+  with tasks = Task.Group {
+    List.fold(List.range(from, to), 0, |acc, x| tasks.start(|| acc + x).join())
+  }
+}
+
+fn effectful_fold(from: Int, to: Int) -> (Int, Int) {
+  State.run(0, || {
+    st = use State[Int]
+    List.fold(List.range(from, to), 0, |acc, x| {
+      st.update(|n| n + 1)
+      acc + x
+    })
+  })
+}
+
+# The result list's order and the number of calls to `f` in `List.map`.
+fn map_result(from: Int, to: Int) -> List[Int] {
+  List.map(List.range(from, to), |x| {
+    dbg("map #{x}")
+    x * 2
+  })
+}
+
+# A non-Int accumulator (a reference) and a reference element in the result.
+fn fold_strings(from: Int, to: Int) -> String {
+  List.fold(List.range(from, to), "", |acc, x| acc.append(Int.to_string(x)))
+}
+
+fn effectful_map(from: Int, to: Int) -> (List[Int], Int) {
+  State.run(0, || {
+    st = use State[Int]
+    List.map(List.range(from, to), |x| {
+      st.update(|n| n + 1)
+      x * 2
+    })
+  })
+}
+
+fn failing_map(from: Int, to: Int) -> List[Int] fails Missing {
+  List.map(List.range(from, to), |x| {
+    if x == 2 { fail Missing(what: "map") } else { x }
+  })
+}
+
+fn suspending_map(from: Int, to: Int) -> List[Int] {
+  with tasks = Task.Group {
+    List.map(List.range(from, to), |x| tasks.start(|| x * 2).join())
+  }
+}
+
+fn main() {
+  # Boundaries: empty, reversed, ordinary, and both ends of Int.
+  dbg(count_calls(0, 0))
+  dbg(count_calls(1, 0))
+  dbg(count_calls(5, 2))
+  dbg(count_calls(-3, 3))
+  dbg(count_calls(MAX - 2, MAX))
+  dbg(count_calls(MIN, MIN + 2))
+  assert List.fold(List.range(0, 0), 7, add) == 7
+  assert List.fold(List.range(1, 0), 7, add) == 7
+  assert List.fold(List.range(5, 2), 7, add) == 7
+  assert List.fold(List.range(-3, 3), 0, add) == -3 + -2 + -1 + 0 + 1 + 2
+  assert count_calls(MAX - 2, MAX) == 2
+  assert count_calls(MIN, MIN + 2) == 2
+
+  # The hand-written loops give the same values.
+  dbg(fold_loop(-3, 3, 0, add))
+  assert List.fold(List.range(-3, 3), 0, add) == fold_loop(-3, 3, 0, add)
+  assert List.fold(List.range(0, 5), 10, add) == fold_loop(0, 5, 10, add)
+  dbg(map_loop(0, 4, |x| x * 2))
+  assert List.map(List.range(0, 4), |x| x * 2) == map_loop(0, 4, |x| x * 2)
+  assert List.map(List.range(3, 3), |x| x * 2) == []
+
+  # An empty range evaluates `f` but does not call it.
+  dbg(List.fold(List.range(2, 2), 0, traced_f()))
+
+  # `lo`, `hi`, `init`, `f`, then the calls, from first to last.
+  dbg(List.fold(
+    List.range(traced_int("lo", 0), traced_int("hi", 2)),
+    traced_int("init", 10),
+    traced_f(),
+  ))
+
+  # `List.map` evaluates `lo`, `hi`, `f`, then calls `f` from first to last.
+  dbg(List.map(List.range(traced_int("lo", 0), traced_int("hi", 2)), |x| {
+    dbg("map call #{x}")
+    x * 2
+  }))
+  dbg(map_result(0, 2))
+
+  # A failing `f`: the calls up to the failure happen once each, then the failure propagates.
+  dbg(failing_fold(0, 4) escape { Missing(_) -> -1 })
+  assert (failing_fold(0, 4) escape { Missing(_) -> -1 }) == -1
+  assert (failing_fold(2, 2) escape { Missing(_) -> -1 }) == 0
+
+  # A suspending `f`.
+  dbg(suspending_fold(0, 3))
+  dbg(suspending_fold(5, 5))
+  assert suspending_fold(0, 3) == 3
+
+  # An effectful `f`, through the `State` handler.
+  dbg(effectful_fold(0, 3))
+  assert effectful_fold(0, 3) == (3, 3)
+  assert effectful_fold(5, 5) == (0, 0)
+
+  # A reference accumulator and a reference element type.
+  dbg(fold_strings(0, 3))
+  dbg(List.map(List.range(0, 3), |x| Int.to_string(x)))
+
+  # The same for `List.map`: effectful, failing and suspending `f`.
+  dbg(effectful_map(0, 3))
+  assert effectful_map(0, 3) == ([0, 2, 4], 3)
+  assert effectful_map(5, 5) == ([], 0)
+  dbg(failing_map(0, 4) escape { Missing(_) -> [] })
+  assert (failing_map(0, 4) escape { Missing(_) -> [] }) == []
+  assert (failing_map(3, 3) escape { Missing(_) -> [] }) == []
+  dbg(suspending_map(0, 3))
+  assert suspending_map(0, 3) == [0, 2, 4]
+  ()
+}

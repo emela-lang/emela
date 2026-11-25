@@ -1,0 +1,27 @@
+# A mutation pair that fails in the middle: the callback of the folded range
+# fails, so the range fusion rewrites this shape and must keep the failure edge
+# and the order of the effect operations. The failure is caught by the same
+# `escape` as in `failing_expanded.emel`, which is the same program with the
+# loop written by hand.
+
+error Stop(at: Int)
+
+fn visit(n: Int, stop: Int) -> Int {
+  List.fold(List.range(0, n), 0, |acc, i| {
+    if i == stop { fail Stop(at: i) }
+    dbg("visit #{i}")
+    acc + i
+  }) escape {
+    Stop(at:) -> {
+      dbg("stopped at #{at}")
+      0 - 1
+    }
+  }
+}
+
+fn main() {
+  _ = visit(5, 2)
+  _ = visit(5, 9)
+  _ = visit(0, 0)
+  ()
+}

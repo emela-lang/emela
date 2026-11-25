@@ -132,6 +132,7 @@ pub(crate) fn resolve_tests(
 pub struct LowerTests<B = NoBuiltins> {
     typecheck: Typecheck<B>,
     target: Target,
+    optimize: bool,
 }
 
 impl Default for LowerTests<NoBuiltins> {
@@ -139,6 +140,7 @@ impl Default for LowerTests<NoBuiltins> {
         LowerTests {
             typecheck: Typecheck::default(),
             target: Target::Js,
+            optimize: true,
         }
     }
 }
@@ -147,6 +149,12 @@ impl<B> LowerTests<B> {
     /// Checks external functions against `target` (spec 12.1) instead of JS.
     pub fn with_target(mut self, target: Target) -> Self {
         self.target = target;
+        self
+    }
+
+    /// Turns the Core IR optimisation passes on or off (`emela test --no-opt`).
+    pub fn with_optimize(mut self, optimize: bool) -> Self {
+        self.optimize = optimize;
         self
     }
 }
@@ -171,6 +179,7 @@ impl<B: BuiltinModules> Frontend for LowerTests<B> {
                 &typed,
                 Roots::Tests,
                 self.target,
+                self.optimize,
                 &mut diagnostics,
             )?;
             let tests = typed

@@ -19,9 +19,13 @@
 # carry a `version`, and a dev-dependency that would form a cycle (emela-types ->
 # emela-core) stays path-only.
 git_only = true
-# In the 0.y.z range a `feat:` commit should bump the minor (0.2.1 -> 0.3.0).
-# release-plz's default for 0.x bumps the patch; flip it to match our convention.
-features_always_increment_minor = true
+# In the 0.y.z range the minor is the breaking version: release-plz's default for
+# 0.x bumps the minor for a breaking commit (`feat!:`, `fix!:`, a `BREAKING CHANGE:`
+# footer) and the patch for everything else (`feat:`, `fix:`, `perf:`). A patch
+# release does not break a program that uses only stable features; a change that
+# would is made behind an experimental feature (`[intro.experimental]`) and switched
+# on in a minor release. Do not set `features_always_increment_minor`: up to v0.29.0
+# it made every `feat:` bump the minor.
 # Distribution is the `emela` binary tarball, not crates.io packages.
 publish = false
 # The version describes the `emela` binary: the language, std, tools and diagnostics.
@@ -30,8 +34,8 @@ publish = false
 # to a release tag. With the check on, cargo-semver-checks reports a new pub field of
 # a crate's struct as breaking and release-plz bumps the minor in 0.x: a release of
 # only fixes became v0.28.0 (#533), and every Pome written for 0.27 would get W0203.
-# The version is decided by the commit types alone (`feat:` bumps the minor, `fix:`
-# and `perf:` the patch).
+# The version is decided by the commit types alone (a breaking commit bumps the
+# minor, `feat:`, `fix:` and `perf:` the patch).
 semver_check = false
 # emela-cli turns it back on below; `release-plz.yml` attaches the tarballs.
 git_release_enable = false

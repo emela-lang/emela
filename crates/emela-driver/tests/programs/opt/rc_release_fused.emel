@@ -1,0 +1,40 @@
+# A mutation pair for reference counting cleanup (`rc_cleanup`): the closure of
+# the fold captures the array and reads it on every call, so reference counting
+# gives the view of the capture a reference of its own and gives it back at the
+# last use, which the pass removes.
+# `rc_release_expanded.emel` is the same program with the loop written by hand and
+# the array passed on as an argument, where no view of a capture is made.
+# The releases of `with` must run at the same points, and stdout and stderr must
+# agree, with optimisation on and off and with the expansion.
+
+import Std.Array.{Array}
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler Session: Log {
+  release {
+    dbg("close")
+    ()
+  }
+  fn log(msg) {
+    dbg(msg)
+    ()
+  }
+}
+
+fn total(n: Int) -> Int {
+  a = Array.from_list(List.range(0, n))
+  List.fold(List.range(0, n), from: 0, f: |acc, i| {
+    (use Log).log("at #{i}")
+    acc + (Array.get(a, i) |> Option.or(0))
+  })
+}
+
+fn main() {
+  with Session {
+    dbg(total(4))
+  }
+  dbg("after")
+}

@@ -1,0 +1,28 @@
+# The hand-written expansion of `map_map_fused.emel`: `inc` and `twice` applied in one pass, with
+# the result built in reverse and reversed once, which is what `List.map` does without the
+# intermediate list of the inner `List.map`.
+
+fn inc(x: Int) -> Int {
+  x + 1
+}
+
+fn twice(x: Int) -> Int {
+  x * 2
+}
+
+fn pipeline(xs: List[Int]) -> List[Int] {
+  go(xs, [])
+}
+
+fn go(xs: List[Int], acc: List[Int]) -> List[Int] {
+  xs match {
+    [] -> List.reverse(acc)
+    [x, ..rest] -> go(rest, [twice(inc(x)), ..acc])
+  }
+}
+
+fn main() {
+  dbg(pipeline([1, 2, 3]))
+  dbg(pipeline([]))
+  ()
+}

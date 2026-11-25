@@ -43,6 +43,12 @@ pub enum Builtin {
     StringCodePoints,
     /// `String.from_code_point`. `None` if not a Unicode scalar value.
     StringFromCodePoint,
+    /// `String.ascii_lower` (private): `to_ascii_lowercase` without the wrapper. Only ASCII A to
+    /// Z become a to z.
+    StringAsciiLower,
+    /// `String.ascii_upper` (private): `to_ascii_uppercase` without the wrapper. Only ASCII a to
+    /// z become A to Z.
+    StringAsciiUpper,
     /// `String.show_nested` (`@internal`): the Show of a value inside another value (spec 10.6),
     /// for the Show impls in core. Monomorphization replaces it with [`Builtin::ShowString`] for a
     /// String and with a call of `Show.show` for any other type, so backends never see it.
@@ -157,6 +163,23 @@ pub enum Builtin {
     /// expression outside the message (`[test.assert]`). What monomorphization makes of an assert
     /// whose sides are shown through a written Show impl. The location is a string literal.
     AssertFail,
+    /// `Array.get_or(a, index, d)`: the element at `index`, or `d`. What the Core IR pass that
+    /// fuses `Option.or(Array.get(a, index), d)` makes (`opt::fusion::option`). Every argument is
+    /// evaluated once, in `a`, `index`, `d` order, and `d` is evaluated even when `index` is in
+    /// range. A reference result (the element or `d`) is owned once more, as for every builtin.
+    ArrayGetOr,
+    /// `Array.load_unchecked(a, index)`: the element at `index`. What the Core IR pass that fuses
+    /// `match Array.get(a, index) { … }` makes (`opt::fusion::option`); the caller has checked that
+    /// `index` is in range. A reference result is owned once more.
+    ArrayLoadUnchecked,
+    /// `$Array.map_range(lo, hi, f)`: the array of `f(i)` for each `i` in `lo..hi`, in ascending
+    /// order. What the Core IR pass that fuses
+    /// `Array.from_list(List.map(List.range(lo, hi), f))` makes (`opt::fusion::list`); it builds neither
+    /// the range nor the mapped list. `f` is pure (no evidence table, no failure, no suspension)
+    /// and is called `max(0, hi - lo)` times, unless it raises a defect: a defect is not part of
+    /// its type, so it stops the call at the first one, and the array is released with the
+    /// elements already written. The type arguments are the element type and the type of `f`.
+    ArrayMapRange,
 }
 
 /// `@intrinsic` declarations (module name, function name) that lowering maps as runtime handlers.
@@ -300,6 +323,8 @@ impl Builtin {
         Builtin::StringTrim,
         Builtin::StringCodePoints,
         Builtin::StringFromCodePoint,
+        Builtin::StringAsciiLower,
+        Builtin::StringAsciiUpper,
         Builtin::ShowNested,
         Builtin::IntToString,
         Builtin::IntParse,
@@ -366,6 +391,8 @@ impl Builtin {
             Builtin::StringTrim => info(S, "trim", &[String], String),
             Builtin::StringCodePoints => info(S, "code_points", &[String], List(&Int)),
             Builtin::StringFromCodePoint => info(S, "from_code_point", &[Int], Option(&String)),
+            Builtin::StringAsciiLower => info(S, "ascii_lower", &[String], String),
+            Builtin::StringAsciiUpper => info(S, "ascii_upper", &[String], String),
             Builtin::ShowNested => BuiltinInfo {
                 ty_params: 1,
                 ..info(S, "show_nested", &[Param(0)], String)
@@ -448,6 +475,27 @@ impl Builtin {
                 ..info(Some("$Debug"), "print", &[String], Unit)
             },
             Builtin::AssertFail => info(Some("$Assert"), "fail", &[String, String], Never),
+            // Internal builtins of the Array module used only by the Core IR passes. They are not
+            // in `ALL`, so sources cannot call them.
+            Builtin::ArrayGetOr => BuiltinInfo {
+                ty_params: 1,
+                ..info(Some("$Array"), "get_or", &[ARR, Int, Param(0)], Param(0))
+            },
+            Builtin::ArrayLoadUnchecked => BuiltinInfo {
+                ty_params: 1,
+                ..info(Some("$Array"), "load_unchecked", &[ARR, Int], Param(0))
+            },
+            // The type arguments are the element type `A` and the type of `f`: `Sig` cannot write a
+            // function parameter, so it is a type parameter of this row.
+            Builtin::ArrayMapRange => BuiltinInfo {
+                ty_params: 2,
+                ..info(
+                    Some("$Array"),
+                    "map_range",
+                    &[Int, Int, Param(1)],
+                    Array(&Param(0)),
+                )
+            },
         }
     }
 

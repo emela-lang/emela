@@ -271,6 +271,22 @@ fn strings_extended() {
 }
 
 #[test]
+fn ascii_case_matches_the_other_targets() {
+    // The same program as `crates/emela-codegen-c/tests/programs/ascii_case.emel`, whose
+    // `.expected` is the output of the JS target: the three targets must give the same output.
+    let src = include_str!("../../emela-codegen-c/tests/programs/ascii_case.emel");
+    let expected = include_str!("../../emela-codegen-c/tests/programs/ascii_case.expected");
+    let expected = expected
+        .split_once("--- stderr\n")
+        .expect("a stderr section")
+        .1;
+    let Some(out) = stderr("ascii-case", src) else {
+        return;
+    };
+    assert_eq!(out, expected);
+}
+
+#[test]
 fn string_contains_scans_every_alignment() {
     // `str_find` skips four bytes at a time until `sub[0]` matches, then confirms byte by byte.
     // The needle starts at every offset modulo four, at the last possible start, and in the
@@ -915,5 +931,168 @@ fn a_failed_assert_shows_floats() {
     assert_eq!(
         run.stderr,
         "defect: assertion failed: 1.5 == 2.5\n  left: 1.5\n right: 2.5\n"
+    );
+}
+
+#[test]
+fn option_and_array_get_fusions() {
+    // The Core IR passes turn `Option.or(Array.get(a, i), d)` into `ArrayGetOr` and
+    // `match Array.get(a, i)` into a bounds test and `ArrayLoadUnchecked`. Both must agree with
+    // their source shape, evaluate `a`, `i`, `d` in order (`d` even when `i` is in range), and
+    // keep a failing, suspending or effectful `d`.
+    let Some(out) = stderr(
+        "option-array",
+        r#"
+import Std.Array.{Array}
+import Std.Task.{Task}
+import Std.State.{State}
+
+fn via_match(a: Array[Int], i: Int, d: Int) -> Int {
+  Array.get(a, i) match {
+    None -> d
+    Some(x) -> x
+  }
+}
+
+fn traced_index(i: Int) -> Int {
+  dbg("i=#{i}")
+  i
+}
+
+fn traced_default(d: Int) -> Int {
+  dbg("d=#{d}")
+  d
+}
+
+fn or_suspending(a: Array[Int], i: Int) -> Int {
+  with tasks = Task.Group {
+    Array.get(a, i) |> Option.or(tasks.start(|| 7).join())
+  }
+}
+
+fn or_effectful(a: Array[Int], i: Int) -> Int {
+  (value, updates) = State.run(0, || {
+    st = use State[Int]
+    st.update(|n| n + 1)
+    Array.get(a, i) |> Option.or(st.get())
+  })
+  value + updates * 100
+}
+
+fn main() {
+  a = Array.from_list([10, 20])
+  dbg(Array.get(a, 0) |> Option.or(99))
+  dbg(Array.get(a, 9) |> Option.or(99))
+  dbg(via_match(a, 0, 99))
+  dbg(via_match(a, 9, 99))
+  dbg(Array.get(a, 0) |> Option.or(traced_default(traced_index(5))))
+  dbg(or_suspending(a, 0))
+  dbg(or_suspending(a, 9))
+  dbg(or_effectful(a, 0))
+  dbg(or_effectful(a, 9))
+  dbg(Array.get(Array.from_list(["x"]), 1) |> Option.or("d"))
+  dbg(Array.get(Array.from_list([Int64.from_int(7)]), 5) |> Option.or(Int64.from_int(0)))
+  dbg(Array.get(Array.from_list([1.5]), 0) |> Option.or(0.0))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "10\n99\n10\n99\n\"i=5\"\n\"d=5\"\n10\n10\n7\n110\n101\n\"d\"\n0\n1.5\n"
+    );
+}
+
+#[test]
+fn array_map_range_stops_at_a_defect() {
+    // The fused `Array.from_list(List.map(List.range(lo, hi), f))` calls `f` in a loop. A defect
+    // is not part of `f`'s type, so the loop must stop at the first one and nothing after the
+    // map may run: the array is never complete.
+    let Some(run) = run(
+        "array-map-range-defect",
+        r#"
+import Std.Array.{Array}
+
+fn mapped(i: Int) -> String {
+  dbg("map #{i}")
+  if i == 2 { panic("boom") } else { Int.to_string(i) }
+}
+
+fn main() {
+  xs = Array.from_list(List.map(List.range(0, 5), mapped))
+  dbg(Array.size(xs))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "\"map 0\"\n\"map 1\"\n\"map 2\"\ndefect: boom\n"
+    );
+}
+
+#[test]
+fn list_fold_and_map_over_a_range() {
+    // The range fusion turns `List.fold(List.range(lo, hi), …)` and `List.map(List.range(lo,
+    // hi), …)` into loops. The values, the evaluation order and a failing or suspending `f` must
+    // be those of the list-building form.
+    let Some(out) = stderr(
+        "range-fold-map",
+        r#"
+import Std.Task.{Task}
+import Std.State.{State}
+
+error Missing
+
+fn add(acc: Int, x: Int) -> Int {
+  acc + x
+}
+
+fn traced(label: String, value: Int) -> Int {
+  dbg(label)
+  value
+}
+
+fn main() {
+  dbg(List.fold(List.range(0, 0), 7, add))
+  dbg(List.fold(List.range(1, 0), 7, add))
+  dbg(List.fold(List.range(-3, 3), 0, add))
+  dbg(List.map(List.range(0, 4), |x| x * 2))
+  dbg(List.map(List.range(3, 3), |x| x * 2))
+  dbg(List.fold(List.range(traced("lo", 0), traced("hi", 2)), traced("init", 10), add))
+  dbg(List.fold(List.range(0, 4), 0, |acc, x| {
+    if x == 2 { fail Missing } else { acc + x }
+  }) escape { Missing -> -1 })
+  dbg(with tasks = Task.Group {
+    List.fold(List.range(0, 3), 0, |acc, x| tasks.start(|| acc + x).join())
+  })
+  (value, updates) = State.run(0, || {
+    st = use State[Int]
+    List.fold(List.range(0, 3), 0, |acc, x| {
+      st.update(|n| n + 1)
+      acc + x
+    })
+  })
+  dbg((value, updates))
+  (mapped, map_updates) = State.run(0, || {
+    st = use State[Int]
+    List.map(List.range(0, 3), |x| {
+      st.update(|n| n + 1)
+      x * 2
+    })
+  })
+  dbg((mapped, map_updates))
+  dbg(List.map(List.range(0, 3), |x| Int.to_string(x)))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "7\n7\n-3\n[0, 2, 4, 6]\n[]\n\"lo\"\n\"hi\"\n\"init\"\n11\n-1\n3\n(3, 3)\n([0, 2, 4], 3)\n[\"0\", \"1\", \"2\"]\n"
     );
 }

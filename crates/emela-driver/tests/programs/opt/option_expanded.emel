@@ -1,0 +1,19 @@
+# The hand-written expansion of `option_fused.emel`: `Option.or(Array.get(a, i), d)`
+# with the `match` written out.
+
+import Std.Array.{Array}
+
+fn get_or(a: Array[Int], i: Int, d: Int) -> Int {
+  Array.get(a, i) match {
+    Some(x) -> x
+    None    -> d
+  }
+}
+
+fn main() {
+  a = Array.from_list([10, 20, 30])
+  dbg(get_or(a, 0, -1))
+  dbg(get_or(a, 2, -1))
+  dbg(get_or(a, 3, -1))
+  dbg(get_or(a, -1, -1))
+}

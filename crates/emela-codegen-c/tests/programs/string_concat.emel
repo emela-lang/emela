@@ -1,0 +1,32 @@
+# A string of three or more pieces is one `concat`: its byte length is added up once, one String
+# is allocated and the pieces are copied into it. The value is the one a chain of `String.append`
+# gives, for ASCII, non-ASCII, empty and NUL pieces alike.
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+fn main() {
+  a = "A"
+  b = "é日🙂"
+  e = ""
+  n = "\u{0}"
+  s = "#{a}#{b}#{e}#{n}"
+  t = String.append(a, String.append(b, String.append(e, n)))
+  # A (1) + é (2) + 日 (3) + 🙂 (4) + NUL (1) bytes.
+  print("#{s == t} #{String.byte_size(s)}")
+  # All-empty pieces make the empty string; an empty piece in the middle copies nothing.
+  print("#{String.byte_size("#{e}#{e}#{e}")} #{"#{e}#{a}#{e}" == "A"}")
+  # A NUL byte is copied like any other byte, at the start, in the middle and at the end.
+  z = "#{n}#{a}#{n}"
+  zt = String.append(n, String.append(a, n))
+  print("#{String.byte_size(z)} #{z == zt} #{"#{a}#{n}#{b}" == String.append(a, String.append(n, b))}")
+  # Four and five pieces.
+  print("#{"#{a}#{b}#{a}#{b}" == String.append(a, String.append(b, String.append(a, b)))}")
+  print("#{"#{b}#{e}#{a}#{n}#{b}" == String.append(b, String.append(e, String.append(a, String.append(n, b))))}")
+  # Two pieces stay one `String.append` (also when one of them is empty).
+  print("#{"#{a}#{b}" == String.append(a, b)} #{"#{e}#{a}" == a}")
+  dbg(s)
+  dbg(String.split(z, "\u{0}"))
+  ()
+}

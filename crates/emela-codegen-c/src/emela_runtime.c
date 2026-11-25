@@ -55,9 +55,118 @@ static _Noreturn void em_out_of_memory(void) {
   abort();
 }
 
+/* ---- Allocation statistics (-DEMELA_ALLOC_STATS) ----
+ *
+ * A measurement build reports at exit, on standard error, how many objects it allocated for each
+ * descriptor name, the most numerous first and ties by name, and then the total. The report is
+ * printed once, after everything else, so that it does not mix with a program's own output or with
+ * the leak check. A normal build has neither the table nor a test in `em_alloc`: the report is a
+ * diagnostic for measurements, not part of the cost of the program. */
+#ifdef EMELA_ALLOC_STATS
+
+#define EM_STAT_NAMES 256
+
+typedef struct em_stat {
+  const char *name;
+  uint64_t count;
+} em_stat;
+
+static em_stat em_stats[EM_STAT_NAMES];
+static size_t em_stat_len = 0;
+static uint64_t em_stat_total = 0;
+/* Whether the report is registered, which happens on the first allocation. */
+static bool em_stat_registered = false;
+
+static int em_stat_order(const void *a, const void *b) {
+  const em_stat *x = a;
+  const em_stat *y = b;
+  if (x->count != y->count) return x->count > y->count ? -1 : 1;
+  return strcmp(x->name, y->name);
+}
+
+static void em_stat_report(void) {
+  /* Sorted in place: nothing else reads the table. */
+  qsort(em_stats, em_stat_len, sizeof(em_stats[0]), em_stat_order);
+  for (size_t i = 0; i < em_stat_len; i++) {
+    fprintf(stderr, "emela-alloc %s %" PRIu64 "\n", em_stats[i].name, em_stats[i].count);
+  }
+  fprintf(stderr, "emela-alloc-total %" PRIu64 "\n", em_stat_total);
+  fflush(stderr);
+}
+
+static void em_stat_count(const em_desc *desc) {
+  if (!em_stat_registered) {
+    em_stat_registered = true;
+    atexit(em_stat_report);
+  }
+  em_stat_total++;
+  const char *name = desc->name != NULL ? desc->name : "?";
+  for (size_t i = 0; i < em_stat_len; i++) {
+    if (em_stats[i].name == name || strcmp(em_stats[i].name, name) == 0) {
+      em_stats[i].count++;
+      return;
+    }
+  }
+  /* More names than the table holds: the total still counts them, and leaving the name out keeps
+   * the report bounded. */
+  if (em_stat_len < EM_STAT_NAMES) {
+    em_stats[em_stat_len].name = name;
+    em_stats[em_stat_len].count = 1;
+    em_stat_len++;
+  }
+}
+
+#endif
+
+/* ---- Size-class bins ----
+ *
+ * The header is 16 bytes with no room for a size class, and `aux` belongs to defects, so a block
+ * records its class only while it is free, in the first 8 bytes of the header (the reference
+ * count of a live object); `em_free` already links its free stack there. A block's class is the
+ * number of slots its descriptor has, because that is all `em_free` knows. Only fixed-size
+ * objects therefore come from a bin: strings, arrays, evidence tables, runtime objects and host
+ * boxes keep malloc and free.
+ *
+ * There is one bin per slot count from 0 to EM_BIN_MAX, so blocks of 16 to 256 bytes in steps of
+ * 8. A bin is LIFO, and blocks are neither split nor merged. em_live counts objects, not blocks,
+ * and does not change. */
+#define EM_BIN_MAX 30
+
+static em_ref em_bins[EM_BIN_MAX + 1];
+
+/* Returns the dead block `x` to its bin, or to malloc. */
+static void em_release_block(em_ref x) {
+  const em_desc *d = x->hdr.desc;
+  if (d->kind == EM_KIND_FIELDS && d->nfields <= EM_BIN_MAX) {
+    x->hdr.u.next = em_bins[d->nfields];
+    em_bins[d->nfields] = x;
+  } else {
+    free(x);
+  }
+}
+
 em_ref em_alloc(const em_desc *desc, size_t nslots) {
-  em_ref o = malloc(sizeof(em_hdr) + nslots * sizeof(em_word));
-  if (o == NULL) em_out_of_memory();
+#ifdef EMELA_ALLOC_STATS
+  em_stat_count(desc);
+#endif
+  /* A fixed-size object takes the bin of its descriptor's slot count. `em_alloc` is called for
+   * EM_KIND_FIELDS with nslots equal to nfields (cons cells, Some, boxes, records, tuples,
+   * closures, error values, frame shells, and the copy of a defect); a call that disagrees is not
+   * binned, and is allocated at least as large as the class it returns to. */
+  size_t slots = nslots;
+  bool binned = false;
+  if (desc->kind == EM_KIND_FIELDS && desc->nfields <= EM_BIN_MAX) {
+    binned = nslots == desc->nfields;
+    slots = nslots > desc->nfields ? nslots : desc->nfields;
+  }
+  em_ref o = NULL;
+  if (binned && em_bins[slots] != NULL) {
+    o = em_bins[slots];
+    em_bins[slots] = o->hdr.u.next;
+  } else {
+    o = malloc(sizeof(em_hdr) + slots * sizeof(em_word));
+    if (o == NULL) em_out_of_memory();
+  }
   o->hdr.u.h.rc = 1;
   o->hdr.u.h.aux = 0;
   o->hdr.desc = desc;
@@ -107,9 +216,16 @@ void em_free(em_ref o) {
         break;
     }
 #undef EM_RELEASE_CHILD
-    free(x);
+    em_release_block(x);
     em_live--;
   }
+}
+
+/* Drop specialisation (C3/PR-027): the block of a value whose payload holds no reference and has
+ * no finalizer, so there is nothing to walk. */
+void em_free_block(em_ref o) {
+  em_release_block(o);
+  em_live--;
 }
 
 static const uint8_t em_refs_none[2] = {0, 0};
@@ -132,6 +248,14 @@ static const em_desc em_desc_some_ref = {EM_KIND_FIELDS, 1, 0, -1, "Some", NULL,
 static const em_desc em_desc_none = {EM_KIND_FIELDS, 0, 1, -1, "None", NULL, em_refs_none};
 static em_hdr em_none_obj = EM_STATIC_HDR(&em_desc_none);
 #define EM_NONE ((em_ref)&em_none_obj)
+
+/* The empty evidence table: `em_ev_new(NULL, 0)` is the evidence of a call that needs none, and
+ * it costs no allocation. Static data (count 0) is never counted or freed, as `EM_NONE` is. */
+static struct {
+  em_hdr hdr;
+  em_word slots[1];
+} em_empty_evidence_obj = {EM_STATIC_HDR(&em_desc_evidence), {{0}}};
+#define EM_EMPTY_EVIDENCE ((em_ref)&em_empty_evidence_obj)
 
 static em_ref em_some(em_word w, bool ref) {
   em_ref o = em_alloc(ref ? &em_desc_some_ref : &em_desc_some_val, 1);
@@ -315,6 +439,36 @@ em_ref em_string_append(em_ref a, em_ref b) {
   return s;
 }
 
+/* The parts joined in order: their byte lengths are added up once, one String is allocated and
+ * each part is copied into it. At most one non-empty part gives a reference to a part, as
+ * `em_string_append` does, so that empty parts allocate nothing. The bytes are copied as they
+ * are: a NUL byte in a part stays a NUL byte, and the length is the sum. */
+em_ref em_string_concat(const em_ref *parts, size_t n) {
+  if (n == 0) return em_str_alloc(0);
+  size_t total = 0, nonempty = 0, last = 0;
+  for (size_t i = 0; i < n; i++) {
+    size_t len = EM_STR_LEN(parts[i]);
+    total += len;
+    if (len != 0) {
+      nonempty++;
+      last = i;
+    }
+  }
+  if (nonempty < 2) {
+    em_ref only = parts[nonempty == 0 ? 0 : last];
+    em_dup(only);
+    return only;
+  }
+  em_ref s = em_str_alloc(total);
+  char *dst = EM_STR_BYTES(s);
+  for (size_t i = 0; i < n; i++) {
+    size_t len = EM_STR_LEN(parts[i]);
+    memcpy(dst, EM_STR_BYTES(parts[i]), len);
+    dst += len;
+  }
+  return s;
+}
+
 /* The byte offset of the first `sub` in `s` at or after `from`, or -1. */
 static int64_t em_find(em_ref s, em_ref sub, size_t from) {
   size_t n = EM_STR_LEN(s), m = EM_STR_LEN(sub);
@@ -460,6 +614,25 @@ em_ref em_string_from_code_point(int32_t n) {
   return em_some(w, true);
 }
 
+/* Copies `s`, replacing the bytes from `lo` to `hi` with themselves plus `delta`. Every other
+ * byte, including each byte of a multi-byte UTF-8 sequence, is copied as it is, so the result has
+ * the byte length of `s`. The bytes are written once, into one String. */
+static em_ref em_ascii_case(em_ref s, unsigned char lo, unsigned char hi, int delta) {
+  size_t n = EM_STR_LEN(s);
+  const unsigned char *from = (const unsigned char *)EM_STR_BYTES(s);
+  em_ref out = em_str_alloc(n);
+  unsigned char *to = (unsigned char *)EM_STR_BYTES(out);
+  for (size_t i = 0; i < n; i++) {
+    unsigned char c = from[i];
+    to[i] = (unsigned char)(c >= lo && c <= hi ? c + delta : c);
+  }
+  return out;
+}
+
+em_ref em_string_ascii_lower(em_ref s) { return em_ascii_case(s, 'A', 'Z', 'a' - 'A'); }
+
+em_ref em_string_ascii_upper(em_ref s) { return em_ascii_case(s, 'a', 'z', 'A' - 'a'); }
+
 /* ---- Bytes (`[api.std.bytes]`) ----
  *
  * A Bytes is a String object (slot 0 the length, then the bytes and a NUL that is not part of
@@ -528,18 +701,31 @@ em_ref em_bytes_same(em_ref b) {
 
 /* ---- Array (`[api.std.array]`) ----
  *
- * An EM_KIND_ARRAY object: slot 0 the length n, then the n elements. The program never sees an
- * array change: `em_array_set` writes in place only into an array whose count is 1, which its
- * caller has given up (the Heap IR moves the last reference into the call). */
+ * An EM_KIND_ARRAY object: slot 0 the length n, then the n elements, one after another in the
+ * slots. An element is one `em_word`, or, in an array of a record or tuple that the emitter holds
+ * by value (`em_a3` in `main.c`), the bytes of the value: `value_size` in the array's descriptor
+ * says which. A value has no references, so `refs[0]` is 0 for such an array.
+ *
+ * The length macros and the word element reads a program's inner loops call once per element are
+ * in `emela_runtime.h`, so that they are inline. The program never sees an array change:
+ * `em_array_set` writes in place only into an array whose count is 1, which its caller has given
+ * up (the Heap IR moves the last reference into the call). */
 
-static const em_desc em_desc_array_val = {EM_KIND_ARRAY, 0, 0, -1, "Array", NULL, em_refs_none};
-static const em_desc em_desc_array_ref = {EM_KIND_ARRAY, 0, 0, -1, "Array", NULL, em_refs_one};
+const em_desc em_desc_array_val = {EM_KIND_ARRAY, 0, 0, -1, "Array", NULL, em_refs_none};
+const em_desc em_desc_array_ref = {EM_KIND_ARRAY, 0, 0, -1, "Array", NULL, em_refs_one};
 
-#define EM_ARRAY_LEN(a) ((a)->slots[0].l)
-#define EM_ARRAY_REFS(a) ((a)->hdr.desc->refs[0] != 0)
+#define EM_ARRAY_SIZE(a) ((size_t)(a)->hdr.desc->value_size)
+#define EM_ARRAY_STRIDE(a) (EM_ARRAY_SIZE(a) != 0 ? EM_ARRAY_SIZE(a) : sizeof(em_word))
 
-static em_ref em_array_alloc(int64_t n, bool ref) {
-  em_ref a = em_alloc(ref ? &em_desc_array_ref : &em_desc_array_val, (size_t)n + 1);
+/* The bytes of element `i`. */
+static void *em_array_at(em_ref a, int64_t i) {
+  return (char *)&a->slots[1] + (size_t)i * EM_ARRAY_STRIDE(a);
+}
+
+static em_ref em_array_alloc(int64_t n, const em_desc *desc) {
+  size_t stride = desc->value_size != 0 ? desc->value_size : sizeof(em_word);
+  /* A stride is a multiple of the slot size, so the count is exact. */
+  em_ref a = em_alloc(desc, 1 + (size_t)n * (stride / sizeof(em_word)));
   a->slots[0].l = n;
   return a;
 }
@@ -547,25 +733,47 @@ static em_ref em_array_alloc(int64_t n, bool ref) {
 /* A new array of the `n` elements from `from`, each reference owned once more. */
 static em_ref em_array_copy(em_ref a, int64_t from, int64_t n) {
   bool ref = EM_ARRAY_REFS(a);
-  em_ref out = em_array_alloc(n, ref);
-  if (n > 0) memcpy(&out->slots[1], &a->slots[1 + from], (size_t)n * sizeof(em_word));
+  em_ref out = em_array_alloc(n, a->hdr.desc);
+  if (n > 0) memcpy(em_array_at(out, 0), em_array_at(a, from), (size_t)n * EM_ARRAY_STRIDE(a));
   if (ref) {
-    for (int64_t i = 1; i <= n; i++) em_dup(out->slots[i].p);
+    for (int64_t i = 0; i < n; i++) em_dup(*(em_ref *)em_array_at(out, i));
   }
   return out;
 }
 
-em_ref em_array_from_list(em_ref xs, bool ref) {
+/* A box of a value that the emitter holds by value: an object whose slots are the bytes of the
+ * value, so that it can be passed where a reference is needed. */
+em_ref em_box_value(const void *value, const em_desc *desc) {
+  em_ref o = em_alloc(desc, desc->value_size / sizeof(em_word));
+  memcpy(o->slots, value, desc->value_size);
+  return o;
+}
+
+em_ref em_array_from_list(em_ref xs, const em_desc *desc) {
   int64_t n = 0;
   for (em_ref p = xs; p != NULL; p = p->slots[1].p) n++;
-  em_ref a = em_array_alloc(n, ref);
-  int64_t i = 1;
-  for (em_ref p = xs; p != NULL; p = p->slots[1].p) {
-    a->slots[i++] = p->slots[0];
-    if (ref) em_dup(p->slots[0].p);
+  bool ref = desc->refs[0] != 0;
+  size_t size = desc->value_size;
+  em_ref a = em_array_alloc(n, desc);
+  int64_t i = 0;
+  for (em_ref p = xs; p != NULL; p = p->slots[1].p, i++) {
+    if (size != 0) {
+      memcpy(em_array_at(a, i), p->slots[0].p->slots, size);
+    } else {
+      a->slots[1 + i] = p->slots[0];
+      if (ref) em_dup(p->slots[0].p);
+    }
   }
   return a;
 }
+
+/* A new array of `n` elements, uninitialized: what `$Array.map_range` fills. Its loop writes each
+ * element before the next call; a defect from the mapped function stops the loop there, shortens
+ * the array to the elements already written and releases it, so no uninitialized slot is ever
+ * released. An element type with no representation writes nothing, and such an array has no
+ * reference elements to drop (its descriptor's `refs[0]` is 0). No failure, suspension or
+ * interruption point lies between the allocation and the last element, because `f` is pure. */
+em_ref em_array_new(int64_t n, const em_desc *desc) { return em_array_alloc(n, desc); }
 
 em_ref em_array_to_list(em_ref a) {
   bool ref = EM_ARRAY_REFS(a);
@@ -576,8 +784,6 @@ em_ref em_array_to_list(em_ref a) {
   }
   return list;
 }
-
-int32_t em_array_size(em_ref a) { return (int32_t)EM_ARRAY_LEN(a); }
 
 em_ref em_array_get(em_ref a, int32_t index) {
   if (index < 0 || index >= EM_ARRAY_LEN(a)) return EM_NONE;
@@ -619,18 +825,74 @@ em_ref em_array_slice(em_ref a, int32_t from, int32_t to) {
   return em_array_copy(a, f, f < t ? t - f : 0);
 }
 
-em_ref em_array_concat(em_ref parts, bool ref) {
+em_ref em_array_concat(em_ref parts, const em_desc *desc) {
   int64_t n = 0;
   for (em_ref p = parts; p != NULL; p = p->slots[1].p) n += EM_ARRAY_LEN(p->slots[0].p);
-  em_ref out = em_array_alloc(n, ref);
-  int64_t at = 1;
+  bool ref = desc->refs[0] != 0;
+  size_t size = desc->value_size;
+  em_ref out = em_array_alloc(n, desc);
+  int64_t at = 0;
   for (em_ref p = parts; p != NULL; p = p->slots[1].p) {
     em_ref part = p->slots[0].p;
-    for (int64_t i = 1; i <= EM_ARRAY_LEN(part); i++) {
-      if (ref) em_dup(part->slots[i].p);
-      out->slots[at++] = part->slots[i];
+    int64_t m = EM_ARRAY_LEN(part);
+    if (m > 0) memcpy(em_array_at(out, at), em_array_at(part, 0), (size_t)m * EM_ARRAY_STRIDE(part));
+    if (ref) {
+      for (int64_t i = 0; i < m; i++) em_dup(*(em_ref *)em_array_at(out, at + i));
     }
+    at += m;
   }
+  return out;
+}
+
+/* ---- Arrays of values held by value ---- */
+
+em_ref em_array_get_agg(em_ref a, int32_t index, const em_desc *elem) {
+  if (index < 0 || index >= EM_ARRAY_LEN(a)) return EM_NONE;
+  em_ref o = em_alloc(elem, elem->value_size / sizeof(em_word));
+  memcpy(o->slots, em_array_at(a, index), elem->value_size);
+  return em_some((em_word){.p = o}, true);
+}
+
+em_ref em_array_to_list_agg(em_ref a, const em_desc *elem) {
+  em_ref list = NULL;
+  for (int64_t i = EM_ARRAY_LEN(a); i >= 1; i--) {
+    em_ref o = em_box_value(em_array_at(a, i - 1), elem);
+    list = em_cons((em_word){.p = o}, true, list);
+  }
+  return list;
+}
+
+void em_array_get_or_agg(em_ref a, int32_t index, const void *d, void *out) {
+  if (index < 0 || index >= EM_ARRAY_LEN(a)) {
+    memcpy(out, d, EM_ARRAY_SIZE(a));
+    return;
+  }
+  memcpy(out, em_array_at(a, index), EM_ARRAY_SIZE(a));
+}
+
+void em_array_load_unchecked_agg(em_ref a, int32_t index, void *out) {
+  memcpy(out, em_array_at(a, index), EM_ARRAY_SIZE(a));
+}
+
+em_ref em_array_set_agg(em_ref a, int32_t index, const void *value) {
+  int64_t n = EM_ARRAY_LEN(a);
+  if (index < 0 || index >= n) {
+    char msg[96];
+    snprintf(msg, sizeof msg, "Array.set was given position %" PRId32 " in an array of size %" PRId64,
+             index, n);
+    em_drop(a);
+    em_raise_cstr(msg);
+    return NULL;
+  }
+  size_t size = EM_ARRAY_SIZE(a);
+  em_ref out;
+  if (a->hdr.u.h.rc == 1) {
+    out = a;
+  } else {
+    out = em_array_copy(a, 0, n);
+    em_drop(a);
+  }
+  memcpy(em_array_at(out, index), value, size);
   return out;
 }
 
@@ -1125,6 +1387,12 @@ void em_const_release(em_const *c) {
 
 em_ref em_ev_new(em_ref base, int64_t n) {
   int64_t len = base == NULL ? 0 : base->slots[0].l;
+  if (len + n == 0) {
+    /* An empty table is one static object; consuming `base` drops nothing, since it is static
+     * (a count of 0) or empty too. */
+    em_drop(base);
+    return EM_EMPTY_EVIDENCE;
+  }
   em_ref ev = em_alloc(&em_desc_evidence, (size_t)(1 + 2 * (len + n)));
   ev->slots[0].l = len + n;
   for (int64_t k = 0; k < len; k++) {
@@ -1406,18 +1674,18 @@ static const uint8_t em_refs_cause[2] = {0, 1};
 /* An interruption (`$Interrupted`), pending as a defect: slot 0 the scope whose body it unwinds,
  * or NULL for the whole fiber. */
 static const em_desc em_desc_interrupted = {EM_KIND_FIELDS, 1, 0, -1, "interrupted", NULL,
-                                            em_refs_one, NULL};
+                                            em_refs_one, 0, NULL};
 /* A `Cause[E]`: slot 0 the kind (CauseKind's tag), slot 1 the error (Fail) or the defect
  * message (Die). */
 static const em_desc em_desc_cause = {EM_KIND_FIELDS, 2, 0, -1, "Cause", NULL, em_refs_cause,
-                                      NULL};
+                                      0, NULL};
 /* `Exit`: `Success(A)` is 0, `Failure(Cause[E])` is 1. */
 static const em_desc em_desc_success_val = {EM_KIND_FIELDS, 1, 0, -1, "Success", NULL,
-                                            em_refs_none, NULL};
+                                            em_refs_none, 0, NULL};
 static const em_desc em_desc_success_ref = {EM_KIND_FIELDS, 1, 0, -1, "Success", NULL,
-                                            em_refs_one, NULL};
+                                            em_refs_one, 0, NULL};
 static const em_desc em_desc_failure = {EM_KIND_FIELDS, 1, 1, -1, "Failure", NULL, em_refs_one,
-                                        NULL};
+                                        0, NULL};
 
 /* `CauseKind` (`Fail`, `Die`). How an interrupted fiber ended is kept as a third kind, which is
  * never a value of `CauseKind` (an interruption is not a cause, `[task.cause]`). */
@@ -1822,7 +2090,7 @@ void em_frame_push(em_ref fr) {
 }
 
 void em_frame_free(em_ref fr) {
-  free(fr);
+  em_release_block(fr);
   em_live--;
 }
 
@@ -1990,17 +2258,17 @@ static void em_qcell_fin(em_ref o);
 static void em_resume_fin(em_ref o);
 
 static const em_desc em_desc_fiber = {EM_KIND_RUNTIME, 1, 0, -1, "Fiber", NULL, em_refs_none,
-                                      em_fiber_fin};
+                                      0, em_fiber_fin};
 static const em_desc em_desc_scope = {EM_KIND_RUNTIME, 1, 0, -1, "Scope", NULL, em_refs_none,
-                                      em_scope_fin};
+                                      0, em_scope_fin};
 static const em_desc em_desc_deferred = {EM_KIND_RUNTIME, 1, 0, -1, "Deferred", NULL,
-                                         em_refs_none, em_deferred_fin};
+                                         em_refs_none, 0, em_deferred_fin};
 static const em_desc em_desc_semaphore = {EM_KIND_RUNTIME, 1, 0, -1, "Semaphore", NULL,
-                                          em_refs_none, em_semaphore_fin};
+                                          em_refs_none, 0, em_semaphore_fin};
 static const em_desc em_desc_qcell = {EM_KIND_RUNTIME, 1, 0, -1, "Queue", NULL, em_refs_none,
-                                      em_qcell_fin};
+                                      0, em_qcell_fin};
 static const em_desc em_desc_resume = {EM_KIND_RUNTIME, 2, 0, -1, "resume", NULL, em_refs_none,
-                                       em_resume_fin};
+                                       0, em_resume_fin};
 
 static em_fiber *em_fiber_new(em_root *r, em_scope *scope) {
   em_fiber *f = em_rt_alloc(sizeof(em_fiber));
@@ -3633,13 +3901,13 @@ static const uint8_t em_refs_scope_body[5] = {0, 0, 1, 1, 0};
 static const uint8_t em_refs_scope_close_ref[7] = {0, 0, 1, 1, 0, 0, 1};
 static const uint8_t em_refs_scope_close_val[7] = {0, 0, 1, 1, 0, 0, 0};
 static const em_desc em_desc_scope_body = {EM_KIND_FIELDS, 5, 0, -1, "Task.Group", NULL,
-                                           em_refs_scope_body, NULL};
+                                           em_refs_scope_body, 0, NULL};
 static const em_desc em_desc_scope_close_ref = {EM_KIND_FIELDS, 7, 0, -1, "Task.Group", NULL,
-                                                em_refs_scope_close_ref, NULL};
+                                                em_refs_scope_close_ref, 0, NULL};
 static const em_desc em_desc_scope_close_val = {EM_KIND_FIELDS, 7, 0, -1, "Task.Group", NULL,
-                                                em_refs_scope_close_val, NULL};
+                                                em_refs_scope_close_val, 0, NULL};
 static const em_desc em_desc_attempt = {EM_KIND_FIELDS, 4, 0, -1, "Exit.attempt", NULL,
-                                        em_refs_frame1, NULL};
+                                        em_refs_frame1, 0, NULL};
 
 static void em_scope_fin(em_ref o) {
   em_scope *s = em_scope_of(o);

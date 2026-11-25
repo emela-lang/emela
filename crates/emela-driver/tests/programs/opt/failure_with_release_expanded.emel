@@ -1,0 +1,49 @@
+# The hand-written expansion of `failure_with_release_fused.emel`: the same
+# failing fold as a fallible self tail call, inside the same `with` and caught
+# by the same `escape`. The release of the handler must run while the failure
+# unwinds, before the `caught` line.
+
+error Stop(at: Int)
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler Session: Log {
+  release {
+    dbg("close")
+    ()
+  }
+  fn log(msg) {
+    dbg(msg)
+    ()
+  }
+}
+
+fn visit(n: Int, stop: Int) -> Int fails Stop uses { Log } {
+  go(0, n, stop, 0)
+}
+
+fn go(i: Int, n: Int, stop: Int, acc: Int) -> Int fails Stop uses { Log } {
+  if i >= n {
+    acc
+  } else {
+    (use Log).log("at #{i}")
+    if i == stop { fail Stop(at: i) }
+    go(i + 1, n, stop, acc + i)
+  }
+}
+
+fn main() {
+  with Session {
+    dbg(visit(5, 2))
+    ()
+  } escape {
+    Stop(at:) -> {
+      dbg("caught at #{at}")
+      ()
+    }
+  }
+  dbg("after")
+  ()
+}

@@ -66,6 +66,79 @@ pub struct TestEntry {
 /// The start of a test result line (the same as the JS test runner's).
 pub const TEST_EVENT_PREFIX: &str = "\u{1e}emela-test ";
 
+/// Which representation choices the emitter makes.
+///
+/// By default the emitter holds eligible records and tuples by value (`values`), and stores array
+/// elements boxed (`aggregate_arrays` off). [`WasmOptions::boxed`] returns the representation used
+/// before E1 step 6: both options off, every record and tuple in a heap box.
+#[derive(Debug, Clone, Copy)]
+pub struct WasmOptions {
+    /// E1 steps 2–6: hold eligible records and tuples by value (a span of WASM locals or
+    /// parameters, one per scalar leaf) instead of allocating a heap object per value, and flatten
+    /// the signature of every call of a function type whose parameters or result are held by
+    /// value: a direct call, `call_indirect`, a closure's non-environment parameters, a
+    /// non-suspending effect operation, and a suspending function or operation implementation.
+    ///
+    /// On by default since E1 step 6. The measurement behind the default: the WASM size is
+    /// neutral and the allocations and the memory high-water mark fall. Use [`WasmOptions::boxed`]
+    /// for the representation from before step 6,
+    /// or set this field to `false` in a struct update
+    /// (`WasmOptions { values: false, ..Default::default() }`).
+    ///
+    /// A value held in locals is boxed at a boundary that stores a reference and unboxed when it
+    /// is read back: a list head, an enum payload field, a closure capture and environment slot,
+    /// `Any`, and an array element. A variable live across a suspension is saved as one frame slot
+    /// per scalar leaf, and the restore path reads the leaves back in order.
+    ///
+    /// Two results stay boxed: a suspending function's or operation's result of more than one leaf
+    /// (the runtime's resume channel carries one word), and a function value passed to a fiber
+    /// operation together with its parameters and result (the fiber thunk carries one word). The
+    /// entry thunk, exports, externals, constants and error shows keep the boxed form, so a type
+    /// used in one of those places stays boxed everywhere.
+    pub values: bool,
+    /// E2 step 2: store an array element that is an all-scalar record or tuple inline (one
+    /// 8-byte slot per scalar leaf) instead of a reference to a separately allocated box.
+    ///
+    /// Off by default. It changes the array descriptor's element stride and the array runtime,
+    /// but not the IR: an element is still represented as a reference. Construction (`from_list`,
+    /// `map_range`), `Array.set`, `slice`, `concat` and `copy` copy the element's slots and never
+    /// allocate one box per element. Elements that contain a reference are rejected (there is no
+    /// per-field drop map).
+    ///
+    /// With `values` also on, `ArrayGetOr` and `ArrayLoadUnchecked` whose destination is held by
+    /// value read the element directly: the bounds test is the same as the boxed lowering's (none
+    /// for the unchecked form), each scalar leaf is loaded from
+    /// `array + HDR + 8 + index * stride`, and no box is allocated and no reference is duped.
+    /// `Array.get` still boxes the element because its `Option` payload is one reference, and
+    /// `Array.to_list` still boxes each element because a list head is a reference.
+    pub aggregate_arrays: bool,
+}
+
+impl Default for WasmOptions {
+    /// The representation Emela builds by default since E1 step 6: records and tuples that the
+    /// emitter can hold in locals are held by value, and array elements stay boxed.
+    fn default() -> Self {
+        WasmOptions {
+            values: true,
+            aggregate_arrays: false,
+        }
+    }
+}
+
+impl WasmOptions {
+    /// The boxed representation from before E1 step 6: no record or tuple is held by value and
+    /// every array element is a reference to a heap box.
+    ///
+    /// For a test that compares the default build with the old representation, and for a tool
+    /// that needs the old emitted bytes.
+    pub const fn boxed() -> Self {
+        WasmOptions {
+            values: false,
+            aggregate_arrays: false,
+        }
+    }
+}
+
 /// The output of [`compile`].
 #[derive(Debug, Clone)]
 pub struct WasmOutput {
@@ -114,6 +187,47 @@ impl std::fmt::Display for WasmError {
 
 /// Compiles lowered Core IR (self tail calls loopified, as `emela_core::lower` leaves it) to WASM.
 pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, Vec<WasmError>> {
+    compile_with(core, entry, true)
+}
+
+/// [`compile`] with the LIR optimisation passes (`emela_lir::to_heap_with`) switched on or off.
+///
+/// Optimisation never changes what the program prints, its exit status or the order of effects,
+/// failures and releases; a build uses this to compile the same program both ways.
+pub fn compile_with(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+) -> Result<WasmOutput, Vec<WasmError>> {
+    compile_with_lir(core, entry, optimize, emela_lir::opt::Options::default())
+}
+
+/// [`compile_with`] with the LIR pass flags chosen by `lir_options`.
+///
+/// This is the entry point a test uses to compile a program with the LIR passes it chooses, rather
+/// than the defaults. Optimisation never changes what the program prints, its exit status or the
+/// order of effects, failures and releases, whichever LIR passes run.
+pub fn compile_with_lir(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+    lir_options: emela_lir::opt::Options,
+) -> Result<WasmOutput, Vec<WasmError>> {
+    compile_with_wasm_options(core, entry, optimize, lir_options, WasmOptions::default())
+}
+
+/// [`compile_with_lir`] with the emitter's representation choices (see [`WasmOptions`]).
+///
+/// The default [`WasmOptions`] holds eligible records and tuples by value (E1 step 6). This entry
+/// point is for tests that compile the same program both ways and compare what it prints; pass
+/// [`WasmOptions::boxed`] for the representation from before step 6.
+pub fn compile_with_wasm_options(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+    lir_options: emela_lir::opt::Options,
+    options: WasmOptions,
+) -> Result<WasmOutput, Vec<WasmError>> {
     let service = matches!(entry, Entry::Main) && core.http_service;
     let roots: Vec<FnId> = match entry {
         // An HTTP service starts from the fn `@entry(Http.serve)` made: its `wasm` export is
@@ -135,7 +249,7 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
     let (mono, copies) = emela_core::monomorphize_from(core, &roots);
     // The Flow IR functions are the Core functions in the same order, so a test keeps the index
     // of its copy.
-    let entry = match entry {
+    let mut entry = match entry {
         // Call the monomorphized copy itself: its name and `exported` flag can differ from the
         // input's (`main[Never]` is not exported), so looking the entry up by name is fragile.
         Entry::Main if service => emit::Run::Service(copies.iter().flatten().next().map(|copy| {
@@ -162,21 +276,35 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<WasmOutput, V
         return Err(internal("monomorphisation", errors));
     }
     let mut lir = emela_lir::from_core(mono).map_err(|errors| internal("from_core", errors))?;
-    // Reachability is computed on the Flow IR and read again by the emitter: the Heap IR passes
-    // append functions but keep the index of every existing one, so the roots' reachable
-    // external functions are the same.
-    let reach = check::reach(&lir, &entry.roots());
+    // Reachability is target-independent (emela-lir), computed on the Flow IR here for the
+    // diagnostics: the `suspend fn` check reports a construct the target cannot emit before the
+    // Heap IR passes run. The emitter walks the Heap IR again with the same analysis, so body
+    // pruning and host imports come from one set.
+    let reach = emela_lir::analysis::reach::Reachability::walk(&lir, &entry.roots());
     let errors = check::unsupported(&lir, &reach);
     if !errors.is_empty() {
         return Err(errors);
     }
-    emela_lir::to_heap(&mut lir);
+    emela_lir::to_heap_with_options(&mut lir, optimize, lir_options);
     if cfg!(debug_assertions)
         && let Err(errors) = emela_lir::verify(&lir)
     {
         return Err(internal("the Heap IR verifier", errors));
     }
-    emit::emit(&lir, &entry, &reach)
+    // Reachability pruning (off by default): remove the functions no reachable code can name and
+    // replace the entry roots with their new indices. The emitter walks the pruned module.
+    if lir_options.rules.prune {
+        let roots = entry.roots();
+        let reach = emela_lir::analysis::reach::Reachability::walk(&lir, &roots);
+        let pruned = emela_lir::analysis::reach::prune_functions(&mut lir, &roots, &reach);
+        entry.set_roots(&pruned.roots);
+        if cfg!(debug_assertions)
+            && let Err(errors) = emela_lir::verify(&lir)
+        {
+            return Err(internal("the Heap IR verifier", errors));
+        }
+    }
+    emit::emit(&lir, &entry, options)
 }
 
 fn internal<E: std::fmt::Display>(stage: &str, errors: Vec<E>) -> Vec<WasmError> {

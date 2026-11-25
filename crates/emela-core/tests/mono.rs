@@ -3,7 +3,7 @@
 use crate::support;
 
 use emela_core::{Module, Roots, Type, dump, monomorphize, monomorphize_from, verify_monomorphic};
-use support::{lower_files, try_lower};
+use support::{lower_files, try_lower_off};
 
 /// Monomorphizes from the exported functions and checks the result with the verifier.
 fn mono(m: &Module) -> Module {
@@ -363,7 +363,7 @@ fn main() {
 /// panics). A generic root that takes arguments (`List.map`) has no instantiation.
 #[test]
 fn generic_roots_are_instantiated() {
-    let m = try_lower(
+    let m = try_lower_off(
         &[(
             "main.emel",
             "import Std.Task.{Task}\n\
@@ -402,7 +402,7 @@ fn generic_roots_are_instantiated() {
 /// accepts.
 #[test]
 fn every_core_function_monomorphizes() {
-    let m = try_lower(&[("main.emel", "fn main() { 0 }\n")], Roots::All)
+    let m = try_lower_off(&[("main.emel", "fn main() { 0 }\n")], Roots::All)
         .unwrap_or_else(|errors| panic!("{errors:#?}"));
     let roots: Vec<_> = m.functions.iter().map(|(id, _)| id).collect();
     let (out, new_roots) = monomorphize_from(&m, &roots);
@@ -430,7 +430,7 @@ fn measure() {
     let src = std::fs::read_to_string(&path).expect("EMELA_MONO_BENCH names a readable file");
     for roots in [Roots::Exported, Roots::All] {
         let start = std::time::Instant::now();
-        let m = try_lower(&[("main.emel", &src)], roots).unwrap_or_else(|e| panic!("{e:?}"));
+        let m = try_lower_off(&[("main.emel", &src)], roots).unwrap_or_else(|e| panic!("{e:?}"));
         let lowered = start.elapsed();
         let fn_roots: Vec<_> = match roots {
             Roots::All => m.functions.iter().map(|(id, _)| id).collect(),

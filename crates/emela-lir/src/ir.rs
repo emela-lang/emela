@@ -8,7 +8,9 @@
 
 use emela_core::{Builtin, CtorRef, EffectId, EnumId, External, FiberOp, TypeId};
 use la_arena::{Arena, Idx};
+use rustc_hash::FxHashMap;
 
+use crate::opt::drop_spec::DropKind;
 use crate::repr::Repr;
 
 pub type FnId = Idx<Function>;
@@ -113,6 +115,20 @@ pub struct Function {
     /// and no argument. The evidence table, if taken, is an ordinary last parameter (`ref`, Core
     /// type `Evidence`).
     pub params: Vec<VarId>,
+    /// Which parameters are borrowed rather than owned, parallel to `params`. An empty vector (or
+    /// a missing entry) means that no parameter is borrowed: the owned calling convention every
+    /// function had before borrow inference. A `true` says that the caller keeps its reference for
+    /// the call: the callee only reads that parameter and never drops it, so the caller need not
+    /// `dup` the argument.
+    ///
+    /// This is a calling-convention fact, not a use: it is written by
+    /// [`crate::heap::insert_borrow_signature`] from the borrow facts (B6) after the state machines
+    /// are made, and read by reference counting and its balance check. A function that is exported,
+    /// whose value is taken (an indirect caller passes owned arguments), or that the runtime calls
+    /// itself (an error `show` function of [`Module::error_shows`]) keeps the owned convention, and
+    /// the environment parameter of a lifted function stays outside this vector (it is borrowed
+    /// according to [`Self::env`]).
+    pub borrowed: Vec<bool>,
     /// The Core type of the return value. The function returns nothing if its representation is
     /// [`Repr::Void`].
     pub ret: TypeId,
@@ -130,6 +146,23 @@ pub struct Function {
     /// the closure record itself (`ref`, with the closure's function type as its Core type),
     /// borrowed for the call. [`Value::EnvGet`] reads the captures from it.
     pub env: Option<Vec<TypeId>>,
+    /// Heap IR: how the [`Stmt::Drop`] statements release their value, written by
+    /// [`drop_spec`](crate::opt::drop_spec) (C3/PR-027). A missing entry means
+    /// [`DropKind::Generic`], so a module the pass did not run on (the default) is unchanged.
+    ///
+    /// The keys are the statements of this function. A copy that renumbers its statements does
+    /// not keep the map: `heap::copy::compact` clears it, and the pass runs last.
+    pub drop_kinds: FxHashMap<StmtId, DropKind>,
+    /// Heap IR, from [`reuse`](crate::opt::reuse) (C4/PR-042): for each `let` whose value is a
+    /// [`Value::Make`] that reuses a block, the variable whose block it reuses. The `drop` that
+    /// released that variable is gone; the `Make` consumes it, and the backends give the
+    /// destination the old block, release the references its fields held, and write the new
+    /// fields into it, instead of allocating.
+    ///
+    /// A missing entry means an ordinary allocation. Like [`drop_kinds`](Self::drop_kinds) the
+    /// keys are statements of this function, and a copy that renumbers statements
+    /// ([`heap::copy::compact`](crate::heap)) clears it.
+    pub reuse: FxHashMap<StmtId, VarId>,
     /// Heap IR, from [`Stage::DefectsExplicit`]: whether a call may come back with a pending
     /// defect, so that calls to it need a defect landing. External functions may (a host
     /// exception is a defect, spec 12.5).
@@ -149,12 +182,15 @@ impl Function {
             name: name.to_owned(),
             exported: false,
             params: Vec::new(),
+            borrowed: Vec::new(),
             ret: TypeId::UNIT,
             fails: false,
             suspends: false,
             constant: false,
             external: None,
             env: None,
+            drop_kinds: FxHashMap::default(),
+            reuse: FxHashMap::default(),
             defects: false,
             body: None,
             vars: Arena::new(),
@@ -338,10 +374,24 @@ pub enum SwitchOn {
     Lit(VarId),
 }
 
+/// A case of a [`Stmt::Switch`]: one body for one or more keys.
+///
+/// The canonical form a module has after [`crate::opt::switch`] is: the keys of a case are
+/// sorted and distinct, the cases are ordered by their least key, and no key appears in two
+/// cases. Several keys share a body when their bodies are the same sequence ([`Self::body`]),
+/// so a backend emits one body with several labels instead of the same code once per key.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Case {
-    pub key: CaseKey,
+    /// The keys that select this body. Never empty, and without duplicates.
+    pub keys: Vec<CaseKey>,
     pub body: SeqId,
+}
+
+impl Case {
+    /// The first key, the one the canonical order of the cases is by.
+    pub fn first_key(&self) -> &CaseKey {
+        &self.keys[0]
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -371,7 +421,11 @@ impl From<Const> for Operand {
 }
 
 /// A constant.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Equality is structural and bitwise for a [`Float`](Self::Float): `-0.0` and `0.0` are different
+/// constants (a program can tell them apart with a division), and two NaNs are equal only when
+/// their bits are. This is what the LIR passes compare bodies with; it is not the language's `==`.
+#[derive(Debug, Clone)]
 pub enum Const {
     Int(i32),
     Int64(i64),
@@ -384,6 +438,20 @@ pub enum Const {
     /// Core's); backends store any word there. Its representation is [`Repr::Void`], so it is
     /// accepted only in such slots.
     Unit,
+}
+
+impl PartialEq for Const {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Const::Int(a), Const::Int(b)) => a == b,
+            (Const::Int64(a), Const::Int64(b)) => a == b,
+            (Const::Float(a), Const::Float(b)) => a.to_bits() == b.to_bits(),
+            (Const::Bool(a), Const::Bool(b)) => a == b,
+            (Const::String(a), Const::String(b)) => a == b,
+            (Const::Unit, Const::Unit) => true,
+            _ => false,
+        }
+    }
 }
 
 impl Const {
@@ -648,6 +716,11 @@ pub enum RuntimeOp {
     /// `(String) -> String`: a string shown inside a value or by `dbg` (spec 10.6), in `"` with
     /// the escapes of `$showString` in the JS runtime.
     ShowString,
+    /// `(String, …) -> String`: the bytes of the parts, in order, in one allocation. Made from a
+    /// string built of more than two pieces (`from_core`'s `concat`), where a chain of
+    /// `String.append` would copy the same bytes once per append. It reads its arguments (at least
+    /// two) and returns a new String; it does not store them.
+    Concat,
     /// `(String) -> ()`: writes the line to stderr (`dbg`).
     DebugPrint,
     /// `(handler, String) -> ()`: marks the handler value released, so that each of its operations
@@ -688,6 +761,7 @@ impl RuntimeOp {
     pub fn name(self) -> &'static str {
         match self {
             RuntimeOp::ShowString => "show_string",
+            RuntimeOp::Concat => "concat",
             RuntimeOp::DebugPrint => "debug_print",
             RuntimeOp::Retire => "retire",
             RuntimeOp::Defect => "defect",
@@ -701,10 +775,12 @@ impl RuntimeOp {
         }
     }
 
-    /// The representations of the arguments and of the result.
-    pub fn sig(self) -> (&'static [Repr], Repr) {
-        match self {
+    /// The representations of the arguments and of the result. `None` for [`RuntimeOp::Concat`],
+    /// whose arguments are any number (at least two) of `ref`s.
+    pub fn sig(self) -> Option<(&'static [Repr], Repr)> {
+        Some(match self {
             RuntimeOp::ShowString => (&[Repr::Ref], Repr::Ref),
+            RuntimeOp::Concat => return None,
             RuntimeOp::DebugPrint => (&[Repr::Ref], Repr::Void),
             RuntimeOp::Retire | RuntimeOp::DefectAt => (&[Repr::Ref, Repr::Ref], Repr::Void),
             RuntimeOp::Defect | RuntimeOp::DefectResume => (&[Repr::Ref], Repr::Void),
@@ -712,7 +788,7 @@ impl RuntimeOp {
             RuntimeOp::Hold | RuntimeOp::Unhold | RuntimeOp::Yield | RuntimeOp::YieldPerform => {
                 (&[], Repr::Void)
             }
-        }
+        })
     }
 }
 

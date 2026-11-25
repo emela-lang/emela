@@ -1,5 +1,7 @@
 //! The allocator, reference counting, descriptors and evidence lookup.
 
+use emela_lir::opt::drop_spec::DropKind;
+
 use super::*;
 
 /// The line written to standard error before a failed heap reservation traps. It is best effort:
@@ -31,6 +33,11 @@ pub(super) const FUNCS: &[Sig] = &[
     ("ev_lookup", &[ValType::I32, ValType::I32], &[ValType::I32]),
 ];
 
+/// The block drop of drop specialisation (C3/PR-027) is its own runtime module, appended after
+/// every other one: a program without a specialised drop keeps the function indices and the bytes
+/// it had, and the lowering ([`drop_block_used`]) only adds it when a function has one.
+pub(super) const DROP_BLOCK_FUNCS: &[Sig] = &[("drop_block", &[ValType::I32], &[])];
+
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "alloc" => i32s(6),                        // need, cur, prev, next, p, idx
@@ -38,8 +45,13 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
         "dup" => i32s(1),                          // rc
         "drop" => i32s(13),                        // rc..size, slot
         "ev_lookup" => i32s(3),                    // count, i, e
-        _ => Vec::new(),
+        _ => Vec::new(),                           // other modules own their locals
     }
+}
+
+pub(super) fn drop_block_locals(_name: &str) -> Vec<(u32, ValType)> {
+    // rc, size, and `free_raw`'s bin-slot scratch (local 13).
+    i32s(13)
 }
 
 /// Writes the out-of-memory line and the bin heads into static data before any runtime body is
@@ -61,12 +73,22 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
         "heap_reserve" => heap_reserve(b, ins),
         "dup" => dup(ins),
         "drop" => drop_(b, ins),
+        "drop_block" => drop_block(b, ins),
         "tag" => tag(ins),
         "is_error" => is_error(ins),
         "ev_lookup" => ev_lookup(ins),
         _ => return false,
     }
     true
+}
+
+/// Whether a function of the module has a `drop` drop specialisation classified as a block release
+/// (C3/PR-027). The runtime module of [`DROP_BLOCK_FUNCS`] is only registered when one has, so a
+/// program the flag did not run on keeps its bytes.
+pub(super) fn drop_block_used(b: &Builder) -> bool {
+    b.m.functions
+        .iter()
+        .any(|(_, f)| f.drop_kinds.values().any(|k| *k == DropKind::Block))
 }
 
 // ---- allocation and reference counting ----
@@ -349,6 +371,13 @@ fn out_of_memory(b: &Builder, ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     ins.unreachable();
     ins.end();
+    out_of_memory_loud(b, ins);
+}
+
+/// [`out_of_memory`] for a caller other than [`heap_reserve`], which has no quiet flag: writes the
+/// line, best effort, and traps. An `array_new` count that cannot fit in the i32 `alloc` sizes its
+/// block with ends here rather than in a wrapped block (issue #494).
+pub(super) fn out_of_memory_loud(b: &Builder, ins: &mut InstructionSink) {
     let message = *b
         .rt_data
         .get(OOM_MESSAGE_KEY)
@@ -521,6 +550,44 @@ fn drop_(b: &Builder, ins: &mut InstructionSink) {
     ins.br(0);
     ins.end();
     ins.end();
+}
+
+/// The block drop of drop specialisation (C3/PR-027): the generic `drop` without the descriptor
+/// switch and the worklist. The type of the value proves that its payload holds no reference and
+/// has no finalizer, so the block is given back directly. Static data (`rc == 0`) is untouched,
+/// like `drop`.
+fn drop_block(b: &Builder, ins: &mut InstructionSink) {
+    const RC: u32 = 2;
+    const SIZE: u32 = 3;
+    ins.local_get(0);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.return_();
+    ins.end();
+    ins.local_get(0);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(RC);
+    ins.local_get(RC);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ins.return_();
+    ins.end();
+    ins.local_get(RC);
+    ins.i32_const(1);
+    ins.i32_sub();
+    ins.local_set(RC);
+    ins.local_get(0);
+    ins.local_get(RC);
+    ins.i32_store(mem(0, 4));
+    ins.local_get(RC);
+    ins.if_(BlockType::Empty);
+    ins.return_();
+    ins.end();
+    // The size word says how the block goes back (a bin slot, or its size in bytes).
+    ins.local_get(0);
+    ins.i32_load(mem(SIZE_AT, 4));
+    ins.local_set(SIZE);
+    free_raw(b, ins, 0, SIZE);
 }
 
 /// Gives up the reference in slot `i` of the object `q` (locals): when it was the last one, the

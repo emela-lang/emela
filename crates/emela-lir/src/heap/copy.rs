@@ -138,7 +138,7 @@ impl<'a> Copier<'a> {
                 let cases = cases
                     .iter()
                     .map(|c| Case {
-                        key: c.key.clone(),
+                        keys: c.keys.clone(),
                         body: self.seq(out, c.body),
                     })
                     .collect();
@@ -329,6 +329,7 @@ impl<'a> Copier<'a> {
 pub(crate) fn empty_like(f: &Function) -> Function {
     let mut out = Function::new(&f.name);
     out.exported = f.exported;
+    out.borrowed = f.borrowed.clone();
     out.ret = f.ret;
     out.fails = f.fails;
     out.suspends = f.suspends;
@@ -336,6 +337,11 @@ pub(crate) fn empty_like(f: &Function) -> Function {
     out.external = f.external.clone();
     out.env = f.env.clone();
     out.defects = f.defects;
+    // The drop kinds are keyed by statement IDs, so `compact` clears them (it numbers the
+    // statements again); a copy that keeps the IDs keeps the classification.
+    out.drop_kinds = f.drop_kinds.clone();
+    // The reuse map is keyed by statement and variable IDs too.
+    out.reuse = f.reuse.clone();
     out
 }
 
@@ -343,6 +349,10 @@ pub(crate) fn empty_like(f: &Function) -> Function {
 /// reaches, numbered in the order they are met.
 pub(crate) fn compact(f: &Function) -> Function {
     let mut out = empty_like(f);
+    // The statements get new IDs, so the classification and the reuse map keyed by the old ones no
+    // longer apply.
+    out.drop_kinds.clear();
+    out.reuse.clear();
     let mut c = Copier::new(f);
     out.params = f.params.iter().map(|&p| c.fresh(&mut out, p)).collect();
     out.body = f.body.map(|b| c.seq(&mut out, b));
@@ -464,7 +474,7 @@ impl Cloner {
                 let cases = cases
                     .into_iter()
                     .map(|c| Case {
-                        key: c.key,
+                        keys: c.keys,
                         body: self.seq(f, c.body),
                     })
                     .collect();

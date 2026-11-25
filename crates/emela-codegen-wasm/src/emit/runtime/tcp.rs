@@ -32,6 +32,7 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
                 name: "tcp_registry".to_owned(),
                 show: None,
                 refs: vec![false],
+                stride: 0,
             });
             let alloc = b.rt("alloc");
             ins.i32_const(1);

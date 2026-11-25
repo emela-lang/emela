@@ -1,0 +1,32 @@
+# The hand-written expansion of `filter_map_fused.emel`: the filter and the map as one self tail
+# call (which lowering turns into a loop) that tests each element and appends the mapped value, then
+# reverses the result once.
+
+fn inc(x: Int) -> Int {
+  x + 1
+}
+
+fn even(x: Int) -> Bool {
+  x % 2 == 0
+}
+
+fn evens_plus_one(xs: List[Int]) -> List[Int] {
+  go(xs, [])
+}
+
+fn go(xs: List[Int], acc: List[Int]) -> List[Int] {
+  xs match {
+    [] -> List.reverse(acc)
+    [x, ..rest] -> if even(x) {
+      go(rest, [inc(x), ..acc])
+    } else {
+      go(rest, acc)
+    }
+  }
+}
+
+fn main() {
+  dbg(evens_plus_one([1, 2, 3, 4, 5]))
+  dbg(evens_plus_one([]))
+  ()
+}

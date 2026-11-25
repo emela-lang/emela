@@ -1,0 +1,30 @@
+# A mutation pair inside `with`: the handler's release must run at the same
+# point, and the values printed inside and after it must agree.
+# `with_release_expanded.emel` is the same program with the loop written by hand.
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler Session: Log {
+  release {
+    dbg("close")
+    ()
+  }
+  fn log(msg) {
+    dbg("#{msg}")
+    ()
+  }
+}
+
+fn sum_range(n: Int) -> Int {
+  List.fold(List.range(0, n), 0, |acc, i| acc + i)
+}
+
+fn main() {
+  with Session {
+    dbg(sum_range(4))
+    (use Log).log("inside")
+  }
+  dbg("after")
+}

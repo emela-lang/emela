@@ -1,0 +1,27 @@
+# The hand-written expansion of `beta_fused.emel`: each immediate application of a closure is
+# replaced by the closure's body, with the argument bound once, left to right, at the point of the
+# call. The bodies still read the captured `base`, which stays in scope in `main`.
+
+fn noisy(label: String, x: Int) -> Int {
+  dbg("#{label} #{x}")
+  x
+}
+
+fn main() {
+  base = noisy("base", 10)
+  a = {
+    x = noisy("add", 1)
+    x + base
+  }
+  dbg(a)
+  b = {
+    x = noisy("scale", 2)
+    x * base
+  }
+  dbg(b)
+  c = {
+    x = noisy("clamp", 3)
+    if x < 0 { base } else { x }
+  }
+  dbg(c)
+}

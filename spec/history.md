@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-25 (Reading an offset with seconds in Instant.parse)
+
+- `[api.std.instant]`: `Instant.parse` also reads an offset from UTC that has seconds, written `±HH:MM:SS` or `±HHMMSS`. Within one offset, either every field after the hour follows a colon or none does, and the second of the offset is 00 to 59, with no fraction. Every text that `parse` read before the change reads as the same Instant after the change. Adopted in the proposal `instant-offset-seconds` (#868).
+
 ## 2026-11-24 (Diagnostic codes in bands of 1000, and one code per kind of mistake)
 
 - `[diag]`, `[diag.bands]`: The bands of diagnostic codes change from 100 codes per stage (E01xx to E09xx) to 1000 codes per stage (E1xxx to E9xxx), divided into subject bands of 100. A code names one kind of mistake: mistakes fixed in the same way share a code, and the message tells their forms apart. At the end of 0.29 the codes in `[diag.list]` are renumbered once into the new bands; codes of the same kind of mistake are merged, and retired codes are dropped. Adopted in the proposal `diagnostic-code-bands` (#837).

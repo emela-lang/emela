@@ -378,17 +378,23 @@ fn Std.Set.to_list[A](s%0: Std.Set.Set[A]) -> List[A] {
 }
 
 fn Std.Map.keys[A, B](m%0: Std.Map.Map[A, B]) -> List[A] {
-  List.map[(A, B), A, {}, {}](Std.Map.to_list[A, B](m%0), fn((key, _)%1: (A, B)) -> A {
-    match (key, _)%1 {
-      (key%2, _) -> key%2
-    }
-  }, ())
+  Std.Map.keys_onto[A, B](m%0, []: List[A])
 }
 
-fn List.map[A, B, C, D](xs%0: List[A], f%1: fn(A) -> B fails ev (E {C}, R {D}), ev%2: evidence) -> List[B] fails {
-  List.reverse[B](List.fold[A, List[B], {C}, {D}](xs%0, []: List[B], fn(acc%3: List[B], x%4: A, ev%5: evidence) -> List[B] fails {
-    [(f%1)(x%4, ev%5)?, ..acc%3]: List[B]
-  }, ev%2)?)
+fn Std.Map.keys_onto[A, B](m%0: Std.Map.Map[A, B], acc%1: List[A]) -> List[A] {
+  loop(m%2: Std.Map.Map[A, B] = m%0, acc%3: List[A] = acc%1) {
+    match m%2 {
+      Std.Map.Map.Empty -> acc%3
+      Std.Map.Map.Node(size: _, key: key%4, value: _, left: left%5, right: right%6) -> recur(left%5, [key%4, ..Std.Map.keys_onto[A, B](right%6, acc%3)]: List[A])
+    }
+  }
+}
+
+fn Std.Map.size[A, B](m%0: Std.Map.Map[A, B]) -> Int {
+  match m%0 {
+    Std.Map.Map.Empty -> 0
+    Std.Map.Map.Node(size: n%1, key: _, value: _, left: _, right: _) -> n%1
+  }
 }
 
 fn Std.Map.to_list[A, B](m%0: Std.Map.Map[A, B]) -> List[(A, B)] {
@@ -401,35 +407,6 @@ fn Std.Map.to_list_onto[A, B](m%0: Std.Map.Map[A, B], acc%1: List[(A, B)]) -> Li
       Std.Map.Map.Empty -> acc%3
       Std.Map.Map.Node(size: _, key: key%4, value: value%5, left: left%6, right: right%7) -> recur(left%6, [(key%4, value%5), ..Std.Map.to_list_onto[A, B](right%7, acc%3)]: List[(A, B)])
     }
-  }
-}
-
-fn List.reverse[A](xs%0: List[A]) -> List[A] {
-  List.reverse_onto[A](xs%0, []: List[A])
-}
-
-fn List.fold[A, B, C, D](xs%0: List[A], from%1: B, f%2: fn(B, A) -> B fails ev (E {C}, R {D}), ev%3: evidence) -> B fails {
-  loop(xs%4: List[A] = xs%0, from%5: B = from%1, f%6: fn(B, A) -> B fails ev (E {C}, R {D}) = f%2, ev%7: evidence = ev%3) {
-    match xs%4 {
-      [] -> from%5
-      [x%8, ..rest%9] -> recur(rest%9, (f%6)(from%5, x%8, ev%7)?, f%6, ev%7)
-    }
-  }
-}
-
-fn List.reverse_onto[A](xs%0: List[A], acc%1: List[A]) -> List[A] {
-  loop(xs%2: List[A] = xs%0, acc%3: List[A] = acc%1) {
-    match xs%2 {
-      [] -> acc%3
-      [x%4, ..rest%5] -> recur(rest%5, [x%4, ..acc%3]: List[A])
-    }
-  }
-}
-
-fn Std.Map.size[A, B](m%0: Std.Map.Map[A, B]) -> Int {
-  match m%0 {
-    Std.Map.Map.Empty -> 0
-    Std.Map.Map.Node(size: n%1, key: _, value: _, left: _, right: _) -> n%1
   }
 }
 

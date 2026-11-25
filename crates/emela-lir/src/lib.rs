@@ -14,11 +14,13 @@
 //! second stage, the Heap IR, on the same data types ([`Stage`] says which have run): closure
 //! conversion, explicit defect paths, the suspend state machines and reference counting.
 
+pub mod analysis;
 mod build;
 mod dump;
 mod from_core;
 mod heap;
 mod ir;
+pub mod opt;
 mod repr;
 mod verify;
 
@@ -26,8 +28,9 @@ pub use build::FnBuilder;
 pub use dump::{core_ty, dump, dump_function};
 pub use from_core::{FromCoreError, from_core};
 pub use heap::{
-    builtin_may_defect, convert_closures, explicit_defects, fiber_may_defect, insert_rc,
-    may_suspend, state_machines, to_heap,
+    BorrowReport, builtin_may_defect, convert_closures, explicit_defects, fiber_may_defect,
+    insert_borrow_signature, insert_rc, may_suspend, state_machines, to_heap, to_heap_with,
+    to_heap_with_options,
 };
 pub use ir::*;
 pub use repr::{Repr, enum_repr, repr_of, repr_of_subst};

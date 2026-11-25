@@ -268,6 +268,7 @@ pub(super) fn prepare(b: &mut Builder<'_>) {
         name: "http_raw".to_owned(),
         show: None,
         refs: Vec::new(),
+        stride: 0,
     });
     let empty = b.string_literal(b"");
     // The string cells start with the empty string, so `http_reset` can always drop them.

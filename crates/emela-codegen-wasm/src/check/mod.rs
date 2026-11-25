@@ -1,31 +1,25 @@
 //! What the WASM target does not support yet, found on the Flow IR before the Heap IR passes.
 //!
 //! The checks are split by what they inspect: the whole module and the collected diagnostics
-//! here, external functions in `external`, and reachability from the entry in `reach`.
-//! Suspending functions, `suspend fn` operations, fibers and the scopes and Deferred values of
-//! chapter 11 are supported; `suspend fn` external functions are not (they need a host callback),
-//! so a reachable call to one without a `wasm` binding is unsupported.
+//! here, and external functions in `external`. Reachability itself is target-independent and
+//! lives in `emela_lir::analysis::reach`; this module filters its external functions by the
+//! `wasm` binding. Suspending functions, `suspend fn` operations, fibers and the scopes and
+//! Deferred values of chapter 11 are supported; `suspend fn` external functions are not (they
+//! need a host callback), so a reachable call to one without a `wasm` binding is unsupported.
 
 mod external;
-mod reach;
 
-use emela_lir::{FnId, Module};
+use emela_lir::Module;
+use emela_lir::analysis::reach::Reachability;
 
 use crate::{WasmError, WasmErrorKind};
 
 use self::external::external;
 
-pub(crate) use self::reach::Reach;
-
-/// What the entry can reach, for the diagnostics and the emitter (see [`reach::walk`]).
-pub(crate) fn reach(m: &Module, roots: &[FnId]) -> Reach {
-    reach::walk(m, roots)
-}
-
 /// Every construct reachable from the entry (the module holds only reachable functions after
 /// monomorphisation) that the WASM target cannot compile yet. Calls to `suspend fn` external
 /// functions are reported once each, naming where they are reached.
-pub(crate) fn unsupported(m: &Module, reach: &Reach) -> Vec<WasmError> {
+pub(crate) fn unsupported(m: &Module, reach: &Reachability) -> Vec<WasmError> {
     let mut found = Found::default();
     for (_, f) in m.functions.iter() {
         if let Some(ext) = &f.external {
@@ -35,11 +29,21 @@ pub(crate) fn unsupported(m: &Module, reach: &Reach) -> Vec<WasmError> {
             continue;
         }
     }
-    for &callee in reach.suspending() {
-        found.suspending(format!(
-            "a call to `{}`, a `suspend fn` external",
-            display_name(&m.functions[callee].name)
-        ));
+    for &callee in reach.externals() {
+        let f = &m.functions[callee];
+        // An external with a `wasm` binding is already reported once by `check/external.rs`, so it
+        // is not named here again. The policy is the target's: the LIR analysis names every
+        // reachable external and this filter keeps the unsupported ones.
+        if f.suspends
+            && f.external
+                .as_ref()
+                .is_some_and(|e| e.binding("wasm").is_none())
+        {
+            found.suspending(format!(
+                "a call to `{}`, a `suspend fn` external",
+                display_name(&f.name)
+            ));
+        }
     }
     found.finish()
 }

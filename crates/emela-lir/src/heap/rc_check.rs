@@ -7,13 +7,25 @@
 //! leaving the function or a scope, and edges into a join point (the end of a compound statement,
 //! a loop head) that bring different references.
 //!
+//! A view may be borrowed without a reference of its own while a variable of its base chain owns
+//! one ([`Check::kept_by_a_base`]): the value it names lives in the base. The reference counting
+//! pass gives every live view a reference of its own, and `opt::rc`'s local-base rule removes that
+//! reference when it proves the base stays alive for the whole region; the check agrees with the
+//! rule.
+//!
+//! A `let` whose value is a `Make` that reuses an old block
+//! ([`Function::reuse`](crate::ir::Function::reuse), C4/PR-042) consumes the old variable: the drop
+//! that released it is gone and the reference moved to the destination of the `Make`. Without that
+//! rule the old variable would leave its scope with a reference.
+//!
 //! The ownership rules are shared with the pass, so a mistake in the rules themselves is not
 //! caught here.
 
 use rustc_hash::FxHashMap;
 
 use super::rc::{
-    Mode, borrowed_param, counted, is_view, landings, suspend_saved, term_consumes, value_uses,
+    Bases, Mode, borrowed_param, counted, is_view, landings, suspend_saved, term_consumes,
+    value_uses,
 };
 use crate::ir::{Function, LabelId, Module, SeqId, Stmt, SwitchOn, Term, VarId};
 
@@ -22,6 +34,7 @@ pub(crate) fn check(m: &Module, f: &Function) -> Vec<String> {
     let mut c = Check {
         m,
         f,
+        bases: Bases::new(f),
         scope: Vec::new(),
         slots: Vec::new(),
         labels: FxHashMap::default(),
@@ -63,6 +76,9 @@ struct Slot {
 struct Check<'a> {
     m: &'a Module,
     f: &'a Function,
+    /// What keeps a value alive when the variable owns no reference
+    /// ([`Bases::borrows_from_a_borrowed`](super::rc::Bases::borrows_from_a_borrowed)).
+    bases: Bases,
     /// Counted variables in scope, in definition order.
     scope: Vec<VarId>,
     slots: Vec<Slot>,
@@ -97,12 +113,33 @@ impl Check<'_> {
     }
 
     fn borrow(&mut self, tokens: &Tokens, v: VarId) {
-        if tokens[ix(v)] < 1 && !borrowed_param(self.f, v) {
+        if tokens[ix(v)] < 1
+            && !self.bases.borrows_from_a_borrowed(v)
+            && !self.kept_by_a_base(tokens, v)
+        {
             let name = self.name(v);
             self.error(format!(
                 "{name} is used without a reference (after its last one)"
             ));
         }
+    }
+
+    /// Whether a variable in the view chain above `v` owns a reference, which keeps the value `v`
+    /// names alive: a view reads its value out of its base, so the base's reference is enough while
+    /// the base holds it. `opt::rc`'s local-base rule removes the reference it gives a view when it
+    /// proves the base stays alive for the whole region; this is the balance condition of that
+    /// output ([`super::rc::Bases::view_base`] names the chain). Each use is checked separately, so
+    /// a base released before a later use is still reported there.
+    fn kept_by_a_base(&self, tokens: &Tokens, v: VarId) -> bool {
+        let mut cur = v;
+        for _ in 0..self.f.vars.len() {
+            match self.bases.view_base(cur) {
+                Some(base) if tokens[ix(base)] > 0 => return true,
+                Some(base) => cur = base,
+                None => return false,
+            }
+        }
+        false
     }
 
     /// Leaves to the slot (or out of the function with `None`) with the state.
@@ -228,6 +265,12 @@ impl Check<'_> {
                     if mode == Mode::Consume {
                         self.take(&mut tokens, v, "a consuming use of");
                     }
+                }
+                // A `Make` that reuses the block of an old variable consumes it (C4/PR-042,
+                // `opt::reuse`): the `drop` that would have released it is gone, and its reference
+                // moved to the destination of the `Make`.
+                if let Some(&old) = f.reuse.get(&s) {
+                    self.take(&mut tokens, old, "the reuse of");
                 }
                 for &(v, mode) in &uses {
                     if mode == Mode::Borrow {

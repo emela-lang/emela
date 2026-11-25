@@ -81,6 +81,11 @@ impl Writer {
         self.line(&format!("#include \"{file}\""));
     }
 
+    /// A line of C that the other methods do not cover (a `typedef`).
+    pub(crate) fn raw(&mut self, text: &str) {
+        self.line(text);
+    }
+
     /// `static SIG;`.
     pub(crate) fn static_proto(&mut self, sig: &str) {
         self.line(&format!("static {sig};"));
@@ -166,6 +171,19 @@ impl Writer {
         self.open(&format!("if ({cond})"));
     }
 
+    /// `for (init; cond; step) {`, up to [`Writer::end`].
+    pub(crate) fn for_(
+        &mut self,
+        init: &str,
+        cond: &str,
+        step: &str,
+        body: impl FnOnce(&mut Self),
+    ) {
+        self.open(&format!("for ({init}; {cond}; {step})"));
+        body(self);
+        self.end();
+    }
+
     /// `} else {`, up to [`Writer::end`].
     pub(crate) fn else_begin(&mut self) {
         self.indent -= 1;
@@ -200,6 +218,11 @@ impl Writer {
     /// The `}` closing a `switch`.
     pub(crate) fn switch_end(&mut self) {
         self.line("}");
+    }
+
+    /// `case key:` without a block, for a case a later label still opens.
+    pub(crate) fn case_label(&mut self, key: &str) {
+        self.line(&format!("case {key}:"));
     }
 
     /// `case key:` and the body below it, falling through at its end.

@@ -11,7 +11,11 @@ export fn main() -> i32 (Int) defects {
     ev%2: ref (evidence) = ev_extend([Pool: h%1])
     t%10: i32 (Int) = block 'escape%0 {
       err%8: ref (any) = block 'caught%1 {
-        t%6: i32 (Int) = call work(1, ev%2) on_fail(e%3: ref (any)) { break 'caught%1(e%3) } on_defect {
+        t%6: i32 (Int) = call work(1, ev%2) on_fail(e%3: ref (any)) {
+          drop ev%2
+          break 'caught%1(e%3)
+        } on_defect {
+          drop ev%2
           defect%4: ref (any) = runtime defect_take()
           block 'cleanup%2 {
             block 'protect%4 {
@@ -25,6 +29,7 @@ export fn main() -> i32 (Int) defects {
           runtime defect_resume(defect%4)
           unwind
         }
+        drop ev%2
         s%7: ref (String) = builtin Int.to_string(t%6)
         runtime debug_print(s%7)
         drop s%7
@@ -80,26 +85,17 @@ fn Counted$release(self%0: ref (Counted)) -> i32 (Int) {
 fn work(k%0: i32 (Int), ev%1: ref (evidence)) -> i32 (Int) fails defects {
   t%2: i32 (Bool) = k%0 ==[i32] 0
   if t%2 {
-    drop ev%1
     t%3: ref (Empty) = make Empty.Empty
     fail t%3
   } else {}
   t%4: ref (handler Pool) = ev_lookup(ev%1, Pool)
-  dup t%4
-  drop ev%1
-  t%5: i32 (Int) = call_op t%4.Pool#get() on_defect {
-    drop t%4
-    unwind
-  }
-  drop t%4
+  t%5: i32 (Int) = call_op t%4.Pool#get() on_defect { unwind }
   t%6: i32 (Int) = t%5 +[i32] k%0
   return t%6
 }
 
 fn Counted$closure0(env%0: ref (fn() -> Int)) -> i32 (Int) env[Counted] {
   self%1: ref (Counted) = env_get env%0#0
-  dup self%1
   t%2: i32 (Int) = field self%1 Counted.Counted.n#0
-  drop self%1
   return t%2
 }

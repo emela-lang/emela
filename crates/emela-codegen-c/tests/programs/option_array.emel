@@ -1,0 +1,195 @@
+# The Core IR fusions of `Option.or(Array.get(a, i), d)` and `match Array.get(a, i)`. Every
+# fused expression is paired with its hand-written form here, so the two must agree; the tests run
+# this on JS and C (with the leak check) and on WASM.
+import Std.Array.{Array}
+import Std.Task.{Task}
+import Std.State.{State}
+
+enum Shade {
+  Light
+  Dark
+}
+
+type Point(x: Int, y: Int)
+  derive Eq
+
+error Missing(what: String)
+
+fn missing() -> Int fails Missing {
+  fail Missing(what: "boom")
+}
+
+# The shape the pass fuses: `Option.or(Array.get(a, i), d)`.
+fn via_or(a: Array[Int], i: Int, d: Int) -> Int {
+  Array.get(a, i) |> Option.or(d)
+}
+
+# The hand-written shape the fused one must agree with.
+fn via_match(a: Array[Int], i: Int, d: Int) -> Int {
+  Array.get(a, i) match {
+    Some(x) -> x
+    None -> d
+  }
+}
+
+# The `None` arm first.
+fn via_match_none_first(a: Array[Int], i: Int, d: Int) -> Int {
+  Array.get(a, i) match {
+    None -> d
+    Some(x) -> x
+  }
+}
+
+# `Some(_)` does not bind the element.
+fn present(a: Array[Int], i: Int) -> Bool {
+  Array.get(a, i) match {
+    Some(_) -> True
+    None -> False
+  }
+}
+
+# `a` then `i` then `d`, and `d` even when `i` is in range.
+fn traced_array(a: Array[Int]) -> Array[Int] {
+  dbg("a")
+  a
+}
+
+fn traced_index(i: Int) -> Int {
+  dbg("i=#{i}")
+  i
+}
+
+fn traced_default(d: Int) -> Int {
+  dbg("d=#{d}")
+  d
+}
+
+fn evaluation_order(a: Array[Int], i: Int) -> Int {
+  Array.get(traced_array(a), traced_index(i)) |> Option.or(traced_default(99))
+}
+
+# `d` fails, so the failure happens even when the index is in range.
+fn or_failing(a: Array[Int], i: Int) -> Int fails Missing {
+  Array.get(a, i) |> Option.or(missing())
+}
+
+# `d` suspends.
+fn or_suspending(a: Array[Int], i: Int) -> Int {
+  with tasks = Task.Group {
+    Array.get(a, i) |> Option.or(tasks.start(|| 7).join())
+  }
+}
+
+# `d` reads an effect; it is evaluated even when the element is found.
+fn or_effectful(a: Array[Int], i: Int) -> Int {
+  (value, updates) = State.run(0, || {
+    st = use State[Int]
+    st.update(|n| n + 1)
+    Array.get(a, i) |> Option.or(st.get())
+  })
+  value + updates * 100
+}
+
+fn empty_ints() -> Array[Int] {
+  Array.empty()
+}
+
+fn main() {
+  a = Array.from_list([10, 20, 30])
+
+  # Boundaries: -1, 0, size - 1, size.
+  dbg(via_or(a, -1, 100))
+  dbg(via_or(a, 0, 100))
+  dbg(via_or(a, 2, 100))
+  dbg(via_or(a, 3, 100))
+  dbg(via_match(a, -1, 100))
+  dbg(via_match(a, 0, 100))
+  dbg(via_match(a, 2, 100))
+  dbg(via_match(a, 3, 100))
+  dbg(via_match_none_first(a, 0, 100))
+  dbg(via_match_none_first(a, 9, 100))
+  assert via_or(a, 0, 100) == via_match(a, 0, 100)
+  assert via_or(a, 9, 100) == via_match(a, 9, 100)
+  assert via_or(a, 9, 100) == via_match_none_first(a, 9, 100)
+  assert present(a, 0)
+  assert !present(a, 9)
+
+  # An empty array never finds an element.
+  empty = empty_ints()
+  dbg(via_or(empty, 0, 55))
+  dbg(via_match(empty, 0, 55))
+  dbg(via_match(empty, -1, 55))
+  assert via_or(empty, 0, 55) == 55
+
+  # Element types: a reference (String, record), Int64, Float and a nullary enum (I32).
+  strings = Array.from_list(["x", "y"])
+  dbg(Array.get(strings, 1) |> Option.or("default"))
+  dbg(Array.get(strings, 5) |> Option.or("default"))
+  dbg(Array.get(strings, 0) match {
+    Some(s) -> s.append("!")
+    None -> "none"
+  })
+  dbg(Array.get(strings, 5) match {
+    Some(s) -> s.append("!")
+    None -> "none"
+  })
+
+  points = Array.from_list([Point(x: 1, y: 2), Point(x: 3, y: 4)])
+  origin = Point(x: 0, y: 0)
+  assert (Array.get(points, 1) |> Option.or(origin)) == Point(x: 3, y: 4)
+  assert (Array.get(points, 5) |> Option.or(origin)) == origin
+  dbg(Array.get(points, 5) match {
+    Some(p) -> p
+    None -> origin
+  })
+
+  longs = Array.from_list([Int64.from_int(7), Int64.from_int(8)])
+  dbg(Array.get(longs, 1) |> Option.or(Int64.from_int(0)))
+  dbg(Array.get(longs, 5) |> Option.or(Int64.from_int(0)))
+  dbg(Array.get(longs, 9) match {
+    Some(n) -> n
+    None -> Int64.from_int(0)
+  })
+
+  floats = Array.from_list([1.5, 2.5])
+  dbg(Array.get(floats, 0) |> Option.or(0.0))
+  dbg(Array.get(floats, 5) |> Option.or(0.0))
+  dbg(Array.get(floats, 5) match {
+    Some(x) -> x
+    None -> 0.0
+  })
+
+  shades = Array.from_list([Light, Dark])
+  dbg(Array.get(shades, 1) |> Option.or(Light))
+  dbg(Array.get(shades, 5) |> Option.or(Light))
+  dbg(Array.get(shades, 5) match {
+    Some(s) -> s
+    None -> Light
+  })
+
+  # Evaluation order and `d` in range.
+  dbg(evaluation_order(a, 0))
+  dbg(evaluation_order(a, 5))
+
+  # Failing, suspending and effectful `d`.
+  dbg(or_failing(a, 0) escape { Missing(_) -> -1 })
+  dbg(or_failing(a, 9) escape { Missing(_) -> -1 })
+  dbg(or_suspending(a, 0))
+  dbg(or_suspending(a, 9))
+  dbg(or_effectful(a, 0))
+  dbg(or_effectful(a, 9))
+  assert (or_failing(a, 0) escape { Missing(_) -> -1 }) == -1
+  assert (or_failing(a, 9) escape { Missing(_) -> -1 }) == -1
+  assert or_suspending(a, 0) == 10
+  assert or_suspending(a, 9) == 7
+  assert or_effectful(a, 0) == 110
+  assert or_effectful(a, 9) == 101
+
+  # The fused `match` over a reference element keeps the value alive across the arm.
+  first = Array.get(strings, 0) match {
+    Some(s) -> s
+    None -> ""
+  }
+  dbg(first)
+  ()
+}

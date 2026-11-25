@@ -259,7 +259,7 @@ impl Lower<'_> {
             self.open();
             case(self, k);
             cases.push(Case {
-                key: CaseKey::Variant(k),
+                keys: vec![CaseKey::Variant(k)],
                 body: self.close(),
             });
         }

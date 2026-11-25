@@ -24,6 +24,8 @@ pub(crate) fn runtime_name(op: Builtin) -> &'static str {
         Builtin::StringTrim => "$strtrim",
         Builtin::StringCodePoints => "$strcodepoints",
         Builtin::StringFromCodePoint => "$strfromcodepoint",
+        Builtin::StringAsciiLower => "$strAsciiLower",
+        Builtin::StringAsciiUpper => "$strAsciiUpper",
         Builtin::IntToString => "$showInt",
         Builtin::IntParse => "$iparse",
         Builtin::IntCheckedAdd => "$icheckedAdd",
@@ -63,9 +65,12 @@ pub(crate) fn runtime_name(op: Builtin) -> &'static str {
         Builtin::ArrayToList => "$arrayToList",
         Builtin::ArraySize => "$arraySize",
         Builtin::ArrayGet => "$arrayGet",
+        Builtin::ArrayGetOr => "$arrayGetOr",
+        Builtin::ArrayLoadUnchecked => "$arrayLoadUnchecked",
         Builtin::ArraySet => "$arraySet",
         Builtin::ArraySlice => "$arraySlice",
         Builtin::ArrayConcat => "$arrayConcat",
+        Builtin::ArrayMapRange => "$arrayMapRange",
         Builtin::Panic => "$panic",
         Builtin::Todo => "$todo",
         Builtin::Dbg => "$dbg",
@@ -94,6 +99,9 @@ mod tests {
             Builtin::ShowString,
             Builtin::DebugPrint,
             Builtin::AssertFail,
+            Builtin::ArrayGetOr,
+            Builtin::ArrayLoadUnchecked,
+            Builtin::ArrayMapRange,
         ];
         let replaced = [Builtin::ShowNested];
         for &op in Builtin::ALL

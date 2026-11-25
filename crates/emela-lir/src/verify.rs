@@ -605,21 +605,25 @@ impl Checker<'_> {
                 let count = self.core.enums[*id].variants.len();
                 let mut seen = vec![false; count];
                 for case in cases {
-                    match case.key {
-                        CaseKey::Variant(i) if i < count => {
-                            if std::mem::replace(&mut seen[i], true) {
-                                self.error(
-                                    ErrorKind::DuplicateCase,
-                                    format!("constructor {i} has two cases"),
-                                );
+                    if case.keys.is_empty() {
+                        self.error(ErrorKind::BadCase, "a case without keys".into());
+                    }
+                    for key in &case.keys {
+                        match *key {
+                            CaseKey::Variant(i) if i < count => {
+                                if std::mem::replace(&mut seen[i], true) {
+                                    self.error(
+                                        ErrorKind::DuplicateCase,
+                                        format!("constructor {i} has two cases"),
+                                    );
+                                }
                             }
-                        }
-                        CaseKey::Variant(i) => self.error(
-                            ErrorKind::BadCase,
-                            format!("constructor {i} out of range ({count} constructors)"),
-                        ),
-                        CaseKey::Lit(_) => {
-                            self.error(ErrorKind::BadCase, "a literal case in a tag switch".into())
+                            CaseKey::Variant(i) => self.error(
+                                ErrorKind::BadCase,
+                                format!("constructor {i} out of range ({count} constructors)"),
+                            ),
+                            CaseKey::Lit(_) => self
+                                .error(ErrorKind::BadCase, "a literal case in a tag switch".into()),
                         }
                     }
                 }
@@ -640,24 +644,29 @@ impl Checker<'_> {
                 }
                 let mut seen = Vec::new();
                 for case in cases {
-                    match &case.key {
-                        CaseKey::Lit(c) if c.repr() == r => {
-                            if seen.contains(&c) {
-                                self.error(
-                                    ErrorKind::DuplicateCase,
-                                    format!("literal {c:?} has two cases"),
-                                );
+                    if case.keys.is_empty() {
+                        self.error(ErrorKind::BadCase, "a case without keys".into());
+                    }
+                    for key in &case.keys {
+                        match key {
+                            CaseKey::Lit(c) if c.repr() == r => {
+                                if seen.contains(&c) {
+                                    self.error(
+                                        ErrorKind::DuplicateCase,
+                                        format!("literal {c:?} has two cases"),
+                                    );
+                                }
+                                seen.push(c);
                             }
-                            seen.push(c);
+                            CaseKey::Lit(c) => self.error(
+                                ErrorKind::BadCase,
+                                format!("a {} case in a switch on {r}", c.repr()),
+                            ),
+                            CaseKey::Variant(_) => self.error(
+                                ErrorKind::BadCase,
+                                "a constructor case in a literal switch".into(),
+                            ),
                         }
-                        CaseKey::Lit(c) => self.error(
-                            ErrorKind::BadCase,
-                            format!("a {} case in a switch on {r}", c.repr()),
-                        ),
-                        CaseKey::Variant(_) => self.error(
-                            ErrorKind::BadCase,
-                            "a constructor case in a literal switch".into(),
-                        ),
                     }
                 }
                 if !has_default {
@@ -1265,12 +1274,36 @@ impl Checker<'_> {
                     _ => Expect::Exactly(r),
                 }
             }
-            Value::Runtime { op, args } => {
-                let (params, ret) = op.sig();
-                let expected: Vec<Option<Repr>> = params.iter().map(|&r| Some(r)).collect();
-                self.args(args, &expected, &format!("runtime {}", op.name()));
-                Expect::Exactly(ret)
-            }
+            Value::Runtime { op, args } => match op.sig() {
+                Some((params, ret)) => {
+                    let expected: Vec<Option<Repr>> = params.iter().map(|&r| Some(r)).collect();
+                    self.args(args, &expected, &format!("runtime {}", op.name()));
+                    Expect::Exactly(ret)
+                }
+                // `concat` takes any number of strings; the lowering never makes one of fewer
+                // than two parts (two would be a plain `String.append`).
+                None => {
+                    if args.len() < 2 {
+                        self.error(
+                            ErrorKind::Arity,
+                            format!(
+                                "runtime {}: expected at least 2 arguments, found {}",
+                                op.name(),
+                                args.len()
+                            ),
+                        );
+                    }
+                    for (i, a) in args.iter().enumerate() {
+                        let r = self.operand(a);
+                        self.expect(
+                            r,
+                            Repr::Ref,
+                            &format!("runtime {}: argument {i}", op.name()),
+                        );
+                    }
+                    Expect::Exactly(Repr::Ref)
+                }
+            },
         }
     }
 

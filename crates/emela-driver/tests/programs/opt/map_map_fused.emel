@@ -1,0 +1,23 @@
+# A mutation pair for the map∘map law (D3/PR-030): `List.map(List.map(xs, f), g)` is the law's
+# input, and `map_map_expanded.emel` is the same program as one hand-written pass that builds no
+# intermediate list. The law is off in the default pipeline because it is new, so this pair checks
+# that the two hand-written programs give the same output on every target; when the law is turned
+# on, it becomes a direct check of the law's output too.
+
+fn inc(x: Int) -> Int {
+  x + 1
+}
+
+fn twice(x: Int) -> Int {
+  x * 2
+}
+
+fn pipeline(xs: List[Int]) -> List[Int] {
+  List.map(List.map(xs, inc), twice)
+}
+
+fn main() {
+  dbg(pipeline([1, 2, 3]))
+  dbg(pipeline([]))
+  ()
+}
