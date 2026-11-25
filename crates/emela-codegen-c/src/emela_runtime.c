@@ -1469,6 +1469,37 @@ em_ref em_from_host_string(char *s, const char *function) {
   return em_buf_finish(&b);
 }
 
+/* A Bytes is an EM_KIND_STRING object, so a host function gets its own bytes, without a copy. */
+const uint8_t *em_bytes_data(em_ref b) { return (const uint8_t *)EM_STR_BYTES(b); }
+
+size_t em_bytes_len(em_ref b) { return EM_STR_LEN(b); }
+
+/* The defect of bytes that cannot become a Bytes (`[ext.boundary]`, `[target.native.export]`):
+ * `who` is `external function` or `exported function`, `what` the rest of the message. */
+static void em_bytes_defect(const char *who, const char *function, const char *what) {
+  char msg[512];
+  snprintf(msg, sizeof msg, "%s `%s` %s", who, function, what);
+  em_raise_cstr(msg);
+}
+
+/* The largest number of bytes of a Bytes (its size is an Int). */
+#define EM_BYTES_MAX ((size_t)INT32_MAX)
+
+em_ref em_from_host_bytes(em_bytes r, const char *function) {
+  if (r.data == NULL && r.len > 0) {
+    em_bytes_defect("external function", function, "returned NULL");
+    return NULL;
+  }
+  if (r.len > EM_BYTES_MAX) {
+    free(r.data);
+    em_bytes_defect("external function", function, "returned more bytes than a Bytes can hold");
+    return NULL;
+  }
+  em_ref b = em_str_from(r.data == NULL ? "" : (const char *)r.data, r.len);
+  free(r.data);
+  return b;
+}
+
 /* ---- Suspension and fibers (spec chapter 11, 14.5) ----
  *
  * This follows the JS runtime's scheduler (crates/emela-codegen-js/src/runtime.mjs: `$Root`,
@@ -2709,6 +2740,9 @@ struct em_htask {
   em_reg *regs;
   /* Retired (delivered or discarded): freed when the runtime is back in its event loop. */
   struct em_htask *retired_next;
+  /* The String and Bytes arguments (`em_task_keep`), dropped when the task is freed. */
+  em_ref *kept;
+  size_t kept_len;
   /* Guarded by `em_inbox_lock`: */
   bool completed;
   /* Completed by another thread: in the inbox until the runtime's thread takes it. */
@@ -2718,8 +2752,10 @@ struct em_htask {
   /* What the completion gave: EM_HOST_* or EM_HOST_DEFECT, and the value. */
   int32_t got;
   em_word value;
-  /* The string of em_complete_string or the message of em_complete_defect (malloc'ed). */
+  /* The string of em_complete_string, the bytes of em_complete_bytes or the message of
+   * em_complete_defect (malloc'ed), and the number of bytes of em_complete_bytes. */
   char *str;
+  size_t len;
   struct em_htask *inbox_next;
 };
 
@@ -2965,20 +3001,28 @@ static em_htask *em_slot_find(em_task *h, const char **function, const char *cal
   return NULL;
 }
 
-/* Frees the retired tasks (back in the event loop). Their slots become free, after the others. */
+/* Frees the retired tasks (back in the event loop). Their slots become free, after the others.
+ * The arguments they kept are dropped then: a retired task has completed, so the host no longer
+ * uses their bytes (spec 12.4). */
 static void em_loop_collect(void) {
   if (em_retired == NULL) return;
+  em_htask *freed = em_retired;
+  em_retired = NULL;
   pthread_mutex_lock(&em_inbox_lock);
-  while (em_retired != NULL) {
-    em_htask *t = em_retired;
-    em_retired = t->retired_next;
+  for (em_htask *t = freed; t != NULL; t = t->retired_next) {
     em_slots[t->slot].task = NULL;
     if (em_free_tail == EM_NO_SLOT) em_free_head = t->slot;
     else em_slots[em_free_tail].next_free = t->slot;
     em_free_tail = t->slot;
-    free(t);
   }
   pthread_mutex_unlock(&em_inbox_lock);
+  while (freed != NULL) {
+    em_htask *t = freed;
+    freed = t->retired_next;
+    for (size_t i = 0; i < t->kept_len; i++) em_drop(t->kept[i]);
+    free(t->kept);
+    free(t);
+  }
 }
 
 static const char *em_complete_name(int32_t got) {
@@ -2993,6 +3037,8 @@ static const char *em_complete_name(int32_t got) {
       return "em_complete_bool";
     case EM_HOST_STRING:
       return "em_complete_string";
+    case EM_HOST_BYTES:
+      return "em_complete_bytes";
     case EM_HOST_HANDLE:
       return "em_complete_handle";
     default:
@@ -3046,6 +3092,18 @@ static em_input em_task_input(em_htask *t) {
       w.p = v;
       return em_in_value(w, true);
     }
+    case EM_HOST_BYTES: {
+      em_bytes r = {(uint8_t *)t->str, t->len};
+      t->str = NULL;
+      em_ref v = em_from_host_bytes(r, t->function);
+      if (v == NULL) {
+        em_ref d = em_defect;
+        em_defect = NULL;
+        return em_in_ref(EM_THROW, d);
+      }
+      w.p = v;
+      return em_in_value(w, true);
+    }
     case EM_HOST_HANDLE:
       w.p = em_host_box(t->value.h);
       return em_in_value(w, true);
@@ -3091,7 +3149,8 @@ static void em_wake(void) {
   (void)n;
 }
 
-static void em_complete(em_task *h, const char *caller, int32_t got, em_word value, char *str) {
+static void em_complete(em_task *h, const char *caller, int32_t got, em_word value, char *str,
+                        size_t len) {
   bool here = em_on_runtime_thread();
   pthread_mutex_lock(&em_inbox_lock);
   const char *function = NULL;
@@ -3121,6 +3180,7 @@ static void em_complete(em_task *h, const char *caller, int32_t got, em_word val
   t->got = got;
   t->value = value;
   t->str = str;
+  t->len = len;
   if (!here) {
     t->queued = true;
     t->inbox_next = NULL;
@@ -3138,39 +3198,43 @@ static void em_complete(em_task *h, const char *caller, int32_t got, em_word val
 void em_complete_int(em_task *t, int32_t v) {
   em_word w = em_zero();
   w.i = v;
-  em_complete(t, "em_complete_int", EM_HOST_INT, w, NULL);
+  em_complete(t, "em_complete_int", EM_HOST_INT, w, NULL, 0);
 }
 
 void em_complete_int64(em_task *t, int64_t v) {
   em_word w;
   w.l = v;
-  em_complete(t, "em_complete_int64", EM_HOST_INT64, w, NULL);
+  em_complete(t, "em_complete_int64", EM_HOST_INT64, w, NULL, 0);
 }
 
 void em_complete_float(em_task *t, double v) {
   em_word w;
   w.f = v;
-  em_complete(t, "em_complete_float", EM_HOST_FLOAT, w, NULL);
+  em_complete(t, "em_complete_float", EM_HOST_FLOAT, w, NULL, 0);
 }
 
 void em_complete_bool(em_task *t, bool v) {
   em_word w = em_zero();
   w.i = v ? 1 : 0;
-  em_complete(t, "em_complete_bool", EM_HOST_BOOL, w, NULL);
+  em_complete(t, "em_complete_bool", EM_HOST_BOOL, w, NULL, 0);
 }
 
 void em_complete_string(em_task *t, char *v) {
-  em_complete(t, "em_complete_string", EM_HOST_STRING, em_zero(), v);
+  em_complete(t, "em_complete_string", EM_HOST_STRING, em_zero(), v, 0);
+}
+
+void em_complete_bytes(em_task *t, uint8_t *data, size_t len) {
+  em_complete(t, "em_complete_bytes", EM_HOST_BYTES, em_zero(), (char *)data, len);
 }
 
 void em_complete_unit(em_task *t) {
-  em_complete(t, "em_complete_unit", EM_HOST_UNIT, em_zero(), NULL);
+  em_complete(t, "em_complete_unit", EM_HOST_UNIT, em_zero(), NULL, 0);
 }
 
 void em_complete_handle(em_task *t, void *v) {
   em_word w;
   w.h = v;
-  em_complete(t, "em_complete_handle", EM_HOST_HANDLE, w, NULL);
+  em_complete(t, "em_complete_handle", EM_HOST_HANDLE, w, NULL, 0);
 }
 
 void em_complete_defect(em_task *t, const char *message) {
@@ -3179,7 +3243,7 @@ void em_complete_defect(em_task *t, const char *message) {
   char *copy = malloc(n + 1);
   if (copy == NULL) em_out_of_memory();
   memcpy(copy, m, n + 1);
-  em_complete(t, "em_complete_defect", EM_HOST_DEFECT, em_zero(), copy);
+  em_complete(t, "em_complete_defect", EM_HOST_DEFECT, em_zero(), copy, 0);
 }
 
 static bool em_task_done(em_htask *t) {
@@ -3269,6 +3333,15 @@ em_task *em_task_new(int32_t kind, const char *function) {
   t->in_place = true;
   em_slot_take(t);
   return t->handle;
+}
+
+void em_task_keep(em_task *h, em_ref s) {
+  em_htask *t = em_task_of(h, "em_task_keep");
+  em_ref *kept = realloc(t->kept, (t->kept_len + 1) * sizeof(em_ref));
+  if (kept == NULL) em_out_of_memory();
+  em_dup(s);
+  kept[t->kept_len++] = s;
+  t->kept = kept;
 }
 
 em_word em_task_end(em_task *h) {
@@ -4713,6 +4786,29 @@ em_ref em_from_export_string(const char *s, const char *function) {
   if (copy == NULL) em_out_of_memory();
   memcpy(copy, s, n + 1);
   return em_from_host_string(copy, function);
+}
+
+em_ref em_from_export_bytes(const uint8_t *data, size_t len, const char *function) {
+  if (data == NULL && len > 0) {
+    em_bytes_defect("exported function", function, "was given NULL");
+    return NULL;
+  }
+  if (len > EM_BYTES_MAX) {
+    em_bytes_defect("exported function", function, "was given more bytes than a Bytes can hold");
+    return NULL;
+  }
+  return em_str_from(data == NULL ? "" : (const char *)data, len);
+}
+
+em_bytes em_to_export_bytes(em_ref b) {
+  em_bytes r = {NULL, EM_STR_LEN(b)};
+  if (r.len > 0) {
+    r.data = malloc(r.len);
+    if (r.data == NULL) em_out_of_memory();
+    memcpy(r.data, EM_STR_BYTES(b), r.len);
+  }
+  em_drop(b);
+  return r;
 }
 
 char *em_to_export_string(em_ref s) {

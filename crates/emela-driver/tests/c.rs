@@ -264,62 +264,6 @@ fn main() {}
     );
 }
 
-/// `[ext.boundary]`: the native target does not support Bytes at the boundary yet. An external
-/// function reachable from the entry, or an exported fn, that takes or returns Bytes is E0443.
-#[test]
-fn bytes_at_the_boundary_are_e0443() {
-    let main = r##"import Std.Bytes.{Bytes}
-
-@external(c, "read_file")
-fn read_file(path: String) -> Bytes uses {}
-
-@external(c, "write_file")
-fn write_file(data: Bytes) -> () uses {}
-
-fn main() { write_file(read_file("a")) }
-"##;
-    let (analysis, output) = run_c("bytes-boundary", main, &mut CoreC::default());
-    assert!(output.is_none());
-    assert_eq!(
-        codes(&analysis),
-        [
-            (
-                Some("E0443"),
-                "external function `write_file` takes `Bytes`, which target `native` does not support yet"
-            ),
-            (
-                Some("E0443"),
-                "external function `read_file` returns `Bytes`, which target `native` does not support yet"
-            ),
-        ]
-    );
-    let main = r##"import Std.Bytes.{Bytes}
-
-@export(c, "size")
-fn size(b: Bytes) -> Int { Bytes.size(b) }
-
-@export(c, "empty")
-fn empty() -> Bytes { Bytes.empty() }
-
-fn main() {}
-"##;
-    let (analysis, output) = run_c("bytes-export", main, &mut CoreC::default());
-    assert!(output.is_none());
-    assert_eq!(
-        codes(&analysis),
-        [
-            (
-                Some("E0443"),
-                "exported function `size` takes `Bytes`, which target `native` does not support yet"
-            ),
-            (
-                Some("E0443"),
-                "exported function `empty` returns `Bytes`, which target `native` does not support yet"
-            ),
-        ]
-    );
-}
-
 /// `[ext.boundary]`: the native target does not support Array at the boundary yet either. An external
 /// function reachable from the entry, or an exported fn, that takes or returns a type that is an
 /// Array (of any element type, Bytes and nested arrays included) is E0443.
@@ -939,11 +883,16 @@ fn after_the_others() {
 /// A project on disk (`@external(c, "./host.c", ...)` points to a real file) with [`HOST_EMEL`]
 /// and [`HOST_C`].
 fn host_project(name: &str) -> (PathBuf, Input) {
+    disk_project(name, HOST_EMEL, HOST_C)
+}
+
+/// A project on disk with `main` as `src/main.emel` and `host` as `src/host.c`.
+fn disk_project(name: &str, main: &str, host: &str) -> (PathBuf, Input) {
     let dir = out_dir(&format!("{name}-project"));
     std::fs::create_dir_all(dir.join("src")).unwrap();
     std::fs::write(dir.join("Pome.toml"), "").unwrap();
-    std::fs::write(dir.join("src/main.emel"), HOST_EMEL).unwrap();
-    std::fs::write(dir.join("src/host.c"), HOST_C).unwrap();
+    std::fs::write(dir.join("src/main.emel"), main).unwrap();
+    std::fs::write(dir.join("src/host.c"), host).unwrap();
     let input = Input::resolve(&OsFs, &dir).unwrap();
     (dir, input)
 }
@@ -1179,4 +1128,444 @@ fn exported_functions_are_called_from_c() {
         "\"tick\"\n\"main\"\ndefect: exported function `add` was called while Emela code is running\n"
     );
     assert_eq!(output.code, 101);
+}
+
+/// The host side of [`BYTES_EMEL`]: external functions that take and return Bytes
+/// (`[ext.boundary]`), and `suspend fn` ones that complete with `em_complete_bytes`
+/// (`[ext.c-host]`).
+const BYTES_C: &str = r#"#define _POSIX_C_SOURCE 200809L
+#include <pthread.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include "emela.h"
+
+/* The empty Bytes may come as NULL with a length of 0. */
+int32_t host_sum(const uint8_t *data, size_t len) {
+  int32_t sum = 0;
+  for (size_t i = 0; i < len; i++) sum += data[i];
+  return sum;
+}
+
+/* A Bytes takes two C parameters in its position. */
+int32_t host_sizes(const uint8_t *a, size_t a_len, const char *s, const uint8_t *b, size_t b_len) {
+  (void)a;
+  (void)b;
+  return (int32_t)(a_len * 100 + strlen(s) * 10 + b_len);
+}
+
+static em_bytes reversed(const uint8_t *data, size_t len) {
+  em_bytes r = {NULL, len};
+  if (len == 0) return r;
+  r.data = malloc(len);
+  for (size_t i = 0; i < len; i++) r.data[i] = data[len - 1 - i];
+  return r;
+}
+
+em_bytes host_reverse(const uint8_t *data, size_t len) { return reversed(data, len); }
+
+em_bytes host_empty(void) {
+  em_bytes r = {NULL, 0};
+  return r;
+}
+
+em_bytes host_null(void) {
+  em_bytes r = {NULL, 3};
+  return r;
+}
+
+/* The runtime frees `data` although it rejects the length. */
+em_bytes host_huge(void) {
+  em_bytes r = {malloc(1), (size_t)INT32_MAX + 1};
+  return r;
+}
+
+/* Completes in place. */
+void host_reverse_now(const uint8_t *data, size_t len, em_task *task) {
+  em_bytes r = reversed(data, len);
+  em_complete_bytes(task, r.data, r.len);
+}
+
+static void never(em_task *task, void *ctx) {
+  (void)task;
+  (void)ctx;
+}
+
+static void pause_ms(long ms) {
+  struct timespec ts = {0, ms * 1000000};
+  nanosleep(&ts, NULL);
+}
+
+typedef struct job {
+  em_task *task;
+  const uint8_t *data;
+  size_t len;
+  const char *s;
+} job;
+
+static void start(void *(*work)(void *), em_task *task, const uint8_t *data, size_t len, const char *s) {
+  em_after(60000, task, never, NULL);
+  job *j = malloc(sizeof *j);
+  j->task = task;
+  j->data = data;
+  j->len = len;
+  j->s = s;
+  pthread_t thread;
+  pthread_create(&thread, NULL, work, j);
+  pthread_detach(thread);
+}
+
+/* Reads the bytes on another thread, after the C function has returned. */
+static void *reverse_work(void *arg) {
+  job *j = arg;
+  pause_ms(20);
+  em_bytes r = reversed(j->data, j->len);
+  em_complete_bytes(j->task, r.data, r.len);
+  free(j);
+  return NULL;
+}
+
+void host_reverse_threaded(const uint8_t *data, size_t len, em_task *task) {
+  start(reverse_work, task, data, len, NULL);
+}
+
+static pthread_mutex_t held_lock = PTHREAD_MUTEX_INITIALIZER;
+static char held[64] = "";
+
+static void *hold_work(void *arg) {
+  job *j = arg;
+  pause_ms(50);
+  pthread_mutex_lock(&held_lock);
+  snprintf(held, sizeof held, "%.*s %s", (int)j->len, (const char *)j->data, j->s);
+  pthread_mutex_unlock(&held_lock);
+  em_complete_unit(j->task);
+  free(j);
+  return NULL;
+}
+
+/* Ignores the interruption of the waiting fiber, and reads the bytes and the string on another
+ * thread after it. */
+void host_hold(const uint8_t *data, size_t len, const char *s, em_task *task) {
+  start(hold_work, task, data, len, s);
+}
+
+char *host_held(void) {
+  pthread_mutex_lock(&held_lock);
+  char *s = strdup(held);
+  pthread_mutex_unlock(&held_lock);
+  return s;
+}
+
+void host_null_now(em_task *task) { em_complete_bytes(task, NULL, 2); }
+
+static void huge(em_task *task, void *ctx) {
+  (void)ctx;
+  em_complete_bytes(task, malloc(1), (size_t)INT32_MAX + 1);
+}
+
+void host_huge_later(em_task *task) { em_after(1, task, huge, NULL); }
+
+/* The runtime frees `data` although the completion does not match. */
+void host_bytes_for_string(em_task *task) { em_complete_bytes(task, malloc(2), 2); }
+"#;
+
+const BYTES_EMEL: &str = r##"import Std.Bytes.{Bytes}
+import Std.Clock.{Clock, SystemClock}
+import Std.Console.{Console, SystemConsole}
+import Std.Task.{Task}
+
+@external(c, "./host.c", "host_sum")
+fn host_sum(b: Bytes) -> Int uses {}
+
+@external(c, "./host.c", "host_sizes")
+fn host_sizes(a: Bytes, s: String, b: Bytes) -> Int uses {}
+
+@external(c, "./host.c", "host_reverse")
+fn host_reverse(b: Bytes) -> Bytes uses {}
+
+@external(c, "./host.c", "host_empty")
+fn host_empty() -> Bytes uses {}
+
+@external(c, "./host.c", "host_null")
+fn host_null() -> Bytes uses {}
+
+@external(c, "./host.c", "host_huge")
+fn host_huge() -> Bytes uses {}
+
+@external(c, "./host.c", "host_held")
+fn host_held() -> String uses {}
+
+@external(c, "./host.c", "host_reverse_now")
+suspend fn host_reverse_now(b: Bytes) -> Bytes
+
+@external(c, "./host.c", "host_reverse_threaded")
+suspend fn host_reverse_threaded(b: Bytes) -> Bytes
+
+@external(c, "./host.c", "host_hold")
+suspend fn host_hold(b: Bytes, s: String) -> ()
+
+@external(c, "./host.c", "host_null_now")
+suspend fn host_null_now() -> Bytes
+
+@external(c, "./host.c", "host_huge_later")
+suspend fn host_huge_later() -> Bytes
+
+@external(c, "./host.c", "host_bytes_for_string")
+suspend fn host_bytes_for_string() -> String
+
+effect Host {
+  suspend fn reverse_now(b: Bytes) -> Bytes
+  suspend fn reverse_threaded(b: Bytes) -> Bytes
+  suspend fn hold(b: Bytes, s: String) -> ()
+  suspend fn null_now() -> Bytes
+  suspend fn huge_later() -> Bytes
+  suspend fn bytes_for_string() -> String
+}
+
+handler CHost: Host {
+  suspend fn reverse_now(b, resume) { resume(host_reverse_now(b)) }
+  suspend fn reverse_threaded(b, resume) { resume(host_reverse_threaded(b)) }
+  suspend fn hold(b, s, resume) { resume(host_hold(b, s)) }
+  suspend fn null_now(resume) { resume(host_null_now()) }
+  suspend fn huge_later(resume) { resume(host_huge_later()) }
+  suspend fn bytes_for_string(resume) { resume(host_bytes_for_string()) }
+}
+
+fn main() {
+  with SystemConsole, SystemClock, CHost {
+    console = use Console
+    clock = use Clock
+    host = use Host
+    console.print_line("#{host_sum(Bytes.hex("0102ff"))} #{host_sum(Bytes.empty())}")
+    console.print_line("#{host_sizes(Bytes.hex("0102"), "abc", Bytes.empty())}")
+    console.print_line(Bytes.to_hex(host_reverse(Bytes.hex("010203"))))
+    console.print_line("#{Bytes.size(host_empty())} #{Bytes.size(host_reverse(Bytes.empty()))}")
+    console.print_line(Bytes.to_hex(host.reverse_now(Bytes.hex("0a0b"))))
+    console.print_line(Bytes.to_hex(host.reverse_threaded(Bytes.hex("0a0b0c"))))
+    n = host_sum(Bytes.hex("07"))
+    console.print_line(
+      "#{Task.timeout(10, || host.hold(Bytes.encode_utf8("bytes #{n}"), "string #{n}"))}"
+    )
+    # Values of the same sizes as the ones the interrupted call was given, made while the host
+    # still reads those.
+    other_string = "string #{n + 1}"
+    other_bytes = Bytes.encode_utf8("bytes #{n + 1}")
+    clock.sleep(100)
+    console.print_line(host_held())
+    console.print_line("#{String.byte_size(other_string)} #{Bytes.size(other_bytes)}")
+  }
+}
+
+@test
+fn returned_null() {
+  assert Bytes.size(host_null()) == 3
+}
+
+@test
+fn returned_too_many() {
+  assert Bytes.size(host_huge()) == 1
+}
+
+@test
+fn completed_with_null() {
+  with CHost { assert Bytes.size((use Host).null_now()) == 2 }
+}
+
+@test
+fn completed_with_too_many() {
+  with CHost { assert Bytes.size((use Host).huge_later()) == 1 }
+}
+
+@test
+fn completed_with_bytes_for_a_string() {
+  with CHost { assert (use Host).bytes_for_string() == "" }
+}
+"##;
+
+/// `[ext.boundary]`, `[ext.c-host]`: a Bytes parameter is a pointer and a length, a returned Bytes
+/// an `em_bytes` that the runtime copies and frees, and an external `suspend fn` completes with
+/// `em_complete_bytes`. The bytes and the string of a `suspend fn`'s parameters stay valid until
+/// its task completes, after the waiting fiber has been interrupted too.
+#[test]
+fn bytes_cross_to_c() {
+    if !have_cc() {
+        return;
+    }
+    let (dir, input) = disk_project("bytes-run", BYTES_EMEL, BYTES_C);
+    let options = RunOptions {
+        out_dir: dir.join("out"),
+        js_host: emela_driver::js_host_program(),
+        args: Vec::new(),
+        output: Output::Capture,
+    };
+    let (analysis, output) = run(
+        &OsFs,
+        &input,
+        &mut Lower::default().with_target(Target::Native),
+        &mut sanitized(),
+        &options,
+        |_, _| {},
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(codes(&analysis), []);
+    let output = output.unwrap();
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(
+        text(&output.stdout),
+        "258 0\n230\n030201\n0 0\n0b0a\n0c0b0a\nNone\nbytes 7 string 7\n8 7\n"
+    );
+    assert_eq!(output.code, 0);
+}
+
+/// `[ext.boundary]`, `[ext.c-host]`: a NULL `data` with a length, and a length above 2^31 - 1,
+/// are defects, returned or passed to `em_complete_bytes`; so is `em_complete_bytes` for a
+/// function that does not return Bytes. The runtime frees `data` in each case (the leak check).
+#[test]
+fn bytes_from_c_misbehaving() {
+    if !have_cc() {
+        return;
+    }
+    let (dir, input) = disk_project("bytes-test", BYTES_EMEL, BYTES_C);
+    let options = TestOptions {
+        out_dir: dir.join("out"),
+        js_host: emela_driver::js_host_program(),
+        filter: None,
+        output: Output::Capture,
+        reporter: emela_driver::Reporter::Plain,
+        color: false,
+    };
+    let mut out = Vec::new();
+    let (analysis, report) = test(
+        &OsFs,
+        &input,
+        &mut LowerTests::default().with_target(Target::Native),
+        &mut sanitized(),
+        &options,
+        |_| {},
+        &mut out,
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(codes(&analysis), []);
+    let results: Vec<(String, TestOutcome)> = report
+        .unwrap()
+        .results
+        .into_iter()
+        .map(|r| (r.name, r.outcome))
+        .collect();
+    let defect = |name: &str, message: String| (name.to_owned(), TestOutcome::Defect(message));
+    let null = |f: &str| format!("external function `{f}` returned NULL");
+    let many =
+        |f: &str| format!("external function `{f}` returned more bytes than a Bytes can hold");
+    assert_eq!(
+        results,
+        [
+            defect("returned_null", null("host_null")),
+            defect("returned_too_many", many("host_huge")),
+            defect("completed_with_null", null("host_null_now")),
+            defect("completed_with_too_many", many("host_huge_later")),
+            defect(
+                "completed_with_bytes_for_a_string",
+                "external function `host_bytes_for_string` was completed with `em_complete_bytes`, which does not match its return type".to_owned()
+            ),
+        ]
+    );
+}
+
+/// The host side of [`BYTES_EXPORT_EMEL`]: a constructor calls the exports before main starts,
+/// then `LAST`, which is replaced by a call that is a defect of the launch, or by nothing.
+const BYTES_EXPORT_C: &str = r#"#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "emela.h"
+
+int32_t size(const uint8_t *data, size_t len);
+em_bytes twice(const uint8_t *data, size_t len);
+em_bytes nothing(void);
+
+__attribute__((constructor)) static void before_main(void) {
+  uint8_t b[] = {1, 2, 0};
+  em_bytes r = twice(b, 3);
+  for (size_t i = 0; i < r.len; i++) printf("%02x", r.data[i]);
+  printf("\n");
+  free(r.data);
+  printf("%d %d\n", size(b, 3), size(NULL, 0));
+  em_bytes e = nothing();
+  printf("%d %d\n", (int)e.len, e.data == NULL);
+  fflush(stdout);
+  LAST;
+}
+
+/* Links this file into the program. */
+void host_main(void) {}
+"#;
+
+const BYTES_EXPORT_EMEL: &str = r##"import Std.Bytes.{Bytes}
+
+@export(c, "size")
+fn size(b: Bytes) -> Int { Bytes.size(b) }
+
+@export(c, "twice")
+fn twice(b: Bytes) -> Bytes { Bytes.append(b, b) }
+
+@export(c, "nothing")
+fn nothing() -> Bytes { Bytes.empty() }
+
+@external(c, "./host.c", "host_main")
+fn host_main() -> () uses {}
+
+fn main() {
+  dbg("main")
+  host_main()
+}
+"##;
+
+/// `[target.native.export]`: an exported fn takes a Bytes as `const uint8_t *data, size_t len` and
+/// returns an `em_bytes` the host frees (NULL `data` for no bytes). A NULL `data` with a length,
+/// and a length above 2^31 - 1, are defects of the launch.
+#[test]
+fn exported_functions_take_and_return_bytes() {
+    if !have_cc() {
+        return;
+    }
+    let cases = [
+        ("", 0, "\"main\"\n"),
+        (
+            "size(NULL, 2)",
+            101,
+            "defect: exported function `size` was given NULL\n",
+        ),
+        (
+            "size(b, (size_t)INT32_MAX + 1)",
+            101,
+            "defect: exported function `size` was given more bytes than a Bytes can hold\n",
+        ),
+    ];
+    for (i, (last, code, stderr)) in cases.into_iter().enumerate() {
+        let host = BYTES_EXPORT_C.replace("LAST", if last.is_empty() { "(void)0" } else { last });
+        let (dir, input) = disk_project(&format!("bytes-export-{i}"), BYTES_EXPORT_EMEL, &host);
+        let options = RunOptions {
+            out_dir: dir.join("out"),
+            js_host: emela_driver::js_host_program(),
+            args: Vec::new(),
+            output: Output::Capture,
+        };
+        let (analysis, output) = run(
+            &OsFs,
+            &input,
+            &mut Lower::default().with_target(Target::Native),
+            &mut sanitized(),
+            &options,
+            |_, _| {},
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(codes(&analysis), []);
+        let output = output.unwrap();
+        assert_eq!(text(&output.stdout), "010200010200\n3 0\n0 1\n", "{last}");
+        assert_eq!(text(&output.stderr), stderr, "{last}");
+        assert_eq!(output.code, code, "{last}");
+    }
 }

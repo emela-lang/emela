@@ -412,27 +412,40 @@ enum HostTy {
     Float,
     Bool,
     String,
+    /// Two C parameters, the bytes and their number, and `em_bytes` as a return value.
+    Bytes,
     Unit,
     Handle,
 }
 
 impl HostTy {
-    fn param(self) -> &'static str {
+    /// The C types of the parameters a value of this type takes, in order.
+    fn params(self) -> &'static [&'static str] {
         match self {
-            HostTy::Int => "int32_t",
-            HostTy::Int64 => "int64_t",
-            HostTy::Float => "double",
-            HostTy::Bool => "bool",
-            HostTy::String => "const char *",
-            HostTy::Unit => "void",
-            HostTy::Handle => "void *",
+            HostTy::Int => &["int32_t"],
+            HostTy::Int64 => &["int64_t"],
+            HostTy::Float => &["double"],
+            HostTy::Bool => &["bool"],
+            HostTy::String => &["const char *"],
+            HostTy::Bytes => &["const uint8_t *", "size_t"],
+            HostTy::Unit => &["void"],
+            HostTy::Handle => &["void *"],
         }
     }
 
     fn ret(self) -> &'static str {
         match self {
             HostTy::String => "char *",
-            other => other.param(),
+            HostTy::Bytes => "em_bytes",
+            other => other.params()[0],
+        }
+    }
+
+    /// The suffixes of the names of the C parameters a value of this type takes, in order.
+    fn suffixes(self) -> &'static [&'static str] {
+        match self {
+            HostTy::Bytes => &["_data", "_len"],
+            _ => &[""],
         }
     }
 }
@@ -2222,7 +2235,10 @@ impl<'m> Emitter<'m> {
             }
         };
         if self.host_names.insert(host.clone()) {
-            let mut ps: Vec<&str> = params.iter().map(|(_, t)| t.param()).collect();
+            let mut ps: Vec<&str> = params
+                .iter()
+                .flat_map(|(_, t)| t.params().iter().copied())
+                .collect();
             // A `suspend fn` takes the task last and completes it later (spec 12.6).
             if f.suspends {
                 ps.push("em_task *");
@@ -2233,17 +2249,22 @@ impl<'m> Emitter<'m> {
         let mut host_args = Vec::new();
         for (i, (p, t)) in params.iter().enumerate() {
             let v = var(*p);
-            host_args.push(match t {
+            match t {
                 HostTy::String => {
                     let c = format!("c{i}");
                     w.decl("const char *", &c, Some(&call("em_cstr", [&v])));
                     w.if_return(&format!("{c} == NULL"), dummy);
-                    c
+                    host_args.push(c);
                 }
-                HostTy::Bool => format!("({v} != 0)"),
-                HostTy::Handle => call("em_host_get", [&v]),
-                _ => v,
-            });
+                // The runtime's own bytes, without a copy (`[ext.boundary]`).
+                HostTy::Bytes => {
+                    host_args.push(call("em_bytes_data", [&v]));
+                    host_args.push(call("em_bytes_len", [&v]));
+                }
+                HostTy::Bool => host_args.push(format!("({v} != 0)")),
+                HostTy::Handle => host_args.push(call("em_host_get", [&v])),
+                _ => host_args.push(v),
+            }
         }
         let name = names::string_literal(display_name(&f.name).as_bytes());
         if f.suspends {
@@ -2254,6 +2275,7 @@ impl<'m> Emitter<'m> {
                 HostTy::Float => "EM_HOST_FLOAT",
                 HostTy::Bool => "EM_HOST_BOOL",
                 HostTy::String => "EM_HOST_STRING",
+                HostTy::Bytes => "EM_HOST_BYTES",
                 HostTy::Handle => "EM_HOST_HANDLE",
             };
             w.decl(
@@ -2261,6 +2283,14 @@ impl<'m> Emitter<'m> {
                 "task",
                 Some(&call("em_task_new", [kind, name.as_str()])),
             );
+            // The host may use the bytes of a String or Bytes argument until the task completes,
+            // after the waiting fiber has been interrupted and its frames dropped the arguments
+            // too (`[ext.boundary]`), so the task holds a reference to each.
+            for (p, t) in &params {
+                if matches!(t, HostTy::String | HostTy::Bytes) {
+                    w.stmt(&call("em_task_keep", ["task".to_owned(), var(*p)]));
+                }
+            }
             host_args.push("task".to_owned());
             w.stmt(&call(&host, &host_args));
             if ret == Repr::Void {
@@ -2279,6 +2309,9 @@ impl<'m> Emitter<'m> {
             HostTy::String => {
                 w.ret(Some(&call("em_from_host_string", [host_call, name])));
             }
+            HostTy::Bytes => {
+                w.ret(Some(&call("em_from_host_bytes", [host_call, name])));
+            }
             HostTy::Bool => w.ret(Some(&format!("{host_call} ? 1 : 0"))),
             HostTy::Handle => w.ret(Some(&call("em_host_box", [host_call]))),
             _ => w.ret(Some(&host_call)),
@@ -2293,6 +2326,7 @@ impl<'m> Emitter<'m> {
             Type::Float => HostTy::Float,
             Type::Bool => HostTy::Bool,
             Type::String => HostTy::String,
+            Type::Bytes => HostTy::Bytes,
             Type::Unit | Type::Never => HostTy::Unit,
             Type::Enum(id, _) if core.enums[*id].external => HostTy::Handle,
             _ => return None,
@@ -2405,12 +2439,13 @@ impl<'m> Emitter<'m> {
             let result = format!("{fname}_xr");
             for (i, (_, t)) in params.iter().enumerate() {
                 if *t != HostTy::Unit {
-                    let ty = if *t == HostTy::String {
-                        "const char *"
-                    } else {
-                        t.param()
-                    };
-                    self.statics.decl(&format!("static {ty}"), &arg(i), None);
+                    for (ty, suffix) in t.params().iter().zip(t.suffixes()) {
+                        self.statics.decl(
+                            &format!("static {ty}"),
+                            &format!("{}{suffix}", arg(i)),
+                            None,
+                        );
+                    }
                 }
             }
             if ret_ty != HostTy::Unit {
@@ -2430,16 +2465,17 @@ impl<'m> Emitter<'m> {
                 for (i, (p, t)) in params.iter().enumerate() {
                     let a = arg(i);
                     args.push(match t {
-                        HostTy::String => {
+                        HostTy::String | HostTy::Bytes => {
                             let s = format!("s{i}");
-                            w.decl(
-                                "em_ref",
-                                &s,
-                                Some(&call(
-                                    "em_from_export_string",
-                                    [a.as_str(), name_lit.as_str()],
-                                )),
-                            );
+                            let value = if *t == HostTy::String {
+                                call("em_from_export_string", [a.as_str(), name_lit.as_str()])
+                            } else {
+                                call(
+                                    "em_from_export_bytes",
+                                    [format!("{a}_data"), format!("{a}_len"), name_lit.clone()],
+                                )
+                            };
+                            w.decl("em_ref", &s, Some(&value));
                             w.if_begin(&format!("{s} == NULL"));
                             for earlier in &strings {
                                 w.stmt(&call("em_drop", [earlier.as_str()]));
@@ -2469,6 +2505,7 @@ impl<'m> Emitter<'m> {
                 match ret_ty {
                     HostTy::Unit => {}
                     HostTy::String => w.assign(&result, &call("em_to_export_string", ["r"])),
+                    HostTy::Bytes => w.assign(&result, &call("em_to_export_bytes", ["r"])),
                     HostTy::Bool => w.assign(&result, "(r != 0)"),
                     HostTy::Handle => {
                         w.assign(&result, &call("em_host_get", ["r"]));
@@ -2493,7 +2530,12 @@ impl<'m> Emitter<'m> {
                     .iter()
                     .enumerate()
                     .filter(|(_, (_, t))| *t != HostTy::Unit)
-                    .map(|(i, (_, t))| param(t.param(), &format!("a{i}")))
+                    .flat_map(|(i, (_, t))| {
+                        t.params()
+                            .iter()
+                            .zip(t.suffixes())
+                            .map(move |(ty, suffix)| param(ty, &format!("a{i}{suffix}")))
+                    })
                     .collect();
                 let c_params = if c_params.is_empty() {
                     vec!["void".to_owned()]
@@ -2504,7 +2546,9 @@ impl<'m> Emitter<'m> {
                     w.stmt(&call("em_export_enter", [name_lit.as_str()]));
                     for (i, (_, t)) in params.iter().enumerate() {
                         if *t != HostTy::Unit {
-                            w.assign(&arg(i), &format!("a{i}"));
+                            for suffix in t.suffixes() {
+                                w.assign(&format!("{}{suffix}", arg(i)), &format!("a{i}{suffix}"));
+                            }
                         }
                     }
                     w.stmt(&call("em_run", [thunk.as_str(), "EM_REPR_VOID"]));
@@ -2520,8 +2564,8 @@ impl<'m> Emitter<'m> {
 
     /// `verb` is `takes` or `returns`.
     fn export_type_error(&mut self, function: &str, ty: TypeId, verb: &str) {
-        // Bytes and Arrays are E0443 for exported fns too (`[ext.boundary]`).
-        if matches!(self.core().ty(ty), Type::Bytes | Type::Array(_)) {
+        // Arrays are E0443 for exported fns too (`[ext.boundary]`).
+        if matches!(self.core().ty(ty), Type::Array(_)) {
             let name = emela_lir::core_ty(self.core(), ty);
             self.errors.push(CError::new(
                 CErrorKind::BoundaryType,

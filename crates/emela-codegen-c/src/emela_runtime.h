@@ -385,6 +385,13 @@ const char *em_cstr(em_ref s);
 /* A String from a host string (`malloc`ed, freed here); invalid UTF-8 becomes U+FFFD. NULL is a
  * defect naming the external function. */
 em_ref em_from_host_string(char *s, const char *function);
+/* The bytes and the number of bytes of a Bytes, for a host function's two parameters. */
+const uint8_t *em_bytes_data(em_ref b);
+size_t em_bytes_len(em_ref b);
+/* A Bytes from a host's `em_bytes` (`data` is `malloc`ed, freed here). A NULL `data` with a
+ * length, and a length above 2^31 - 1, are defects naming the external function, and return
+ * NULL. */
+em_ref em_from_host_bytes(em_bytes r, const char *function);
 
 /* ---- `suspend fn` external functions (spec 12.6) ----
  *
@@ -401,9 +408,13 @@ enum {
   EM_HOST_BOOL = 4,
   EM_HOST_STRING = 5,
   EM_HOST_HANDLE = 6,
+  EM_HOST_BYTES = 7,
 };
 
 em_task *em_task_new(int32_t kind, const char *function);
+/* Keeps `s` (a String or Bytes argument, borrowed) alive until the task is freed after its
+ * completion: the host may use its bytes until then (spec 12.4). */
+void em_task_keep(em_task *task, em_ref s);
 em_word em_task_end(em_task *task);
 
 /* ---- Suspension (spec 14.5; the Heap IR's state machines) ----
@@ -510,6 +521,11 @@ em_ref em_from_export_string(const char *s, const char *function);
 /* A `malloc`ed NUL-terminated copy of `s` for the host, consuming `s`. U+0000 is a defect, and
  * returns NULL. */
 char *em_to_export_string(em_ref s);
+/* A Bytes from bytes the host owns (copied). A NULL `data` with a length, and a length above
+ * 2^31 - 1, are defects naming the exported function, and return NULL. */
+em_ref em_from_export_bytes(const uint8_t *data, size_t len, const char *function);
+/* A `malloc`ed copy of `b` for the host (NULL `data` for no bytes), consuming `b`. */
+em_bytes em_to_export_bytes(em_ref b);
 /* Reports how the test function that just returned ended, as a line of the test runner protocol
  * on stdout, and clears a pending defect or failure. */
 void em_test_result(const char *name);
