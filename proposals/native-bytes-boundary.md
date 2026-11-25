@@ -1,11 +1,13 @@
 ---
 title: Bytes at the boundary of the native target
 authors: []
-status: draft
+status: accepted
 issue:
 touches: [ext.boundary, ext.c-host, target.native.export, diag.list]
 requires: []
 related: [bytes, tcp, native-target]
+pr: 877
+decided: 2026-11-25
 ---
 
 # Bytes at the boundary of the native target
@@ -87,3 +89,5 @@ Programs that compiled keep their meaning. A host function written for the Strin
 ## Open questions
 
 ## Decision
+
+Bytes の C 形は callbacks（#38）に依存しないので切り離す．Std.Tcp の native 実装をこれで進められる．String の有効期限も suspend fn ではタスク完了までに揃える．

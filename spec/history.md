@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-25 (Bytes at the boundary of the native target)
+
+- `[ext.boundary]`, `[ext.c-host]`, `[target.native.export]`, `[diag.list]`: Give `Bytes` a C form at the boundary of external functions and exported functions on the native target: a parameter is a pointer and a length, a return value is a struct `em_bytes` of a pointer allocated with `malloc` and a length, and an external `suspend fn` completes with `em_complete_bytes`. E0443 then covers only Array. The C form of Bytes is decided apart from callbacks (`[open.list]` #38). For an external `suspend fn`, the bytes of a Bytes or String parameter stay valid until the task completes, not only until the C function returns. Adopted in the proposal `native-bytes-boundary` (#877).
+
 ## 2026-11-25 (A background does not close)
 
 - `[task.background]`, `[task.interrupt]`, `[api.std.task]`, `[lib.http-service]`: A `Task.Background` does not close. Its tasks can start siblings while the body runs, after a task has failed, and after the body has ended while the release waits for the tasks. The release waits for the tasks started while it waits as well, so no task outlives the with. A task started after the with was interrupted from outside is interrupted before it starts running: it ends without calling its function, and `on_failure` is not called for it. A start on a background is never a defect. Adopted in the proposal `background-never-closes` (#871).
