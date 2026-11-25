@@ -46,7 +46,19 @@
 #define EMELA_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+
+/* A Bytes returned by a host function (spec 12.4), or by an exported fn to the host. `data` is
+ * allocated with `malloc`, or NULL when `len` is 0. The runtime copies a returned one and frees
+ * `data`; the host frees the `data` of one an exported fn returned. A Bytes parameter is not an
+ * `em_bytes` but two parameters, `const uint8_t *data, size_t len`: the bytes belong to the
+ * runtime, and stay valid until the host function returns, and for a `suspend fn` until its task
+ * completes (so does the string of a String parameter). */
+typedef struct em_bytes {
+  uint8_t *data;
+  size_t len;
+} em_bytes;
 
 /* A fiber waiting for a `suspend fn` external function. */
 typedef struct em_task em_task;
@@ -62,6 +74,9 @@ void em_complete_bool(em_task *task, bool value);
 /* `value` is a NUL-terminated UTF-8 string allocated with `malloc`; the runtime copies and frees
  * it (invalid UTF-8 becomes U+FFFD; NULL is a defect). */
 void em_complete_string(em_task *task, char *value);
+/* `data` is allocated with `malloc`, or NULL when `len` is 0; the runtime copies and frees it (a
+ * NULL `data` with a `len`, and a `len` above 2^31 - 1, are defects). */
+void em_complete_bytes(em_task *task, uint8_t *data, size_t len);
 void em_complete_unit(em_task *task);
 /* For an `@external type` result. */
 void em_complete_handle(em_task *task, void *value);

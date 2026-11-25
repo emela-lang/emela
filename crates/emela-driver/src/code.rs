@@ -194,7 +194,7 @@ pub const SUSPENDING_EXPORT: &str = "E0441";
 
 // HTTP services (`[lib.http-service]`)
 pub const HTTP_SERVICE_ON_C: &str = "E0442";
-// Bytes and Arrays at the boundary on the native target (`[ext.boundary]`)
+// Arrays at the boundary on the native target (`[ext.boundary]`)
 pub const BOUNDARY_TYPE_ON_C: &str = "E0443";
 // E0444 is retired with the experimental feature `capture-checking` (`[effect.escape]`).
 // Host effects (`[effect.host]`): the uses of an external function (`[ext.call]`) and effects

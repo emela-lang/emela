@@ -1,7 +1,7 @@
 ---
 title: Bytes at the boundary of the native target
 authors: []
-status: accepted
+status: implemented
 issue:
 touches: [ext.boundary, ext.c-host, target.native.export, diag.list]
 requires: []
@@ -61,8 +61,8 @@ No change.
 
 ## Diagnostics
 
-- [ ] E0443: the description and the examples drop Bytes. The message for Bytes is no longer produced.
-- [ ] No new codes. The new defects (a NULL `data` with a nonzero length, a length above 2^31 - 1) are runtime defects with messages, not diagnostics.
+- [x] E0443: the description and the examples drop Bytes. The message for Bytes is no longer produced.
+- [x] No new codes. The new defects (a NULL `data` with a nonzero length, a length above 2^31 - 1) are runtime defects with messages, not diagnostics.
 
 ## Compatibility
 
