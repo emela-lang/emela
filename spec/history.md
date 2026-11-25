@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-25 (External functions as an effect of their module)
+
+- `[effect.external]`, `[effect.decl]`, `[effect.handler]`, `[ext]`, `[ext.decl]`, `[ext.call]`, `[ext.boundary]`, `[module.pome]`, `[diag.list]`: Calling an external function with host side effects adds `External`, a built-in effect of the module that declares the function, to R, and only the bodies of the handlers of that module remove it: a value that calls an external function can be carried anywhere, but called only inside those handlers, so rule 2 of `[ext.call]` becomes a type rule. E0407 is retired, so private fns can call external functions, and E0237 is retired, so an `@external` fn MAY be pub in every Pome: in another module it keeps the External of the module that declares it. External is never written in the declaration of an external function, and one declared with `uses {}` that is not a `suspend fn` stays pure. Adopted in the proposal `external-effect` (#820).
+
 ## 2026-11-25 (Bytes at the boundary of the native target)
 
 - `[ext.boundary]`, `[ext.c-host]`, `[target.native.export]`, `[diag.list]`: Give `Bytes` a C form at the boundary of external functions and exported functions on the native target: a parameter is a pointer and a length, a return value is a struct `em_bytes` of a pointer allocated with `malloc` and a length, and an external `suspend fn` completes with `em_complete_bytes`. E0443 then covers only Array. The C form of Bytes is decided apart from callbacks (`[open.list]` #38). For an external `suspend fn`, the bytes of a Bytes or String parameter stay valid until the task completes, not only until the C function returns. Adopted in the proposal `native-bytes-boundary` (#877).

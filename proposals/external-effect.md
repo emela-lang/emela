@@ -1,11 +1,13 @@
 ---
 title: External functions as an effect of their module
 authors: [somnicattus]
-status: draft
+status: accepted
 issue:
 touches: [effect.external (new), effect.decl, effect.handler, ext, ext.decl, ext.call, ext.boundary, module.pome, diag.list]
 requires: []
 related: [host-effects, capture-checking, capability-identity, closure-r-by-caller]
+pr: 820
+decided: 2026-11-25
 ---
 
 # External functions as an effect of their module
@@ -330,3 +332,5 @@ No prototype has been written. The four programs in the Motivation, and a task s
 ## Open questions
 
 ## Decision
+
+外部関数のホストの副作用を，宣言したモジュールの External として R に入れる．External はそのモジュールの handler の本体でだけ取り除かれるので，「host の副作用は handler の中で起きる」という規則を型で保ったまま，E0407 と E0237 を外せる．レビューの指摘（取り除かれる場所，公開された型に出る External，バインディングだけのモジュールの help，operation にだけ @external を書く案）は反映済み．main とのマージで E0402 と E0454 の衝突を解消した（2208bfec）．
