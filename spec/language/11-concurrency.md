@@ -107,9 +107,11 @@ pub handler Background[E, R]: Spawn[E, R] {
 ```
 
 - Spawn is a built-in effect, and only `Task.Background` implements it (E0413). Its type arguments are treated as those of TaskGroup (11.2): they MAY be omitted in a `use` expression and an effect alias, and a requirement `Spawn[E1, R1]` is satisfied by a provided `Spawn[E2, R2]` with E1 ⊆ E2 and R1 ⊆ R2.
-- `bg.start(f)` starts f as a task and returns `()`. f returns `()`: a task whose value is wanted is started in a group. The rules of 11.2 on start, on the E and R of f, and on where R is provided apply to a background as they are.
-- The release of a background waits until all its tasks have ended. It does not interrupt them, whether the body ended with a value or a failure. The value or failure of the with is that of the body.
+- `bg.start(f)` starts f as a task and returns `()`. f returns `()`: a task whose value is wanted is started in a group. As in 11.2, start is not a suspension point, the task starts running the next time the starting task suspends, and a task interrupted before it starts running ends without calling f. The rules of 11.2 on the E and R of f and on where R is provided apply to a background as they are.
+- A background does not close. `bg.start(f)` is allowed while the body runs, after a task has failed, and after the body has ended while the release waits. A start on a background is never a defect.
+- The release of a background waits until all its tasks have ended, including the tasks started while it waits. It does not interrupt them, whether the body ended with a value or a failure. The value or failure of the with is that of the body.
 - When the with is interrupted from outside, its tasks are interrupted too. An interruption that arrives while the release waits is held off for the release (11.5), and is passed on to the tasks: they are interrupted, and the release ends after they have unwound.
+- A task started after the with was interrupted from outside (while the body unwinds, or while the release waits) is interrupted before it starts running.
 - A task that ends with a failure (Fail or Die) does not stop its siblings or the body. `on_failure` is called with its cause, in that task, after the task has unwound. The release waits for `on_failure` too.
 - The E of `on_failure` is empty. Its R is provided as the R of the tasks. A defect in `on_failure` is treated as a defect in a release (14.4): it becomes the result of the with if the body ended with a value or an error, and a note otherwise.
 - `on_failure` is not called for a task interrupted because the with was interrupted.
@@ -148,7 +150,7 @@ users = Task.map(ids, |id| fetch(id))
 
 ## 11.5 Interruption `[task.interrupt]`
 
-- A task of a group is interrupted in two cases: when the body of its group ends, and when a sibling in its group fails. A task of a background is interrupted only when the with of the background is interrupted from outside. There is no function that interrupts a task. To stop one task, start it in a group of its own and end the with of that group, or pass it a stop signal with a Deferred (11.8).
+- A task of a group is interrupted in two cases: when the body of its group ends, and when a sibling in its group fails. A task of a background is interrupted only when the with of the background is interrupted from outside, including a task started after that interruption (11.3). There is no function that interrupts a task. To stop one task, start it in a group of its own and end the with of that group, or pass it a stop signal with a Deferred (11.8).
 - An interruption takes effect when the target task reaches its next suspension point.
 - An interrupted task unwinds from that point. For the withs along the way, the releases of the handlers run from the inside out.
 - A task is not interrupted while a release is running. The interruption takes effect after the running release finishes. The release of a background passes the interruption on to its tasks (11.3).
