@@ -24,11 +24,9 @@
 //! The option is on by default since E1 step 6; every test here also builds the boxed form
 //! explicitly, so the boxed path stays exercised.
 
-mod common;
+use crate::common;
 
-#[allow(clippy::duplicate_mod)] // `common` includes the same Core test support.
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::common::support;
 
 use common::*;
 use emela_codegen_wasm::{Entry, WasmOptions, compile_with_wasm_options};
