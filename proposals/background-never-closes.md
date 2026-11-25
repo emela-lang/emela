@@ -1,11 +1,13 @@
 ---
 title: A background does not close
 authors: [Alliana]
-status: draft
+status: accepted
 issue: 861
 touches: [task.background, task.interrupt, api.std.task, lib.http-service]
 requires: []
 related: [task, http-service]
+pr: 871
+decided: 2026-11-25
 ---
 
 # A background does not close
@@ -99,3 +101,6 @@ Trio's nursery is marked closed, so that no new task can be started in it, once 
 
 ## Open questions
 
+## Decision
+
+The specification did not say when a background closes, and read as written it closed when a task failed, which contradicted the rule that a failure stops neither the siblings nor the body. A background waits for its tasks anyway, so closing it serves no purpose: every start after the body ends comes from a task that has not ended, and the release can wait for the new task too, so no task outlives the with. This makes follow-up work after the response of `@entry(Http.serve)` possible. A task started after an interruption from outside is interrupted before it runs rather than raising a defect, because the start can come from a task that has not yet reached the suspension point where the interruption takes effect, and a defect there would replace the interruption as the result of the with. The rules of 11.2 that a background takes are now named one by one, so the rule on closing of a group does not reach it. A group is not changed.
