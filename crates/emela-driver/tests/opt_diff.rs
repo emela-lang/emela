@@ -592,7 +592,7 @@ fn mutation_pairs_keep_the_output_of_their_expansion() {
 }
 
 /// The law tests of `tests/laws` (the Pome with brix) give the same results with `--no-opt` and by
-/// default. Heavy: run with `cargo test -p emela-driver --test opt_diff -- --ignored`.
+/// default. Heavy: run with `cargo test -p emela-driver --test tests opt_diff -- --ignored`.
 #[test]
 #[ignore = "heavy: the law tests of tests/laws"]
 fn law_tests_are_the_same_with_and_without_optimisation() {

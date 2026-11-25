@@ -147,5 +147,5 @@ point.
 ## Detailed procedures
 
 The gates are the CI workflows in `.github/workflows/`; the full differential corpus is
-`EMELA_OPT_DIFF_FULL=1 cargo test -p emela-driver --test opt_diff`. A pass's rustdoc states its
+`EMELA_OPT_DIFF_FULL=1 cargo test -p emela-driver --test tests opt_diff`. A pass's rustdoc states its
 contract and the module rustdoc the pipeline and the fixed point.
