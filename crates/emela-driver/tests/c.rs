@@ -1135,6 +1135,7 @@ fn exported_functions_are_called_from_c() {
 /// (`[ext.c-host]`).
 const BYTES_C: &str = r#"#define _POSIX_C_SOURCE 200809L
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1233,30 +1234,51 @@ void host_reverse_threaded(const uint8_t *data, size_t len, em_task *task) {
 }
 
 static pthread_mutex_t held_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t held_cond = PTHREAD_COND_INITIALIZER;
+static bool released = false;
+static bool read_done = false;
 static char held[64] = "";
+static em_task *held_waiter = NULL;
 
+/* Waits for `host_release`, then reads what `host_hold` was given and completes both tasks. */
 static void *hold_work(void *arg) {
   job *j = arg;
-  pause_ms(50);
   pthread_mutex_lock(&held_lock);
+  while (!released) pthread_cond_wait(&held_cond, &held_lock);
   snprintf(held, sizeof held, "%.*s %s", (int)j->len, (const char *)j->data, j->s);
+  read_done = true;
+  em_task *waiter = held_waiter;
   pthread_mutex_unlock(&held_lock);
   em_complete_unit(j->task);
+  if (waiter != NULL) em_complete_string(waiter, strdup(held));
   free(j);
   return NULL;
 }
 
 /* Ignores the interruption of the waiting fiber, and reads the bytes and the string on another
- * thread after it. */
+ * thread after it, once `host_release` lets it. */
 void host_hold(const uint8_t *data, size_t len, const char *s, em_task *task) {
   start(hold_work, task, data, len, s);
 }
 
-char *host_held(void) {
+void host_release(void) {
   pthread_mutex_lock(&held_lock);
-  char *s = strdup(held);
+  released = true;
+  pthread_cond_broadcast(&held_cond);
   pthread_mutex_unlock(&held_lock);
-  return s;
+}
+
+/* Completes with what the thread of `host_hold` read, once it has read it. */
+void host_held(em_task *task) {
+  pthread_mutex_lock(&held_lock);
+  if (read_done) {
+    pthread_mutex_unlock(&held_lock);
+    em_complete_string(task, strdup(held));
+    return;
+  }
+  em_after(60000, task, never, NULL);
+  held_waiter = task;
+  pthread_mutex_unlock(&held_lock);
 }
 
 void host_null_now(em_task *task) { em_complete_bytes(task, NULL, 2); }
@@ -1273,7 +1295,7 @@ void host_bytes_for_string(em_task *task) { em_complete_bytes(task, malloc(2), 2
 "#;
 
 const BYTES_EMEL: &str = r##"import Std.Bytes.{Bytes}
-import Std.Clock.{Clock, SystemClock}
+import Std.Clock.{SystemClock}
 import Std.Console.{Console, SystemConsole}
 import Std.Task.{Task}
 
@@ -1295,8 +1317,11 @@ fn host_null() -> Bytes uses {}
 @external(c, "./host.c", "host_huge")
 fn host_huge() -> Bytes uses {}
 
+@external(c, "./host.c", "host_release")
+fn host_release() -> () uses {}
+
 @external(c, "./host.c", "host_held")
-fn host_held() -> String uses {}
+suspend fn host_held() -> String
 
 @external(c, "./host.c", "host_reverse_now")
 suspend fn host_reverse_now(b: Bytes) -> Bytes
@@ -1320,6 +1345,7 @@ effect Host {
   suspend fn reverse_now(b: Bytes) -> Bytes
   suspend fn reverse_threaded(b: Bytes) -> Bytes
   suspend fn hold(b: Bytes, s: String) -> ()
+  suspend fn held() -> String
   suspend fn null_now() -> Bytes
   suspend fn huge_later() -> Bytes
   suspend fn bytes_for_string() -> String
@@ -1329,6 +1355,7 @@ handler CHost: Host {
   suspend fn reverse_now(b, resume) { resume(host_reverse_now(b)) }
   suspend fn reverse_threaded(b, resume) { resume(host_reverse_threaded(b)) }
   suspend fn hold(b, s, resume) { resume(host_hold(b, s)) }
+  suspend fn held(resume) { resume(host_held()) }
   suspend fn null_now(resume) { resume(host_null_now()) }
   suspend fn huge_later(resume) { resume(host_huge_later()) }
   suspend fn bytes_for_string(resume) { resume(host_bytes_for_string()) }
@@ -1337,7 +1364,6 @@ handler CHost: Host {
 fn main() {
   with SystemConsole, SystemClock, CHost {
     console = use Console
-    clock = use Clock
     host = use Host
     console.print_line("#{host_sum(Bytes.hex("0102ff"))} #{host_sum(Bytes.empty())}")
     console.print_line("#{host_sizes(Bytes.hex("0102"), "abc", Bytes.empty())}")
@@ -1349,12 +1375,12 @@ fn main() {
     console.print_line(
       "#{Task.timeout(10, || host.hold(Bytes.encode_utf8("bytes #{n}"), "string #{n}"))}"
     )
-    # Values of the same sizes as the ones the interrupted call was given, made while the host
-    # still reads those.
+    # Values of the same sizes as the ones the interrupted call was given, made after the
+    # interruption and before the host reads those.
     other_string = "string #{n + 1}"
     other_bytes = Bytes.encode_utf8("bytes #{n + 1}")
-    clock.sleep(100)
-    console.print_line(host_held())
+    host_release()
+    console.print_line(host.held())
     console.print_line("#{String.byte_size(other_string)} #{Bytes.size(other_bytes)}")
   }
 }
