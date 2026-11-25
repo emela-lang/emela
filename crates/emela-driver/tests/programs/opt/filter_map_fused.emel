@@ -1,0 +1,24 @@
+# A mutation pair for the filter∘map law (D3/PR-030): `List.map(List.filter(xs, p), f)` is the
+# law's input, and `filter_map_expanded.emel` is the same program as one hand-written pass that
+# tests and maps each element, with no filtered list in between. The law is off in the default
+# pipeline because it is new, so this pair checks that the two hand-written programs give the same
+# output on every target; when the law is turned on, it becomes a direct check of the law's output
+# too.
+
+fn inc(x: Int) -> Int {
+  x + 1
+}
+
+fn even(x: Int) -> Bool {
+  x % 2 == 0
+}
+
+fn evens_plus_one(xs: List[Int]) -> List[Int] {
+  List.map(List.filter(xs, even), inc)
+}
+
+fn main() {
+  dbg(evens_plus_one([1, 2, 3, 4, 5]))
+  dbg(evens_plus_one([]))
+  ()
+}

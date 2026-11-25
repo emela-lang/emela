@@ -15,21 +15,25 @@
 //! pipeline order; the order is fixed because
 //!
 //! - `option_or` and `array_get_match` match the same `Array.get` and do not overlap;
+//! - `map_map`, `fold_map` and `filter_map` build the call (`List.map(xs, λx. g(f x))`,
+//!   `List.fold(xs, init, λa, x. g(a, f x))`) that `range_fold` and `range_map` fuse next, so they
+//!   come before the range laws and a range pipeline is fused completely in one sweep;
 //! - `range_fold` and `range_map_array` remove a range in a different consumer;
 //! - `range_map_array` must run before `range_map`, which would otherwise rewrite the
 //!   `List.map` inside the `Array.from_list` that the array fusion is looking for.
 //!
 //! A reserved law has no body, so its position does not affect the pipeline yet; it is the place
-//! its body will take when its pull request lands (D3–D4).
+//! its body will take when its pull request lands (D4/PR-031).
 //!
 //! # Flags
 //!
 //! [`Laws`] has one flag per law. A law whose flag is off is skipped entirely: it does not
 //! rewrite, does not run the verifier and contributes nothing to [`Stats`] — no change counter and
 //! no [`Stats::deopt`]. [`Laws::default`] has the five laws the pipeline ran before the registry
-//! on and the laws added later off: `string_concat` is implemented but new (D5/PR-032), so it is
-//! opt-in until it has run on the corpus. [`Laws::all`] turns every flag on. A reserved law never
-//! runs, even in [`Laws::all`]: it has no body.
+//! on and the laws added later off: `string_concat` (D5/PR-032) and the three pipeline laws
+//! (`map_map`, `fold_map`, `filter_map`, D3/PR-030) are implemented but new, so they are opt-in
+//! until they have run on the corpus. [`Laws::all`] turns every flag on. A reserved law never runs,
+//! even in [`Laws::all`]: it has no body.
 //!
 //! # Budget
 //!
@@ -74,9 +78,10 @@ pub fn laws() -> &'static [Law] {
 /// Which fusion laws [`run`] may run, one flag per law.
 ///
 /// A law whose flag is off is skipped: it rewrites nothing, is not verified and adds nothing to
-/// [`Stats`], not even a deopt. The reserved laws ([`LawId::MapMap`] to
-/// [`LawId::ArrayPipeline`]) have no body, so their flags have no effect until their pull request
-/// lands. `string_concat` has a body but is off by default (D5/PR-032).
+/// [`Stats`], not even a deopt. The reserved law ([`LawId::ArrayPipeline`]) has no body, so its
+/// flag has no effect until its pull request lands. `string_concat` (D5/PR-032) and the three
+/// pipeline laws of D3/PR-030 ([`Laws::map_map`], [`Laws::fold_map`], [`Laws::filter_map`]) have
+/// bodies but are off in [`Laws::default`], because they are new.
 ///
 /// [`Laws::default`] turns on the five laws the pipeline ran before the registry;
 /// [`Laws::none`] turns every law off; [`Laws::all`] turns every flag on.
@@ -86,18 +91,19 @@ pub struct Laws {
     pub option_or: bool,
     /// `match Array.get(a, i) { … }` to a bounds test and a load.
     pub array_get_match: bool,
+    /// `List.map(List.map(xs, f), g)` to one traversal. Off in [`Laws::default`] (D3/PR-030).
+    pub map_map: bool,
+    /// `List.fold(List.map(xs, f), init, g)` to one traversal. Off in [`Laws::default`]
+    /// (D3/PR-030).
+    pub fold_map: bool,
+    /// `List.map(List.filter(xs, p), f)` to one traversal. Off in [`Laws::default`] (D3/PR-030).
+    pub filter_map: bool,
     /// `List.fold(List.range(lo, hi), …)` to a loop over a counter.
     pub range_fold: bool,
     /// `Array.from_list(List.map(List.range(…), f))` to `ArrayMapRange`.
     pub range_map_array: bool,
     /// `List.map(List.range(lo, hi), f)` to a loop over a counter.
     pub range_map: bool,
-    /// `List.map(List.map(xs, f), g)` to one traversal. Reserved (D3/PR-030).
-    pub map_map: bool,
-    /// `List.fold(List.map(xs, f), init, g)` to one traversal. Reserved (D3/PR-030).
-    pub fold_map: bool,
-    /// `List.map(List.filter(xs, p), f)` to one traversal. Reserved (D3/PR-030).
-    pub filter_map: bool,
     /// An `Array` pipeline over a range. Reserved (D4/PR-031).
     pub array_pipeline: bool,
     /// A chain of string concatenations to one allocation (D5/PR-032).
@@ -110,12 +116,12 @@ impl Laws {
         Self {
             option_or: true,
             array_get_match: true,
-            range_fold: true,
-            range_map_array: true,
-            range_map: true,
             map_map: true,
             fold_map: true,
             filter_map: true,
+            range_fold: true,
+            range_map_array: true,
+            range_map: true,
             array_pipeline: true,
             string_concat: true,
         }
@@ -126,12 +132,12 @@ impl Laws {
         Self {
             option_or: false,
             array_get_match: false,
-            range_fold: false,
-            range_map_array: false,
-            range_map: false,
             map_map: false,
             fold_map: false,
             filter_map: false,
+            range_fold: false,
+            range_map_array: false,
+            range_map: false,
             array_pipeline: false,
             string_concat: false,
         }
@@ -142,12 +148,12 @@ impl Laws {
         match id {
             LawId::OptionOr => self.option_or,
             LawId::ArrayGetMatch => self.array_get_match,
-            LawId::RangeFold => self.range_fold,
-            LawId::RangeMapArray => self.range_map_array,
-            LawId::RangeMap => self.range_map,
             LawId::MapMap => self.map_map,
             LawId::FoldMap => self.fold_map,
             LawId::FilterMap => self.filter_map,
+            LawId::RangeFold => self.range_fold,
+            LawId::RangeMapArray => self.range_map_array,
+            LawId::RangeMap => self.range_map,
             LawId::ArrayPipeline => self.array_pipeline,
             LawId::StringConcat => self.string_concat,
         }
@@ -155,19 +161,19 @@ impl Laws {
 }
 
 impl Default for Laws {
-    /// The five laws the pipeline ran before the registry on, the newer and reserved ones off: the
-    /// pipeline before the registry. `string_concat` is implemented but new (D5/PR-032), so it is
-    /// opt-in.
+    /// The five laws the pipeline ran before the registry on, the newer laws and the reserved one
+    /// off: `Options::default()` is the pipeline from before the registry. `string_concat`
+    /// (D5/PR-032) and the D3/PR-030 laws are implemented but new, so they are opt-in.
     fn default() -> Self {
         Self {
             option_or: true,
             array_get_match: true,
-            range_fold: true,
-            range_map_array: true,
-            range_map: true,
             map_map: false,
             fold_map: false,
             filter_map: false,
+            range_fold: true,
+            range_map_array: true,
+            range_map: true,
             array_pipeline: false,
             string_concat: false,
         }

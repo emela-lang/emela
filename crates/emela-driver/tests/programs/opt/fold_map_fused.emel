@@ -1,0 +1,23 @@
+# A mutation pair for the fold∘map law (D3/PR-030): `List.fold(List.map(xs, f), init, g)` is the
+# law's input, and `fold_map_expanded.emel` is the same program as one hand-written fold of the
+# composed step, which builds no mapped list. The law is off in the default pipeline because it is
+# new, so this pair checks that the two hand-written programs give the same output on every target;
+# when the law is turned on, it becomes a direct check of the law's output too.
+
+fn inc(x: Int) -> Int {
+  x + 1
+}
+
+fn add(a: Int, b: Int) -> Int {
+  a + b
+}
+
+fn total(xs: List[Int]) -> Int {
+  List.fold(List.map(xs, inc), 0, add)
+}
+
+fn main() {
+  dbg(total([1, 2, 3]))
+  dbg(total([]))
+  ()
+}

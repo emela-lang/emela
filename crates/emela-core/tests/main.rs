@@ -21,6 +21,7 @@ mod fusion_registry;
 mod inline;
 mod iota;
 mod lower;
+mod map_fusion;
 mod mono;
 mod opt;
 mod post_mono_delta;

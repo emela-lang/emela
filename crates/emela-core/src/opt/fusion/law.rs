@@ -9,7 +9,12 @@
 //!
 //! [`LAWS`] is in pipeline order: the order of the implemented laws is the order the pipeline runs
 //! them in, and the reserved laws sit where they will be inserted once they have a body (after the
-//! range laws and `string_concat`). `super::laws` exposes the table.
+//! range laws and `string_concat`). [`super::laws`] exposes the table.
+//!
+//! The pipeline laws of D3/PR-030 (`map_map`, `fold_map`, `filter_map`) come before the range
+//! laws, because the call they build is the one `range_fold` and `range_map` fuse: a range pipeline
+//! is then fused completely in one sweep. Their bodies are in [`super::list`], beside the range
+//! laws they feed.
 
 use crate::ir::Module;
 use crate::opt::{CoreFns, PassStats};
@@ -40,22 +45,22 @@ pub enum LawId {
     OptionOr,
     /// `match Array.get(a, i) { Some(x) -> …; None -> … }` to a bounds test and a load.
     ArrayGetMatch,
+    /// `List.map(List.map(xs, f), g)` to one traversal.
+    MapMap,
+    /// `List.fold(List.map(xs, f), init, g)` to one traversal.
+    FoldMap,
+    /// `List.map(List.filter(xs, p), f)` to one traversal.
+    FilterMap,
     /// `List.fold(List.range(lo, hi), init, f)` to a loop over an integer counter.
     RangeFold,
     /// `Array.from_list(List.map(List.range(lo, hi), f))` to the internal `ArrayMapRange`.
     RangeMapArray,
     /// `List.map(List.range(lo, hi), f)` to a loop that does not build the range.
     RangeMap,
-    /// `List.map(List.map(xs, f), g)` to one traversal. Reserved; no body yet (D3/PR-030).
-    MapMap,
-    /// `List.fold(List.map(xs, f), init, g)` to one traversal. Reserved; no body yet (D3/PR-030).
-    FoldMap,
-    /// `List.map(List.filter(xs, p), f)` to one traversal. Reserved; no body yet (D3/PR-030).
-    FilterMap,
-    /// An `Array` pipeline over a range. Reserved; no body yet (D4/PR-031).
-    ArrayPipeline,
     /// A chain of `String.append` calls to one `concat` (D5/PR-032).
     StringConcat,
+    /// An `Array` pipeline over a range. Reserved; no body yet (D4/PR-031).
+    ArrayPipeline,
 }
 
 impl LawId {
@@ -64,14 +69,14 @@ impl LawId {
         match self {
             Self::OptionOr => "option_or",
             Self::ArrayGetMatch => "array_get_match",
-            Self::RangeFold => "range_fold",
-            Self::RangeMapArray => "range_map_array",
-            Self::RangeMap => "range_map",
             Self::MapMap => "map_map",
             Self::FoldMap => "fold_map",
             Self::FilterMap => "filter_map",
-            Self::ArrayPipeline => "array_pipeline",
+            Self::RangeFold => "range_fold",
+            Self::RangeMapArray => "range_map_array",
+            Self::RangeMap => "range_map",
             Self::StringConcat => "string_concat",
+            Self::ArrayPipeline => "array_pipeline",
         }
     }
 }
@@ -169,6 +174,126 @@ pub(super) const LAWS: &[Law] = &[
         budget: "None: the bounds test and the load replace one call and one match; the \
                  expression does not grow with the site count.",
         measures: "Stats::array_get_match; matmul (most of its Some allocations).",
+    },
+    Law {
+        id: LawId::MapMap,
+        run: Some(super::list::map_map),
+        theory: "Map fusion: a producer map and a consumer map compose into one traversal (plan \
+                 §2.2, deforestation of the pipeline a list function declares).",
+        equation: "List.map(List.map(xs, f), g) → List.map(xs, λx. g(f x))",
+        preconditions: "The callee of the outer call is the core List.map, and the outer call's \
+                        first argument is a direct call of the core List.map; both calls are in the \
+                        inner and outer shape of the equation and neither fails nor suspends. f and \
+                        g are a lambda literal or a reference to a top-level function, their \
+                        instantiated types are pure (no failure, no suspension, no evidence table), \
+                        and their bodies may neither use an effect nor fail nor suspend. At most \
+                        one of f and g may reach a defect or diverge. The site is within the \
+                        code-size budget.",
+        postconditions: "The result is List.map's list over xs with each element replaced by \
+                         g(f(x)), in the order of xs. f and g are called once per element, f before \
+                         g, in that order; no element of the intermediate list is made. The outer \
+                         map keeps its type arguments for xs and its result and its evidence \
+                         argument, so the fused call is the same call the source's outer map was.",
+        preserves: "Evaluation order, effects, failures, suspension points and drop points. f and g \
+                    are proved quiet (an effect, a failure or a suspension in either deopts), so \
+                    the per-element interleaving `g(f x)` has the same observable behaviour as the \
+                    two traversals; at most one of them may stop the program (a defect or a \
+                    divergence), so the first stop is the same call of the same function. xs is \
+                    still evaluated first and the evidence argument last; a lambda literal is made \
+                    once before the call instead of before its own traversal, which is not \
+                    observable because making a lambda has no effect. The inner call's evidence \
+                    argument (a local or `()`) is dropped with the inner call.",
+        deopt: "A call that is not this shape (a user's map, an indirect call, fewer or more type \
+                arguments or arguments); a function value that is neither a lambda literal nor a \
+                reference to a top-level function (a parameter or a computed value, whose effects \
+                are unknown); a `dbg` or any other effect, failure or suspension in f or g; a site \
+                over the code-size budget. A deopt at a nested-map site is counted in \
+                Stats::deopt.",
+        budget: "The composed lambda is at most the two function expressions' nodes plus \
+                 COMPOSE_OVERHEAD (the parameter, the two calls and their callees), and one \
+                 function body gains at most MAX_COMPOSED_PER_BODY composed lambdas from this law \
+                 in one sweep. A site over either limit is left alone.",
+        measures: "Stats::map_map; the map pipelines of the benchmarks (the intermediate list's \
+                   cons cells, halved).",
+    },
+    Law {
+        id: LawId::FoldMap,
+        run: Some(super::list::fold_map),
+        theory: "Fold fusion: the map that feeds a fold is fused into the fold's step (plan §2.2), \
+                 so the mapped list is never built.",
+        equation: "List.fold(List.map(xs, f), init, g) → \
+                   List.fold(xs, init, λa, x. g(a, f x))",
+        preconditions: "The callee of the outer call is the core List.fold and its first argument \
+                        is a direct call of the core List.map; both calls are in the shape of the \
+                        equation and neither fails nor suspends. f and g are a lambda literal or a \
+                        reference to a top-level function, their instantiated types are pure (no \
+                        failure, no suspension, no evidence table), and their bodies may neither use \
+                        an effect nor fail nor suspend. Among f, g and init, at most one may stop \
+                        the program: f and g at a defect or a divergence, init at any effect, \
+                        failure, suspension, defect or divergence. The site is within the code-size \
+                        budget.",
+        postconditions: "The result is the last accumulator of folding g(acc, f(x)) over xs, or \
+                         init when xs is empty. f and g are called once per element, f before g, in \
+                         the order of xs; no element of the intermediate list is made. The fold \
+                         keeps its accumulator type, its type arguments and its evidence argument.",
+        preserves: "Evaluation order, effects, failures, suspension points and drop points. f and g \
+                    are proved quiet, so the per-element interleaving `g(a, f x)` has the same \
+                    observable behaviour as the map followed by the fold. init moves from after \
+                    the whole map to the fold's first argument; that is not observable because at \
+                    most one of init, f and g may produce an event or stop the program, so no \
+                    event of another one can be overtaken. xs is still evaluated first and the \
+                    evidence argument last. The inner map call's evidence argument (a local or \
+                    `()`) is dropped with the inner call.",
+        deopt: "A call that is not this shape (a user's fold or map, an indirect call, other type \
+                arguments or arguments); a function value that is neither a lambda literal nor a \
+                reference to a top-level function; a `dbg` or any other effect, failure or \
+                suspension in f or g; a site over the code-size budget. A deopt at a nested site is \
+                counted in Stats::deopt.",
+        budget: "The composed lambda is at most the two function expressions' nodes plus \
+                 COMPOSE_OVERHEAD (the two parameters, the two calls and their callees), and one \
+                 function body gains at most MAX_COMPOSED_PER_BODY composed lambdas from this law \
+                 in one sweep. A site over either limit is left alone.",
+        measures: "Stats::fold_map; the fold pipelines of the benchmarks (the intermediate list's \
+                   cons cells).",
+    },
+    Law {
+        id: LawId::FilterMap,
+        run: Some(super::list::filter_map),
+        theory: "Filter and map fusion: the filter that feeds a map becomes one fold that tests and \
+                 maps each element (plan §2.2), the shape the library's own filter and map build.",
+        equation: "List.map(List.filter(xs, p), f) → \
+                   List.reverse(List.fold(xs, [], λacc, x. if p(x) { [f(x), ..acc] } else { acc }))",
+        preconditions: "The callee of the outer call is the core List.map and its first argument \
+                        is a direct call of the core List.filter; both calls are in the shape of the \
+                        equation and neither fails nor suspends; a non-suspending copy of the core \
+                        List.fold and the core List.reverse are in the module. p and f are a lambda \
+                        literal or a reference to a top-level function, their instantiated types \
+                        are pure (no failure, no suspension, no evidence table), and their bodies \
+                        may neither use an effect nor fail nor suspend. At most one of p and f may \
+                        reach a defect or diverge. The site is within the code-size budget.",
+        postconditions: "The result is the list of f(x) for each element x of xs for which p(x) \
+                         holds, in the order of xs. For each element, p is called first and f is \
+                         called only when p holds, in the order of xs. The filter's list and the \
+                         map's work are one traversal: the fold builds the result in reverse and \
+                         List.reverse puts it in order.",
+        preserves: "Evaluation order, effects, failures, suspension points and drop points. p and f \
+                    are proved quiet, so testing and mapping each element in one traversal has the \
+                    same observable behaviour as the filter followed by the map; at most one of them \
+                    may stop the program (a defect or a divergence), so the first stop is the same. \
+                    xs is still evaluated first and the evidence argument last. The filter call's \
+                    evidence argument (a local or `()`) is dropped with the filter call.",
+        deopt: "A call that is not this shape (a user's filter or map, an indirect call, other type \
+                arguments or arguments); a function value that is neither a lambda literal nor a \
+                reference to a top-level function; a `dbg` or any other effect, failure or \
+                suspension in p or f; a module with only a suspending List.fold or no List.reverse; \
+                a site over the code-size budget. A deopt at a filter-map site is counted in \
+                Stats::deopt.",
+        budget: "The composed step is at most the two function expressions' nodes plus \
+                 COMPOSE_OVERHEAD (the parameters, the test, the cons and the calls), and one \
+                 function body gains at most MAX_COMPOSED_PER_BODY composed steps from this law in \
+                 one sweep. A site over either limit is left alone.",
+        measures: "Stats::filter_map; the filter-then-map pipelines of the benchmarks (the \
+                   filter's list and the reverse it would make).",
     },
     Law {
         id: LawId::RangeFold,
@@ -281,61 +406,6 @@ pub(super) const LAWS: &[Law] = &[
         measures: "Stats::string_concat; one String per site in the C allocation report (the form \
                    the law builds is the one a_three_part_interpolation_allocates_one_string \
                    pins).",
-    },
-    Law {
-        id: LawId::MapMap,
-        run: None,
-        theory: "Map fusion: a producer map and a consumer map compose into one traversal (plan \
-                 §2.2).",
-        equation: "List.map(List.map(xs, f), g) → List.map(xs, λx. g(f x))",
-        preconditions: "xs is a direct List.map of the core List.map; f and g are pure functions \
-                        without evidence tables; the intermediate element type has a \
-                        representation; the site stays within the budget.",
-        postconditions: "g(f(x)) is called once per element, in the order of xs; the intermediate \
-                         list is not built.",
-        preserves: "Evaluation order, the calls of f and g and their failures, effects and \
-                    suspension points, and drop points.",
-        deopt: "An effectful, failing or suspending f or g, an unknown callee, or an over-budget \
-                site.",
-        budget: "One composed closure per site, within the per-sweep budget (D6/PR-030).",
-        measures: "A reserved Stats counter; the map pipelines of the benchmarks (PR-030).",
-    },
-    Law {
-        id: LawId::FoldMap,
-        run: None,
-        theory: "Fold fusion: the map that feeds a fold is fused into the fold's step (plan §2.2).",
-        equation: "List.fold(List.map(xs, f), init, g) → \
-                   List.fold(xs, init, λacc, x. g(acc, f x))",
-        preconditions: "xs is a direct List.map of the core List.map; f and g are pure functions \
-                        without evidence tables; the element types have a representation; the site \
-                        stays within the budget.",
-        postconditions: "g(acc, f(x)) is called once per element, in the order of xs; the \
-                         intermediate list is not built.",
-        preserves: "Evaluation order, the calls of f and g and their failures, effects and \
-                    suspension points, and drop points.",
-        deopt: "An effectful, failing or suspending f or g, an unknown callee, or an over-budget \
-                site.",
-        budget: "One composed closure per site, within the per-sweep budget (D6/PR-030).",
-        measures: "A reserved Stats counter; the fold pipelines of the benchmarks (PR-030).",
-    },
-    Law {
-        id: LawId::FilterMap,
-        run: None,
-        theory: "Filter and map fusion: the filter that feeds a map becomes one traversal (plan \
-                 §2.2).",
-        equation: "List.map(List.filter(xs, p), f) → List.filter_map(xs, p, f)",
-        preconditions: "xs is a direct List.filter of the core List.filter; p and f are pure \
-                        functions without evidence tables; the element types have a \
-                        representation; the site stays within the budget.",
-        postconditions: "f is called once for each element of xs for which p holds, in the order of \
-                         xs; the intermediate list is not built.",
-        preserves: "Evaluation order, the calls of p and f and their failures, effects and \
-                    suspension points, and drop points.",
-        deopt: "An effectful, failing or suspending p or f, an unknown callee, or an over-budget \
-                site.",
-        budget: "One result list per site, built once, within the per-sweep budget (D6/PR-030).",
-        measures: "A reserved Stats counter; the filter and map pipelines of the benchmarks \
-                   (PR-030).",
     },
     Law {
         id: LawId::ArrayPipeline,
