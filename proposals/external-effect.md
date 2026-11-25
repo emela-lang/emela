@@ -175,6 +175,8 @@ fn fold_case(text: String) -> String uses {} # adds nothing: pure, callable anyw
 
 ### Meaning
 
+External is not provided by a with, a layer or an entry. It is removed from R only in the bodies of the handlers of the module that declares it (their init, release and operation bodies). An anonymous function or a local fn written in such a body keeps it in its type, and adds it to R where it is called.
+
 - Every module M has one effect `External`. Written in M, `External` names the External of M. The Externals of two modules are different effects.
 - Every external function, except one declared with `uses {}` that is not a `suspend fn`, has in its type the External of the module that declares it. Its uses clause still contains only host effects, or nothing (E0445); External is not written there.
   - `uses` omitted: a call adds External.
@@ -203,7 +205,7 @@ pub handler RawHost: Raw {
 }
 ```
 
-The handlers of other modules use `Raw`, and the with that provides them provides `RawHost` too. The path to the host is then an effect in the types, and a test can replace `RawHost` alone. Today a module of the Pome being built can instead make its `@external` fns pub, and the handlers of other modules call them directly. Under this proposal such a call is E0402, at the call; no module of std or the examples does this (Compatibility).
+The handlers of other modules use `Raw`, and the with that provides them provides `RawHost` too. The path to the host is then an effect in the types, and a test can replace `RawHost` alone. Today a module of the Pome being built can instead make its `@external` fns pub, and the handlers of other modules call them directly. Under this proposal such a call is E0402, at the call; no module of std or the examples does this (Compatibility). So a module, or a Pome, that holds only bindings to the host (pub `@external` fns that add External, and no handlers) cannot be used by the handlers of other modules. The error is reported where the bindings are used, not at their declarations, so its help says that only the handlers of M remove the External of M, and leads to an effect and a handler in M (Diagnostics).
 - A value keeps the External it got where its text is written, not where it is run later: a closure written in M has the External of M in its type wherever it is carried, and code in another module, in this Pome or in another, cannot call it.
 
 Where External may appear:
@@ -212,6 +214,7 @@ Where External may appear:
 - So a module can hand out a value that other modules can hold and pass, but cannot run. A pub fn that returns a closure calling an external function (a factory of callbacks) has an empty R itself, since it only refers to the external function. Another module can pass the closure to a handler of M (an argument of its init or of an operation), whose body calls it.
 - A pub fn with the External of M in its R can be called only inside the handlers of M. It is allowed, and the compiler does not report it: another module can refer to it as a value without calling it, and pass it to a handler of M, which calls it or passes it to an external function of M as a callback. A fn that wraps an external function is handed out this way, as the closures of a factory are.
 - A function value with External in its type MAY be passed to an external function as a callback, when the External is the one of the module of the external function. The host may call it after the operation that passed it has ended. E0454 (an effect in the R of a callback, `[ext.boundary]`) does not count that External, as it does not count host effects. The callback types in the declaration of an external function are written without External: their sets are hidden set variables, decided at each call and checked there by E0454. The External of another module is counted: a module that holds a value of M, received from a factory, cannot give it to the host and have the host run it outside the handlers of M.
+- Through the results of factories and the R of pub fns, `M.External` appears in the types that M shows to other modules and other Pomes, and it is part of those types as any other effect is. Moving the code that calls external functions to another module N changes `M.External` to `N.External` in them, and changes which handlers can call their values, so for a Pome it is a breaking change of its public types. This is not forbidden.
 
 The ways out of the Motivation are then closed:
 
@@ -241,7 +244,7 @@ A value that calls an external function is therefore never called by Emela code 
 - [ ] E0445: the help for External
 - [ ] E0407: retired
 - [ ] E0237: retired
-- [ ] E0402, E0403: the help for External
+- [ ] E0402, E0403: the help for External: only the handlers of M remove the External of M. For E0402, the help also says to call it in a handler of M, or to declare in M an effect and a handler that call it, which is the way for the handlers of another module that use the bindings of M (Meaning)
 - [ ] E0413, E0414: External
 - [ ] W0202: a definition or an import named `External`
 - [ ] E0454: the External of the module of the call is not counted; that of another module is
@@ -297,6 +300,22 @@ No prototype has been written. The four programs in the Motivation, and a task s
   With External, `self` keeps only its role for the state of an instance. Issue #728 describes an earlier form of this alternative, a `host` value per instance tracked by capture checking, which `capability-identity` removes.
 - **One effect removed at the bodies of every handler.** A value that calls the external functions of a module could then be called in the handlers of any module, and the host of a dependency would be reachable from the handlers of the depending side without an effect of the dependency (`[module.pome]`). A per-module External also names the module in diagnostics.
 - **A declaration for externals** (`external Raw { @js(...) fn write(s: String) -> () }`): an effect whose handler is the host, neither an effect nor a handler written by the user. External already keeps host side effects inside the handlers of the module, so it is not needed for that. A module that shares its host functions with other modules now writes each of them three times (the `@external` fn, the operation of the effect, the body of the handler, as in the Meaning); such a declaration could write them once, as a shorthand, and can be added later.
+- **Allow `@external` only on the operations of a handler**, so that calling an external function is calling an operation:
+
+  ```emel
+  handler HostFs: HostFsOps {
+    @external(js, "./fs.mjs", "readText")
+    suspend fn read_text(path) uses { ProcessHost }
+  }
+  ```
+
+  `capability-identity` would then keep a closure that calls one inside the with of its handler, and External, E0407 and E0237 would not be needed. Not chosen:
+  - The parameters and the result of such an operation are limited to boundary types (`[ext.boundary]`), and the host cannot fail with the errors of the operation. A handler that calls several external functions in one operation and turns the outcome into its own errors (`read_text` of `SystemFileSystem` calls `host_read_text` and `release_outcome`, and fails with the errors of `FileSystem`, `FileNotFound` and `FileSystemFailure` among them) becomes two layers: a lower effect and handler for the bindings, and the handler on top of it. The lower effect is in requires(H) of the upper handler, so every with that provides the upper handler provides the lower one too, or a layer bundles the two.
+  - A function that the host returns leaves through the result of the operation with an empty R, so a rule of its own is still needed.
+  - A callback that calls the host calls an operation through a capability, so its R has that capability, and passing it to an external function that may keep it is E0454. A callback such as `|| host_log("tick")` passed to `set_timeout` needs the same exception that this proposal gives External.
+  - The external functions declared with `uses {}` stay fns.
+
+  The rules for the two hard cases, returned functions and callbacks, are not fewer; only the concept of External goes away, and std and user code take two layers. A declaration for externals (above) is a shorthand that can be added on top of this proposal; this alternative would make operations the only form of external functions.
 - **Reserve the name `External`**, so that a definition or an import named `External` is an error and `External` always names the External of the module. Not chosen: a name added to the Prelude does not break existing code, because a definition or an import shadows it with a warning (W0202), and `External` follows the same rule. What a module that shadows it gives up is writing the built-in External of that module, which is then only inferred.
 - **Keep E0407.** It adds nothing once the requirement is in R, and it is what keeps helpers from calling external functions.
 - **Removal anywhere in the module.** `pub fn f() { host_write("x") }` would have an empty R and perform a host side effect. The bodies of handlers are where `[ext.call]` keeps host side effects, so that the callers see the effect of the handler.
@@ -306,6 +325,7 @@ No prototype has been written. The four programs in the Motivation, and a task s
 
 - Encapsulated effects: an effect whose operations can be discharged only inside the abstraction that declares it, so that it never appears in its interface. Local state threads discharged by a region (`runST` in Haskell) and the local effects of Koka are of this kind; here the region is a module and the place of discharge is the bodies of its handlers.
 - Foreign function interfaces that confine foreign calls to designated wrappers, so that the rest of the program reaches the foreign code only through typed interfaces.
+- Effects on foreign calls, propagated through types. In Koka, the type of an `extern` declaration names its effect (`extern xprintsln(s : string) : console ()`). In Effekt, an `extern` definition declares what it captures (`extern def now() at io: Int = ...`), and a first-class function carries its captures in its type (`() => Unit at {io}`), as a closure here carries External in its uses. In Flix, a call of a Java method has the effect `IO`. In all three, that effect is not removed by a handler written in the program: `console` in Koka has no operations, `io` in Effekt is a builtin resource handled by the runtime, and a primitive effect in Flix such as `IO` cannot be reinterpreted. A part to be replaced in tests is wrapped by the programmer in an effect of its own, handled near `main` (Flix). External differs in where it is removed: not at `main`, but in the bodies of the handlers of the module that declares the external function. This keeps host side effects in handlers, as `[ext.call]` does today, so that from outside the module every host side effect is part of an operation, an init or a release of one of its handlers, and providing other handlers replaces all of them.
 
 ## Open questions
 
