@@ -7,6 +7,8 @@ mod support;
 
 mod dump;
 mod fold;
+mod fusion_laws;
+mod fusion_registry;
 mod inline;
 mod lower;
 mod mono;

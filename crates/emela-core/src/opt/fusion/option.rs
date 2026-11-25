@@ -1,4 +1,4 @@
-//! Fusion of `Option.or` with `Array.get`.
+//! Option fusion laws: `Option.or` with `Array.get`, and a match on `Array.get`.
 //!
 //! `Option.or(Array.get(a, i), d)` becomes the internal `ArrayGetOr(a, i, d)`, and
 //! `match Array.get(a, i) { Some(x) -> …; None -> … }` becomes a bounds test with
@@ -9,6 +9,10 @@
 //! before monomorphisation, which is what makes the check read a type parameter as open: it may
 //! be instantiated with `()`, and a value without representation has no destination in the Flow
 //! IR. A type parameter therefore deopts (see [`has_repr`]).
+//!
+//! These are the bodies of the registry entries [`LawId::OptionOr`] and [`LawId::ArrayGetMatch`];
+//! the registry's flags, order and budget are in [`super`], and the contract text of each law is
+//! beside its entry in [`super::law`].
 
 use rustc_hash::FxHashMap;
 
@@ -17,7 +21,9 @@ use crate::ir::{
     Arm, BinOp, Callee, EnumId, Expr, FnId, Lit, Local, Module, OPTION_NONE, OPTION_SOME, OpTy,
     Pat, Type, TypeId,
 };
-use crate::opt::{CoreFn, PassStats, each_body};
+use crate::opt::{CoreFn, CoreFns, PassStats, each_body};
+
+use super::law::LawRun;
 
 /// Rewrites `Option.or(Array.get(a, i), d)` to `ArrayGetOr(a, i, d)`.
 ///
@@ -33,14 +39,17 @@ use crate::opt::{CoreFn, PassStats, each_body};
 /// alone.
 /// Measures: `matmul`, `fannkuch` and `spectral` (the `Option.or` part of their `Some`
 /// allocations).
-pub(super) fn option_or(m: &mut Module, core_fns: &FxHashMap<FnId, CoreFn>) -> PassStats {
+pub(super) fn option_or(m: &mut Module, core_fns: &CoreFns) -> LawRun {
     let mut changed = 0;
     each_body(m, &mut |m, e| {
         rewrite_option_or(m, e, core_fns, &mut changed)
     });
-    PassStats {
-        option_or: changed,
-        ..PassStats::default()
+    LawRun {
+        applied: changed,
+        stats: PassStats {
+            option_or: changed,
+            ..PassStats::default()
+        },
     }
 }
 
@@ -60,12 +69,15 @@ pub(super) fn option_or(m: &mut Module, core_fns: &FxHashMap<FnId, CoreFn>) -> P
 /// Measures: `matmul` (its `match Array.get` is most of its `Some` allocations).
 ///
 /// `core_fns` is unused: the scrutinee is recognised by its builtin.
-pub(super) fn array_get_match(m: &mut Module, _core_fns: &FxHashMap<FnId, CoreFn>) -> PassStats {
+pub(super) fn array_get_match(m: &mut Module, _core_fns: &FxHashMap<FnId, CoreFn>) -> LawRun {
     let mut changed = 0;
     each_body(m, &mut |m, e| rewrite_array_get_match(m, e, &mut changed));
-    PassStats {
-        array_get_match: changed,
-        ..PassStats::default()
+    LawRun {
+        applied: changed,
+        stats: PassStats {
+            array_get_match: changed,
+            ..PassStats::default()
+        },
     }
 }
 

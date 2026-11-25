@@ -164,17 +164,17 @@ pub enum Builtin {
     /// whose sides are shown through a written Show impl. The location is a string literal.
     AssertFail,
     /// `Array.get_or(a, index, d)`: the element at `index`, or `d`. What the Core IR pass that
-    /// fuses `Option.or(Array.get(a, index), d)` makes (`opt::option`). Every argument is
+    /// fuses `Option.or(Array.get(a, index), d)` makes (`opt::fusion::option`). Every argument is
     /// evaluated once, in `a`, `index`, `d` order, and `d` is evaluated even when `index` is in
     /// range. A reference result (the element or `d`) is owned once more, as for every builtin.
     ArrayGetOr,
     /// `Array.load_unchecked(a, index)`: the element at `index`. What the Core IR pass that fuses
-    /// `match Array.get(a, index) { … }` makes (`opt::option`); the caller has checked that
+    /// `match Array.get(a, index) { … }` makes (`opt::fusion::option`); the caller has checked that
     /// `index` is in range. A reference result is owned once more.
     ArrayLoadUnchecked,
     /// `$Array.map_range(lo, hi, f)`: the array of `f(i)` for each `i` in `lo..hi`, in ascending
     /// order. What the Core IR pass that fuses
-    /// `Array.from_list(List.map(List.range(lo, hi), f))` makes (`opt::range`); it builds neither
+    /// `Array.from_list(List.map(List.range(lo, hi), f))` makes (`opt::fusion::list`); it builds neither
     /// the range nor the mapped list. `f` is pure (no evidence table, no failure, no suspension)
     /// and is called `max(0, hi - lo)` times, unless it raises a defect: a defect is not part of
     /// its type, so it stops the call at the first one, and the array is released with the
