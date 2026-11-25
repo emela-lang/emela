@@ -161,7 +161,7 @@ The changes are applied to `spec/` in this pull request.
 - `[type.rules]`: `provides(H)` in the row of `with H { e }` is the effects of the items without a name.
 - `[task.group]`: TaskGroup by name comes from a group without a name; a task of a named group starts siblings through the capability of the group.
 - `[dyn.with]`: an item `x = E.M(...)` runs the init of M of the innermost handler that provides E by name, and the effects used in the operation bodies of a handler are provided by the handlers outside the with or by the handlers of the items without a name initialized earlier in the same with.
-- `[diag.list]`: the note and the help of E0402, the third help of W0403, the help of E0453, the cases of E0432 and W0401, and the new case, message and help of E0447.
+- `[diag.list]`: the note and the help of E0402, the third help of W0403, the help of E0453, the help of E0454 for an effect, the cases of E0432 and W0401, and the new case, message and help of E0447.
 
 ## Diagnostics
 
@@ -171,6 +171,7 @@ The changes are applied to `spec/` in this pull request.
 - [ ] W0401: not given for a named label item.
 - [ ] W0403: the third help (``= help: write `x <- Logger`, or a named item `with x = H` ``, given for `x = use E` when the second help does not apply: x is used other than as the receiver of operations, or inside a later with) is left out when the body of the with that provides E also uses E by name. Rewriting that with into a named item would send the uses by name to an outer handler, and no form both binds a capability and provides its effect by name. The other two helps are unchanged.
 - [ ] E0453: the help ``= help: for a fixed value, use a named item `with x = H` `` is left out, for the same reason, when the body of the with that provides E also uses E by name.
+- [ ] E0454: for an effect E, the help ``= help: capture the capability of a named item (`with g = H { ... }`) and call its operations`` is left out, for the same reason, when the body of the with that provides E also uses E by name outside the callback. The uses inside the callback are the ones that the help rewrites into calls through g.
 
 ## Compatibility
 
@@ -188,7 +189,7 @@ The changes are applied to `spec/` in this pull request.
 - `keep_last` in `crates/emela-types/src/layer.rs`: a bound item that is not from a layer gets `named: false` whether or not a later item provides the same effect (the field documents "whether it provides its effect by name"). The rest of `with_effects` (the effects removed from the R of the body, the inference of type arguments from the R of the body, the order of initialization) and the lowering already follow `named`, except the two checks of E0459 below. The measurement above was made with the change of `keep_last` alone.
 - E0402: the note and the help. The with is searched for between the place of E0402 and the origin of the effect, as `under_platform` in `crates/emela-types/src/body/errors.rs` does for `Platform`.
 - E0459: `check_several_fits` and `check_item_overrides` in `crates/emela-types/src/body/items.rs` do not look at `named` now. Both skip named items, and `check_item_overrides` compares an item only with the items without a name.
-- W0403 and E0453: leave out the help that suggests a named item when the body of the with that provides E also uses E by name.
+- W0403, E0453 and E0454: leave out the help that suggests a named item when the body of the with that provides E also uses E by name (for E0454, outside the callback).
 - The lookups of the innermost handler for an effect alias, `(use E).M(...)`, `use E`, `x = E.M(...)`, `x = L.M(...)`, the provider of an item `L` or `L by P` where P is an effect or a label, and `E.M(...)` in an init skip named items. A test checks each of them.
 - E0447 and E0432: `check_with_items` in `crates/emela-types/src/layer.rs` reports E0447 for a bound label item that has no `by` or whose `by` resolves to an effect (`Supplier::Effect` of `by_tag`), and leaves out the items with `bind` when it looks for a label given a provider twice.
 - W0401: `unused_label_providers` in `crates/emela-types/src/body/effects.rs` skips the named items. Today it gives no W0401 for a named label item whose x is used, but only because the capability x in the R of the body makes it return early.
