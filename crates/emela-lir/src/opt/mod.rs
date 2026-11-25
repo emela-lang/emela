@@ -23,15 +23,16 @@
 //! that function instead of changing it.
 //!
 //! The analyses a pass needs are shared and separately tested: [`analysis`] is the API for the
-//! escape, liveness, borrow and ownership facts, and [`escape`] and `crate::heap::live` are the
-//! current implementations behind it. Each analysis documents its domain, transfer, soundness and
-//! the deopt a consumer must take when it answers `Unknown`. Each pass documents its
-//! preconditions, postconditions, what it preserves, when it deopts, and what it measures (parent
-//! plan §3.4).
+//! escape, liveness, borrow and ownership facts. [`analysis::escape`] implements the intraprocedural
+//! escape sets and the interprocedural parameter summary; [`escape`] is the crate-internal façade
+//! SRA calls, and `crate::heap::live` is the current implementation of liveness. Each analysis
+//! documents its domain, transfer, soundness and the deopt a consumer must take when it answers
+//! `Unknown`. Each pass documents its preconditions, postconditions, what it preserves, when it
+//! deopts, and what it measures (parent plan §3.4).
 //!
 //! | Pass | Counter | Stage | Status |
 //! |---|---|---|---|
-//! | [`analysis`] (`escape`, `liveness`, `borrow`, `ownership`) | — | every stage | API only; answers `Unknown` until B3/PR-022, B4/PR-023 and B6/PR-024 |
+//! | [`analysis`] (`escape`, `liveness`, `borrow`, `ownership`) | — | every stage | `escape` and its parameter summary implemented (B3/PR-022); the others answer `Unknown` until B4/PR-023 and B6/PR-024 |
 //! | [`sra`] | [`Stats::sra_tuples`] | [`run_mid`] | scalar tuples; C5/PR-043 extends it to records and closures |
 //! | closure devirtualisation | — | [`run_mid`] | not implemented (E5/PR-037) |
 //! | [`rc`] cleanup | [`Stats::rc_pairs`] | [`run_heap`] | `dup`/`drop` pairs; C1/PR-025 generalises it |

@@ -12,12 +12,13 @@
 //!   representation: `Any`, `FiberScope`, a handler value, an evidence table, a cell;
 //! - it is stored into a container (`List`, `Array` / `Map` through a builtin, a `Fiber`
 //!   operation), a handler or an evidence table, or it is captured by a closure;
-//! - it is boxed or unboxed ([`Value::Coerce`]), which may cross `Any`;
-//! - it is returned ([`Term::Return`]), failed with ([`Term::Fail`]), or becomes a defect message;
+//! - it is boxed or unboxed ([`Value::Coerce`](crate::ir::Value::Coerce)), which may cross `Any`;
+//! - it is returned ([`Term::Return`](crate::ir::Term::Return)), failed with
+//!   ([`Term::Fail`](crate::ir::Term::Fail)), or becomes a defect message;
 //! - it is passed to a call (direct, indirect or through a handler) or to a builtin, whose body
 //!   the analysis does not see; a direct call is included because SRA does not yet inline;
 //! - it is live across a suspension point of a suspending function: the state machine moves it
-//!   into the heap frame ([`Suspend::saved`]).
+//!   into the heap frame ([`Suspend::saved`](crate::ir::Suspend::saved)).
 //!
 //! Everything else does not escape: a tuple or record built and consumed in the same function and
 //! read only through its fields, tags or a `switch`, and a closure record that is only called.
@@ -25,280 +26,34 @@
 //! The analysis is deliberately conservative: it never says that a value does not escape when it
 //! might. SRA uses it as a deopt condition, so a wrong `true` loses an optimisation while a wrong
 //! `false` changes behaviour.
+//!
+//! # Implementation
+//!
+//! The implementation is [`crate::opt::analysis::escape`], behind the shared analysis API. This
+//! module re-exports the intraprocedural entry point [`escaping`] that SRA and its tests call, so
+//! there is one implementation and the answer SRA sees is exactly the one
+//! [`crate::opt::analysis::escape::analyze`] returns.
+//!
+//! The analysis also computes the interprocedural parameter summary
+//! ([`crate::opt::analysis::escape::parameter_summary`]): which parameters a function may keep.
+//! This pull request does not feed it into SRA; C5/PR-043 (the records and closures of SRA) and
+//! C2/PR-026 (borrow inference) consume it.
 
-#![allow(dead_code)] // Read by the SRA pass (T13).
+pub(crate) use super::analysis::escape::{Set, escaping};
 
-use emela_core::{Type, TypeId};
-use rustc_hash::FxHashSet;
-
-use crate::heap::live;
-use crate::ir::{Function, Module, Operand, RuntimeOp, SeqId, Stmt, Term, Value, VarId};
-
-/// The variables of `f` whose value may escape it.
-pub(crate) type Set = FxHashSet<VarId>;
-
-/// The variables of `f` that may escape it (see the module documentation).
-///
-/// `m` is the module `f` belongs to: the Core types of the variables decide which values have a
-/// finalizer or an untracked representation. The result is a side table, so it does not change the
-/// function.
-pub(crate) fn escaping(m: &Module, f: &Function) -> Set {
-    let mut walk = Walk {
-        escaping: Set::default(),
-        aggregates: Vec::new(),
-    };
-    walk.escaping.extend(f.params.iter().copied());
-    for (id, v) in f.vars.iter() {
-        if has_finalizer_or_untracked(m, v.ty) {
-            walk.escaping.insert(id);
-        }
-    }
-    if let Some(body) = f.body {
-        walk.seq(f, body);
-    }
-    walk.suspension_points(f);
-    walk.aggregates_escaping_with_their_fields();
-    walk.escaping
-}
-
-/// Whether `ty` names a value that SRA must not decompose: a runtime object with a finalizer
-/// (`fin`), an untracked `Any`, or a value whose lifetime the language does not keep in a variable.
-fn has_finalizer_or_untracked(m: &Module, ty: TypeId) -> bool {
-    matches!(
-        m.core.ty(ty),
-        Type::Any | Type::FiberScope | Type::Handler(_) | Type::Evidence | Type::Cell(_)
-    )
-}
-
-struct Walk {
-    escaping: Set,
-    /// `dst = tuple(..)` / `dst = make(..)`: the fields stay with the aggregate, so they escape
-    /// when it does.
-    aggregates: Vec<(VarId, Vec<VarId>)>,
-}
-
-impl Walk {
-    fn operands(&mut self, os: &[Operand]) {
-        for o in os {
-            if let Operand::Var(v) = o {
-                self.escaping.insert(*v);
-            }
-        }
-    }
-
-    fn seq(&mut self, f: &Function, id: SeqId) {
-        let seq = &f.seqs[id];
-        for &s in &seq.stmts {
-            self.stmt(f, s);
-        }
-        self.term(&seq.term);
-    }
-
-    fn term(&mut self, t: &Term) {
-        match t {
-            // Only the ways that leave the function (or become observable) move a value out.
-            // `yield`, `break` and `recur` give values to a compound statement or a loop inside
-            // the same function, so those values stay local.
-            Term::Return(v) => {
-                if let Some(v) = v {
-                    self.operands(std::slice::from_ref(v));
-                }
-            }
-            Term::Fail(v) | Term::Defect(v, _) => {
-                self.operands(std::slice::from_ref(v));
-            }
-            Term::Yield(_)
-            | Term::Break { .. }
-            | Term::Recur(_)
-            | Term::Unwind
-            | Term::Unreachable => {}
-        }
-    }
-
-    fn stmt(&mut self, f: &Function, id: crate::ir::StmtId) {
-        match &f.stmts[id] {
-            Stmt::Let {
-                dst,
-                value,
-                on_defect,
-                on_suspend,
-            } => {
-                self.value(*dst, value);
-                if let Some(suspend) = on_suspend {
-                    self.escaping.extend(suspend.saved.iter().copied());
-                }
-                if let Some(landing) = on_defect {
-                    self.seq(f, *landing);
-                }
-            }
-            Stmt::If { then, else_, .. } => {
-                // The condition is a scalar (an `i32`); reading it does not move a value.
-                self.seq(f, *then);
-                self.seq(f, *else_);
-            }
-            Stmt::Switch { cases, default, .. } => {
-                // The scrutinee is a tag or a scalar, read in place.
-                for case in cases {
-                    self.seq(f, case.body);
-                }
-                if let Some(default) = default {
-                    self.seq(f, *default);
-                }
-            }
-            Stmt::Loop { body, .. } => {
-                // The loop variables are rebound by `recur`; their values stay local.
-                self.seq(f, *body);
-            }
-            Stmt::Block { body, .. } => self.seq(f, *body),
-            Stmt::Protect { body, cleanup, .. } => {
-                self.seq(f, *body);
-                self.seq(f, *cleanup);
-            }
-            Stmt::Dup(_) | Stmt::Drop(_) => {}
-        }
-    }
-
-    fn value(&mut self, dst: Option<VarId>, value: &Value) {
-        match value {
-            Value::Const(_) | Value::FnRef(_) => {}
-            // A primitive operation reads its operands; it neither stores nor returns them.
-            Value::Prim { .. } => {}
-            Value::Call { args, .. } => {
-                // The callee is called, not stored; the arguments may be kept by the callee.
-                self.operands(args);
-            }
-            // A builtin may store its arguments (`Array.set`, `Cell.set`, `Map.insert`, …). SRA
-            // does not know the shape of each one, so every argument is treated as escaping.
-            Value::Builtin { args, .. } => self.operands(args),
-            Value::Make { args, .. } | Value::Tuple(args) => {
-                if let Some(dst) = dst {
-                    let fields = var_operands(args);
-                    self.aggregates.push((dst, fields));
-                }
-            }
-            // Reads: the base stays in its variable and does not escape by being read.
-            Value::Field { .. }
-            | Value::Tag(_)
-            | Value::TupleGet { .. }
-            | Value::ListIsEmpty(_)
-            | Value::ListHead(_)
-            | Value::ListTail(_)
-            | Value::EvLookup { .. }
-            | Value::IsError { .. }
-            | Value::AsError { .. }
-            | Value::EnvGet { .. } => {}
-            // A list is a container: its elements (and tail) are stored in cons cells.
-            Value::List { elems, tail } => {
-                self.operands(elems);
-                if let Some(tail) = tail {
-                    self.operands(std::slice::from_ref(tail));
-                }
-            }
-            // A closure body is a function of its own; only its captures leave this function.
-            Value::Closure(closure) => {
-                self.escaping.extend(closure.captures.iter().copied());
-            }
-            Value::MakeClosure { captures, .. } => {
-                self.escaping.extend(captures.iter().copied());
-            }
-            // The base of an extension is read; the bindings are stored in the new table.
-            Value::EvExtend { base, bindings } => {
-                if let Some(base) = base {
-                    self.escaping.insert(*base);
-                }
-                for (_, v) in bindings {
-                    self.escaping.insert(*v);
-                }
-            }
-            // The handler keeps its operations.
-            Value::Handler { ops, .. } => self.escaping.extend(ops.iter().copied()),
-            // A concurrency operation stores its arguments in runtime objects, and its value is a
-            // runtime object with a finalizer (`fin`).
-            Value::Fiber { args, .. } => {
-                self.operands(args);
-                if let Some(dst) = dst {
-                    self.escaping.insert(dst);
-                }
-            }
-            // A runtime operation takes and returns references the runtime owns (a pending defect,
-            // a held value). They are not plain locals. `concat` is the exception: it reads its
-            // parts and its value is an ordinary String, which escapes only where any String
-            // does.
-            Value::Runtime { op, args } => {
-                self.operands(args);
-                if let Some(dst) = dst
-                    && *op != RuntimeOp::Concat
-                {
-                    self.escaping.insert(dst);
-                }
-            }
-            // Boxing or unboxing: the representation changes, so the value is not a plain local.
-            Value::Coerce(v) => {
-                self.escaping.insert(*v);
-            }
-        }
-    }
-
-    /// Marks the values live across a suspension point: the state machine saves them into the
-    /// heap frame.
-    fn suspension_points(&mut self, f: &Function) {
-        if !f.suspends {
-            return;
-        }
-        let live = live::live_on_lets(f);
-        for (id, after) in live {
-            if may_suspend(&f.stmts[id]) {
-                self.escaping.extend(after);
-            }
-        }
-    }
-
-    /// A tuple or record that escapes keeps its fields alive, so the aggregates it holds escape
-    /// too. Iterate to a fixpoint for nested aggregates.
-    fn aggregates_escaping_with_their_fields(&mut self) {
-        loop {
-            let mut changed = false;
-            for (dst, fields) in &self.aggregates {
-                if self.escaping.contains(dst) {
-                    for field in fields {
-                        changed |= self.escaping.insert(*field);
-                    }
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
-    }
-}
-
-fn var_operands(os: &[Operand]) -> Vec<VarId> {
-    os.iter()
-        .filter_map(|o| match o {
-            Operand::Var(v) => Some(*v),
-            Operand::Const(_) => None,
-        })
-        .collect()
-}
-
-/// Whether the value of a `let` may come back suspended (a suspension point of its function).
-fn may_suspend(stmt: &Stmt) -> bool {
-    match stmt {
-        Stmt::Let { value, .. } => match value {
-            Value::Call { suspends, .. } => *suspends,
-            Value::Fiber { op, .. } => op.suspends(),
-            _ => false,
-        },
-        _ => false,
-    }
-}
+#[cfg(test)]
+#[path = "../../../emela-core/tests/support/mod.rs"]
+mod support;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::build::FnBuilder;
-    use crate::ir::{Callee, Const, FnId, Stmt};
-    use emela_core::{EffectDef, EffectId, FiberOp, FnType, TypeId};
+    use crate::ir::{Callee, Const, FnId, Module, Operand, Stmt, Term, Value};
+    use crate::opt::analysis::escape;
+    use crate::{convert_closures, dump_function, from_core};
+    use emela_core::{EffectDef, EffectId, FiberOp, FnType, Roots, TypeId};
+    use emela_core::{monomorphize_from, verify_monomorphic};
 
     fn int(n: i32) -> Operand {
         Operand::Const(Const::Int(n))
@@ -605,5 +360,152 @@ mod tests {
             t
         });
         assert!(!fx.escaping(id).contains(&t));
+    }
+
+    /// Lowers a program to the stage SRA runs at: monomorphic, in the Flow IR, closures lifted.
+    fn mid(source: &str) -> Module {
+        let m = support::try_lower_with_opt(
+            &[("main.emel", source)],
+            Roots::Exported,
+            emela_core::core_sources(),
+            emela_core::bundled_files(),
+            false,
+        )
+        .unwrap_or_else(|e| panic!("{e:#?}"));
+        let roots: Vec<_> = m
+            .functions
+            .iter()
+            .filter(|(_, f)| f.exported)
+            .map(|(id, _)| id)
+            .collect();
+        let (mono, _) = monomorphize_from(&m, &roots);
+        if let Err(errors) = verify_monomorphic(&mono) {
+            let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+            panic!("not monomorphic:\n{}", lines.join("\n"));
+        }
+        let mut lir = from_core(mono).unwrap_or_else(|errors| {
+            let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+            panic!("conversion errors:\n{}", lines.join("\n"));
+        });
+        convert_closures(&mut lir);
+        lir
+    }
+
+    fn function(m: &Module, name: &str) -> FnId {
+        m.functions
+            .iter()
+            .find(|(_, f)| {
+                f.name == name
+                    || f.name
+                        .strip_prefix(name)
+                        .is_some_and(|rest| rest.starts_with('['))
+            })
+            .map(|(id, _)| id)
+            .unwrap_or_else(|| panic!("no function `{name}`"))
+    }
+
+    fn variable(m: &Module, id: FnId, hint: &str) -> crate::ir::VarId {
+        m.functions[id]
+            .vars
+            .iter()
+            .find(|(_, v)| v.hint == hint)
+            .map(|(v, _)| v)
+            .unwrap_or_else(|| panic!("no variable `{hint}` in `{}`", m.functions[id].name))
+    }
+
+    /// A program with a local tuple, a returned tuple, a captured value, a value stored in a list
+    /// and a value passed to a call.
+    const FIXTURE: &str = "\
+fn id(x: (Int, Int)) -> (Int, Int) { x }
+
+fn local(a: Int) -> Int {
+  t = (a, a + 1)
+  (x, y) = t
+  x + y
+}
+
+fn ret(a: Int) -> (Int, Int) {
+  (a, a + 1)
+}
+
+fn capture(a: Int) -> Int {
+  t = (a, a + 1)
+  f = |x| {
+    (p, q) = t
+    p + q + x
+  }
+  f(1)
+}
+
+fn store(a: Int) -> List[(Int, Int)] {
+  t = (a, a + 1)
+  [t]
+}
+
+fn pass(t: (Int, Int)) {
+  u = id(t)
+  ()
+}
+
+fn main() {
+  t = (1, 2)
+  pass(t)
+  dbg(local(1))
+  dbg(ret(2))
+  dbg(capture(5))
+  dbg(store(6))
+}
+";
+
+    /// The analysis behind the shared API answers exactly the set SRA reads, and that set has the
+    /// shapes the module documentation promises.
+    #[test]
+    fn the_analysis_api_returns_the_sets_sra_reads() {
+        let m = mid(FIXTURE);
+        let sets = escape::analyze(&m)
+            .known()
+            .expect("the escape analysis answers for a well-formed module");
+        for (id, f) in m.functions.iter() {
+            assert_eq!(
+                &sets[&id],
+                &escaping(&m, f),
+                "function `{}` has a different set behind the API",
+                f.name
+            );
+        }
+
+        // A tuple built and read only through its fields stays.
+        let local = function(&m, "local");
+        let t = variable(&m, local, "t");
+        assert!(
+            !sets[&local].contains(&t),
+            "{}",
+            dump_function(&m, &m.functions[local])
+        );
+
+        // A tuple returned from the function leaves it.
+        let ret = function(&m, "ret");
+        assert!(
+            m.functions[ret]
+                .vars
+                .iter()
+                .any(|(v, d)| d.repr == crate::repr::Repr::Ref && sets[&ret].contains(&v)),
+            "a returned tuple does not escape"
+        );
+
+        // A captured tuple leaves the function that built it.
+        let capture = function(&m, "capture");
+        let t = variable(&m, capture, "t");
+        assert!(sets[&capture].contains(&t));
+
+        // A tuple put into a list is stored in the container.
+        let store = function(&m, "store");
+        let t = variable(&m, store, "t");
+        assert!(sets[&store].contains(&t));
+
+        // A local passed to a call is paid for by the caller.
+        let main = function(&m, "main");
+        let t = variable(&m, main, "t");
+        assert!(sets[&main].contains(&t));
     }
 }
