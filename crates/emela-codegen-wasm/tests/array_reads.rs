@@ -13,11 +13,10 @@
 //! The source program must print the same thing, write the same standard error and exit the same
 //! way with the options off and on, with and without the LIR passes.
 
-mod common;
+use crate::common;
 
 #[allow(clippy::duplicate_mod)] // `common` includes the same Core test support.
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use common::*;
 use emela_codegen_wasm::{Entry, WasmOptions, compile_with_wasm_options};
