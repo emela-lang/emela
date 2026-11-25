@@ -585,7 +585,7 @@ impl<'a> Explicit<'a> {
                 let cases = cases
                     .iter()
                     .map(|c| crate::ir::Case {
-                        key: c.key.clone(),
+                        keys: c.keys.clone(),
                         body: self.seq(c.body, false),
                     })
                     .collect();

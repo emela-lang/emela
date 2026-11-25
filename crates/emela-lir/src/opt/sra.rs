@@ -514,7 +514,7 @@ fn plan_record(
         // The arm of the only variant: its case, or the default when the switch has no case.
         let arm = cases
             .iter()
-            .find(|case| case.key == CaseKey::Variant(ctor.variant))
+            .find(|case| case.keys.contains(&CaseKey::Variant(ctor.variant)))
             .map(|case| case.body)
             .or(*default);
         let Some(arm) = arm else {

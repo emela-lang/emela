@@ -205,7 +205,10 @@ impl<'a> FnBuilder<'a> {
     ) {
         let cases = cases
             .into_iter()
-            .map(|(key, body)| crate::ir::Case { key, body })
+            .map(|(key, body)| crate::ir::Case {
+                keys: vec![key],
+                body,
+            })
             .collect();
         self.stmt(Stmt::Switch {
             dst,

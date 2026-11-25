@@ -220,6 +220,11 @@ impl Writer {
         self.line("}");
     }
 
+    /// `case key:` without a block, for a case a later label still opens.
+    pub(crate) fn case_label(&mut self, key: &str) {
+        self.line(&format!("case {key}:"));
+    }
+
     /// `case key:` and the body below it, falling through at its end.
     pub(crate) fn case(&mut self, key: &str, body: impl FnOnce(&mut Self)) {
         self.line(&format!("case {key}:"));
