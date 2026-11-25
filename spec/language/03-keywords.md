@@ -26,6 +26,7 @@ The following words act as keywords only in the positions shown. In any other po
 | `init` `release` | The body of a handler |
 | `of` `default` | Label declarations (8.9) |
 | `by` | with items (8.9) |
+| `scope` | Before the right side of a with item, and at the head of a type (8.11) |
 
 ## 3.3 Reserved for the future `[kw.future]`
 

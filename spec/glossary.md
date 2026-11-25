@@ -34,6 +34,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | free | 解放（メモリ） | Returning memory |
 | release | release | The cleanup block of a handler |
 | version | 版 | A version of a Pome or of the compiler |
+| scope | scope（[effect.scope]）、有効範囲（名前）、範囲（文書や版が扱うもの） | A scope is a capability of a with item marked `scope`. Where names are visible is their scope (有効範囲). What a document or a version covers is its scope (範囲: the scope of the standard library, the scope of the first version) |
 | the 0.20 series | 0.20 系 | |
 | std layer | 層 | The value, effect, platform and test layers of std ([lib.layers]). A `layer` declaration is always written in code font |
 | level | 層（1.2 の日常の層、基盤の層） | The everyday level and the foundation level of the language ([intro.layers]) |
@@ -51,6 +52,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | capability, capability value (a handler after its init has run and before its release; each item of a with makes one) | capability |
 | capability type (the type `use E` of a capability), capability parameter (a parameter of type `use E`) | capability type、capability parameter |
 | capability-bound type (a type declared with `uses E`, whose values live only while a capability of E does) | capability-bound type |
+| scope (the capability of a with item marked `scope`, through which handler members are opened in expressions; what is opened through it in an expression lives until the scope is released, [effect.scope]) | scope |
 | borrowed callback (a callback passed to a `@borrowed` parameter of an external function) | borrowed callback |
 | named item (`with x = Item`) | 名前付きの項目 |
 | provide by name (a with removing the name of an effect from R) | 名前で供給する |
