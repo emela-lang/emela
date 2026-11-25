@@ -1,0 +1,157 @@
+import Std.Task.{Task, Spawn}
+import Std.Cause.{Cause}
+import Std.Exit.{Exit, Success, Failure}
+
+## Shown with dbg, so that the program runs on WASM too (`wasm_parity.rs`).
+fn say(s: String) -> () {
+  _ = dbg(s)
+  ()
+}
+
+error Boom
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+## Resumes in place: a suspending call that yields to other tasks only every so many calls (the
+## fairness budget, `[task.basic]`), the same on every target.
+handler Ticks: Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 { () } else {
+    tick <- Tick
+    tick.tick()
+    spin(n - 1)
+  }
+}
+
+## Takes `ticks` hundred suspending calls, then prints.
+fn work(name: String, ticks: Int) -> () uses { Tick } {
+  spin(ticks * 100)
+  say("done #{name}")
+}
+
+fn boom(name: String, ticks: Int) -> () fails Boom uses { Tick } {
+  spin(ticks * 100)
+  say("failing #{name}")
+  fail Boom
+}
+
+fn report(cause: Cause[Boom]) -> () {
+  say("on_failure: #{Cause.to_string(cause)}")
+}
+
+## Starts a task on a background when its with ends.
+effect Mark {
+  fn mark() -> ()
+}
+
+handler StartOnRelease(name: String): Mark {
+  init(name: String) { StartOnRelease(name:) }
+  fn mark() { () }
+  release {
+    name = self.name
+    say("release #{name} starts a task")
+    spawn <- Spawn
+    spawn.start(|| say("started by release #{name}"))
+  }
+}
+
+fn show[A](exit: Exit[A, Boom]) -> () {
+  exit match {
+    Success(_) -> say("ended with a value")
+    Failure(cause) -> say("ended with #{Cause.to_string(cause)}")
+  }
+}
+
+## `[task.background]`: a background does not close.
+fn main() -> () uses { Async } {
+  with Ticks {
+    # A task starts a sibling after the body has ended, and that one starts another. The release
+    # waits for the tasks started while it waits.
+    with bg = Task.Background(on_failure: report) {
+      bg.start(|| {
+        work("a", 10)
+        bg.start(|| {
+          work("b", 10)
+          bg.start(|| work("c", 10))
+        })
+      })
+      say("body ends")
+    }
+    say("after the first background")
+    # After a task has failed, the body and the other tasks can still start tasks.
+    with bg = Task.Background(on_failure: report) {
+      bg.start(|| boom("d", 10))
+      bg.start(|| {
+        work("e", 20)
+        bg.start(|| work("f", 10))
+      })
+      spin(3000)
+      bg.start(|| work("g", 10))
+    }
+    say("after the second background")
+    # on_failure runs in a task after the body of the enclosing background has ended, and starts
+    # a task on it.
+    with outer = Task.Background(on_failure: report) {
+      outer.start(|| {
+        with inner = Task.Background(on_failure: |cause| {
+          report(cause)
+          outer.start(|| work("started by on_failure", 10))
+        }) {
+          inner.start(|| boom("h", 10))
+        }
+      })
+      say("outer body ends")
+    }
+    say("after the third background")
+    # A release in a task starts a sibling while the release of the background waits: it runs.
+    with Task.Background(on_failure: report) {
+      spawn <- Spawn
+      spawn.start(|| {
+        with StartOnRelease(name: "i") {
+          work("i", 10)
+        }
+      })
+      say("body ends")
+    }
+    say("after the fourth background")
+    # Interrupted from outside while the release waits: the tasks unwind, and a task their
+    # releases start is interrupted before it starts running. on_failure is not called for it.
+    show(Exit.attempt(|| {
+      with tasks = Task.Group {
+        tasks.start(|| {
+          with Task.Background(on_failure: report) {
+            spawn <- Spawn
+            spawn.start(|| {
+              with StartOnRelease(name: "j") {
+                work("j", 300)
+              }
+            })
+            say("background body ends")
+          }
+        })
+        tasks.start(|| boom("k", 20))
+        spin(40000)
+      }
+    }))
+    # Interrupted from outside while the body runs: a task that a release in the body starts
+    # while the body unwinds is interrupted before it starts running too.
+    show(Exit.attempt(|| {
+      with tasks = Task.Group {
+        tasks.start(|| {
+          with Task.Background(on_failure: report) {
+            with StartOnRelease(name: "l") {
+              work("background body", 300)
+            }
+          }
+        })
+        tasks.start(|| boom("m", 20))
+        spin(40000)
+      }
+    }))
+  }
+}

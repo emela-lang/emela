@@ -1,7 +1,7 @@
 ---
 title: A background does not close
 authors: [Alliana]
-status: accepted
+status: implemented
 issue: 861
 touches: [task.background, task.interrupt, api.std.task, lib.http-service]
 requires: []
@@ -67,7 +67,7 @@ No change.
 
 ## Diagnostics
 
-- [ ] No diagnostic is added or removed. The defect `task group was used after it closed` is no longer raised for a background; it stays for a group.
+- [x] No diagnostic is added or removed. The defect `task group was used after it closed` is no longer raised for a background; it stays for a group.
 
 ## Compatibility
 

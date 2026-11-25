@@ -1997,7 +1997,13 @@ struct em_scope {
   int depth;
   /* Children that have not ended (not counted: the run's list counts them). */
   em_vec children;
+  /* No more starts (a group only): the body ended or a task failed. A background does not close
+   * (`[task.background]`). */
   bool closed;
+  /* A background whose with was interrupted from outside after its body ended (the body unwound
+   * by an interruption, or one arrived while the release waits). While the body runs,
+   * `em_scope_interrupted` looks at the fiber instead. */
+  bool interrupted;
   bool body_done;
   bool ended;
   /* A background (`[task.background]`): its tasks are not interrupted when the body ends or a
@@ -2386,6 +2392,7 @@ static void em_interrupt_fiber(em_fiber *f, em_scope *target) {
    * (`[task.background]`). */
   if (f->waiting != NULL) {
     em_scope *s = f->waiting;
+    s->interrupted = true;
     for (size_t i = 0; i < s->children.len; i++) em_interrupt_fiber(s->children.items[i], NULL);
   }
   if (f->holds > 0) return;
@@ -2464,7 +2471,12 @@ static void em_settled(em_perform *p, em_input in);
 static void em_strand_end(em_root *r, em_fiber *f, int end, em_perform *impl, em_input in) {
   switch (end) {
     case EM_END_MAIN:
-      if (in.mode == EM_VALUE) {
+      if (in.mode == EM_VALUE && f->scope != NULL && f->scope->background) {
+        /* A task of a background returns `()` (`[task.background]`), which is not a reference and
+         * which no one reads (its start returns `()`, so it cannot be joined). The word it returned
+         * is not defined. */
+        in = em_in_value(em_zero(), false);
+      } else if (in.mode == EM_VALUE) {
         in.ref = f->scope != NULL || r->result_repr == EM_REPR_REF;
       }
       em_fiber_finish(f, in);
@@ -4062,8 +4074,8 @@ static em_word em_scope_finish(em_ref so, em_input in) {
   return out;
 }
 
-/* The body ended with `in`: the scope closes, and waits for the tasks left (`$scope` after the
- * body). A group interrupts them first; a background only when the body unwound by an
+/* The body ended with `in`: a group closes, and the scope waits for the tasks left (`$scope`
+ * after the body). A group interrupts them first; a background only when the body unwound by an
  * interruption or one is pending. Takes `so` and `in`. */
 static em_word em_scope_body_done(em_ref so, int32_t repr, em_input in) {
   em_scope *s = em_scope_of(so);
@@ -4072,7 +4084,7 @@ static em_word em_scope_body_done(em_ref so, int32_t repr, em_input in) {
   em_vec_remove(&f->pending, s);
   em_vec_remove(&f->unwinds, s);
   s->body_done = true;
-  s->closed = true;
+  if (!s->background) s->closed = true;
   bool interrupted = in.mode == EM_THROW && em_is_interrupted(in.value.p);
   if (!s->background) {
     if (in.mode == EM_FAIL) {
@@ -4083,6 +4095,7 @@ static em_word em_scope_body_done(em_ref so, int32_t repr, em_input in) {
       em_scope_failed(s, em_cause_new(EM_CAUSE_DIE, in.value.p));
     }
   }
+  if (s->background && (interrupted || f->pending.len > 0)) s->interrupted = true;
   if (!s->background || interrupted || f->pending.len > 0) {
     for (size_t i = 0; i < s->children.len; i++) em_interrupt_fiber(s->children.items[i], NULL);
   }
@@ -4147,6 +4160,25 @@ em_word em_fiber_scope(em_ref body, int32_t repr, bool background) {
   return em_scope_body_done(so, repr, em_input_taken(out, repr == EM_REPR_REF));
 }
 
+/* Whether the with of a background was interrupted from outside (`[task.background]`). While the
+ * body runs, an interruption of the whole fiber or of the body of an enclosing scope (a smaller
+ * depth), pending or unwinding, reaches the with from outside; one of an inner scope does not. */
+static bool em_scope_interrupted(em_scope *s) {
+  if (s->interrupted) return true;
+  if (s->body_done) return false;
+  em_fiber *f = s->fiber;
+  if (f->unwinding) return true;
+  for (size_t i = 0; i < f->pending.len + f->unwinds.len; i++) {
+    em_scope *t = i < f->pending.len ? f->pending.items[i] : f->unwinds.items[i - f->pending.len];
+    if (t == NULL || t->depth < s->depth) return true;
+  }
+  return false;
+}
+
+/* `tasks.start(f)` (`[task.group]`) and `bg.start(f)` (`[task.background]`). A background does not
+ * close: a task started after its with was interrupted from outside is interrupted before it
+ * starts running, so it ends without calling `f` and `on_failure` is not called for it. The
+ * release waits for it like any other task. */
 em_ref em_fiber_fork(em_ref so, em_ref fn) {
   em_scope *s = em_scope_of(so);
   if (s->closed) {
@@ -4156,6 +4188,7 @@ em_ref em_fiber_fork(em_ref so, em_ref fn) {
   em_root *r = em_root_cur;
   em_fiber *child = em_fiber_new(r, s);
   em_vec_push(&s->children, child);
+  if (s->background && em_scope_interrupted(s)) em_vec_push(&child->pending, NULL);
   em_job job = em_job_of(EM_JOB_BEGIN, NULL);
   em_dup(child->self);
   job.fiber = child;

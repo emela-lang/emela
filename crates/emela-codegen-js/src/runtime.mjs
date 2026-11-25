@@ -756,8 +756,13 @@ class $Scope {
     this.background = background;
     // Tasks that have not ended.
     this.children = new Set();
-    // No more starts: the body ended or something failed.
+    // No more starts (a group only): the body ended or something failed. A background does not close
+    // (`[task.background]`).
     this.closed = false;
+    // A background whose with was interrupted from outside after its body ended (the body unwound by
+    // an interruption, or one arrived while the release waits). While the body runs, `interrupted()`
+    // looks at the fiber instead.
+    this.interruptedOutside = false;
     this.bodyDone = false;
     // The scope returned.
     this.ended = false;
@@ -795,7 +800,22 @@ class $Scope {
 
   // An interruption of the fiber arrived while the release waits: a background passes it on to its tasks (11.3).
   interruptedWhileWaiting() {
+    this.interruptedOutside = true;
     for (const child of this.children) child.interrupt(null);
+  }
+
+  // Whether the with of a background was interrupted from outside (`[task.background]`). While the body runs, an
+  // interruption of the whole fiber or of the body of an enclosing scope (a smaller depth), pending or unwinding,
+  // reaches the with from outside; one of an inner scope does not.
+  interrupted() {
+    if (this.interruptedOutside) return true;
+    if (this.bodyDone) return false;
+    const fiber = this.fiber;
+    if (fiber.unwinding) return true;
+    for (const target of [...fiber.pending, ...fiber.unwinds]) {
+      if (target === null || target.depth < this.depth) return true;
+    }
+    return false;
   }
 }
 
@@ -821,7 +841,7 @@ export function* $scope(body, background = false) {
   fiber.pending = fiber.pending.filter((s) => s !== scope);
   fiber.unwinds.delete(scope);
   scope.bodyDone = true;
-  scope.closed = true;
+  if (!background) scope.closed = true;
   const interrupted = !ok && $isInterrupted(value);
   if (!background) {
     if (ok ? value instanceof $Fail : !interrupted) {
@@ -861,12 +881,16 @@ export function* $scope(body, background = false) {
   throw value;
 }
 
-// `tasks.start(f)` (11.2). The task starts running when the current fiber next suspends.
+// `tasks.start(f)` (11.2) and `bg.start(f)` (11.3). The task starts running when the current fiber next suspends. A
+// background does not close: a task started after its with was interrupted from outside is interrupted before it
+// starts running, so it ends without calling `f` and `on_failure` is not called for it (`[task.background]`). The
+// release waits for it like any other task.
 export function $fork(scope, f) {
   if (scope.closed) throw new $Defect("task group was used after it closed");
   const root = scope.fiber.root;
   const child = new $Fiber(root, scope);
   scope.children.add(child);
+  if (scope.background && scope.interrupted()) child.pending.push(null);
   root.schedule(() => child.begin(f));
   return child;
 }
