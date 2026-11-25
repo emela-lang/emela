@@ -1,0 +1,25 @@
+# The hand-written expansion of `algebra_fused.emel`: the constant side of each `&&` / `||` and the
+# arm each `if` takes are written out, and the sides the short-circuit never evaluates are gone.
+# `note` is still called where the fused form evaluates it, so both files print the same. The two
+# calls on a non-trivial left side stay: `note(...) && False` and `note(...) || True` evaluate the
+# call, which the rule must not drop.
+
+fn note(label: String, value: Bool) -> Bool {
+  dbg("#{label} #{value}")
+  value
+}
+
+fn main() {
+  flag = True
+  dbg(flag)
+  dbg(False)
+  dbg(flag)
+  dbg(flag)
+  dbg(flag)
+  dbg(True)
+  dbg(note("left-and", True) && False)
+  dbg(note("left-or", False) || True)
+  dbg(flag)
+  dbg(1)
+  dbg("else")
+}
