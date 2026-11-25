@@ -131,8 +131,8 @@ fn main() {
   dbg(String.from_code_point(65))
 }
 "#,
-        15681,
-        0xa660_46a4_3b8f_1fab,
+        15596,
+        0xf0ec_328c_81ee_7384,
     ),
     (
         "numeric",

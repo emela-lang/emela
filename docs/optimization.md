@@ -33,13 +33,14 @@ Monomorphic Core IR (after monomorphisation)
 LIR (after lowering; heap passes after reference counting)
   5 LIR             analyses: escape, liveness, borrow, ownership;
                     passes: SRA of tuples, rc cleanup with the borrow
-                    elision, DCE and borrow inference. Drop specialisation
-                    is implemented but opt-in because its measured size
-                    cost has no measured runtime gain; reuse of a uniquely
-                    owned constructor (its old reference fields released
-                    first) is C4 and is opt-in too; record SRA and closure
-                    devirtualisation are also off by default. Closure SRA and
-                    suspension frame pruning are reserved.
+                    elision, DCE, borrow inference, switch normalisation,
+                    and closure devirtualisation with closure SRA.
+                    Drop specialisation is implemented but opt-in because
+                    its measured size cost has no measured runtime gain;
+                    reuse of a uniquely owned constructor (its old reference
+                    fields released first) is C4 and is opt-in too; record
+                    SRA rewrites nothing on the corpus and stays off.
+                    Suspension frame pruning is reserved.
 Lowering and code generation
   6 representation  string concat, value records, unboxed arrays, tagging,
                     dead code and import pruning, switches
@@ -51,6 +52,26 @@ Runtime
 
 The analyses in layer 4 and in layer 6 are shared: a rewrite consumes a tested analysis and
 gives up when the analysis answers `Unknown`.
+
+### Default change: closure devirtualisation and closure SRA
+
+Closure devirtualisation (E5/PR-037) and closure SRA (C5/PR-043, closure half) run by default. This
+is a default change, not a rule change: their contracts, preconditions, deopts and counters are
+unchanged, and a build that sets the flags off gets exactly the previous output. The default changed
+because, with both on, the `effects` benchmark measured 0.892–0.906x on WASM and 0.849–0.852x on C,
+the WASM output of the other 16 benchmark cases was byte-identical, and the passes are covered end to
+end by `crates/emela-driver/tests/closure_sra.rs`. Record SRA stays off because it rewrites nothing
+on the corpus.
+
+The same shape, `|n| n + 1` made and only called in one function, is what E5 turns into a direct call
+and what closure SRA removes the record of; the lifted function is specialised on its scalar
+captures and the record and its `env_get` reads disappear. Neither pass moves an allocation it
+cannot prove, a drop point or a frame: see their rustdoc for the exact contract.
+
+The measured code size follows the same split: the WASM component of `effects` shrinks by 96 bytes
+and that of `mixed-app` by 90, and every other benchmark case keeps its exact bytes. The C source of
+the two cases grows (by 6.2% and 3.3%) because closure SRA keeps the original lifted function and
+adds the specialised copy, while the linked native binary shrinks slightly (104 and 96 bytes).
 
 ## Terms
 
@@ -100,7 +121,7 @@ changing behaviour is not.
 | [`crates/emela-core/src/opt/analysis/`](../crates/emela-core/src/opt/analysis/) | The shared Core IR analyses: effects and defects, uses, call graph, ranges. |
 | [`crates/emela-lir/src/opt/mod.rs`](../crates/emela-lir/src/opt/mod.rs) | The LIR stages (`run_flow`, `run_mid`, `run_heap`), `Stats`, the shared analyses. |
 | [`crates/emela-lir/src/opt/analysis/`](../crates/emela-lir/src/opt/analysis/) | The shared LIR analyses: escape, liveness, borrow, ownership. |
-| [`crates/emela-lir/src/opt/`](../crates/emela-lir/src/opt/) | The LIR passes: SRA of tuples (records behind a flag), rc cleanup with the borrow elision, DCE, borrow inference and switch normalisation (E4), on by default. Switch normalisation writes the canonical case form the backends read: sorted and distinct keys, one case for the bodies that are the same sequence, and a direct block when every arm is that body. Drop specialisation is opt-in: with it on the M3 measurement grew the native binary by up to 7.5% and the C source by up to 3.7%, with no measured runtime gain. Reuse of a uniquely owned, same-constructor record, whose old reference fields it releases first (C4/PR-042), closure devirtualisation and record SRA are off by default; closure SRA and suspension frame pruning are reserved. |
+| [`crates/emela-lir/src/opt/`](../crates/emela-lir/src/opt/) | The LIR passes: SRA of tuples (records behind a flag), rc cleanup with the borrow elision, DCE, borrow inference and switch normalisation (E4), on by default. Switch normalisation writes the canonical case form the backends read: sorted and distinct keys, one case for the bodies that are the same sequence, and a direct block when every arm is that body. Drop specialisation is opt-in: with it on the M3 measurement grew the native binary by up to 7.5% and the C source by up to 3.7%, with no measured runtime gain. Reuse of a uniquely owned, same-constructor record, whose old reference fields it releases first (C4/PR-042) is opt-in, and record SRA rewrites nothing on the corpus and is off by default. Closure devirtualisation (E5/PR-037) and closure SRA of a record's scalar captures (C5/PR-043, after E5) are on by default as of the default change recorded above; suspension frame pruning is reserved. |
 | [`crates/emela-codegen-c/`](../crates/emela-codegen-c/) | The C backend: representation and layout; a canonical switch is one C `switch` with a label per key. |
 | [`crates/emela-codegen-wasm/`](../crates/emela-codegen-wasm/) | The WASM backend: representation, dead code elimination, and the switch encoding (`br_table` or the chain of `if`s, chosen from the canonical keys). |
 

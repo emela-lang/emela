@@ -256,7 +256,9 @@ pub(crate) fn value_uses(m: &Module, f: &Function, v: &Value, use_: &mut dyn FnM
                     // environment, the first argument. The caller keeps that record alive for the
                     // call and releases it itself, exactly as it does for the record of an indirect
                     // call (whose callee it is), so it is borrowed. Closure devirtualisation
-                    // (`crate::opt::devirt`) makes such calls.
+                    // (`crate::opt::devirt`) makes such calls; closure scalar replacement removes
+                    // the environment of a record it took apart, so the calls it leaves have no
+                    // environment (`crate::opt::closure_sra`).
                     let start = if callee.env.is_some() {
                         if let Some((env, _)) = args.split_first() {
                             each(std::slice::from_ref(env), Mode::Borrow, use_);

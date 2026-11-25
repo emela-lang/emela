@@ -13,6 +13,7 @@ mod analysis_escape;
 mod analysis_liveness;
 mod analysis_ownership;
 mod borrow_call;
+mod closure_sra;
 mod dce;
 mod devirt;
 mod drop_spec;

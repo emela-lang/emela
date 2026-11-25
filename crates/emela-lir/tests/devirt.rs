@@ -503,10 +503,10 @@ fn main() {
     assert_eq!(frames(&on), frames(&off), "the frames changed");
 }
 
-/// With the flag off the pass does not run and the dump is unchanged; running it twice changes
-/// nothing the second time.
+/// With the flag off the pass does not run and the dump is unchanged; the default rules run it
+/// with closure SRA, and running devirtualisation twice changes nothing the second time.
 #[test]
-fn the_flag_is_off_by_default_and_the_pass_is_idempotent() {
+fn the_flag_is_on_by_default_and_the_pass_is_idempotent() {
     let mut m = mid(CAPTURE);
     let before = dump(&m);
 
@@ -516,9 +516,14 @@ fn the_flag_is_off_by_default_and_the_pass_is_idempotent() {
 
     let mut m = mid(CAPTURE);
     let stats = opt::run_mid(&mut m, true);
-    assert_eq!(stats.devirt, 0, "default rules run the pass");
-    assert_eq!(dump(&m), before);
+    assert_eq!(stats.devirt, 1, "default rules run the pass");
+    assert_eq!(
+        stats.sra_closures, 1,
+        "the default rules also run closure SRA, which needs E5's direct call"
+    );
+    assert_ne!(dump(&m), before);
 
+    let mut m = mid(CAPTURE);
     let first = run(&mut m);
     assert_eq!(first.devirt, 1);
     let after = dump(&m);
@@ -542,13 +547,15 @@ fn an_unknown_escape_set_deopts() {
     check(&m);
 }
 
-/// The default rules (devirtualisation off) leave the call indirect through the whole pipeline.
+/// The default rules run devirtualisation and closure SRA through the whole pipeline: no indirect
+/// call is left and the record is gone.
 #[test]
-fn the_default_rules_keep_the_indirect_call() {
+fn the_default_rules_make_the_call_direct() {
     let mut m = flow(CAPTURE);
     let stats = to_heap_with(&mut m, true);
-    assert_eq!(stats.devirt, 0);
-    assert_eq!(indirect_calls(&m), 1);
+    assert_eq!(stats.devirt, 1);
+    assert_eq!(stats.sra_closures, 1);
+    assert_eq!(indirect_calls(&m), 0);
     check(&m);
 }
 

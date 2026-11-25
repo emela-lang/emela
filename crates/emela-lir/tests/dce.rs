@@ -22,6 +22,7 @@ fn only_dce(dce: bool) -> Options {
             sra: false,
             sra_records: false,
             devirt: false,
+            sra_closures: false,
             rc_cleanup: false,
             rc_borrow: false,
             dce,
