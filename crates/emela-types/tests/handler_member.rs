@@ -71,8 +71,8 @@ fn provided_here() {
 "#));
 }
 
-/// A bound item that is not a handler member provides its effect by name as well
-/// (`[effect.with]`).
+/// A bound item that is not a handler member provides nothing by name either
+/// (`[effect.with]`): the body's use of Console by name is left to the caller.
 #[test]
 fn binding_handlers() {
     insta::assert_snapshot!(run(r#"

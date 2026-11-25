@@ -1,0 +1,15 @@
+exit: 0
+--- stdout
+--- stderr
+"replica primary primary"
+"primary"
+"primary e replica c"
+"primary replica"
+"primary"
+"primary l"
+"primary"
+"replica primary"
+"primary replica"
+"replica primary primary"
+"replica"
+"pool of primary pool and primary use"

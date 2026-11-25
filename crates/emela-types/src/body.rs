@@ -32,6 +32,7 @@ use crate::signature::{FnParams, Signature, Signatures, param_labels};
 use crate::traits::Traits;
 use crate::ty::{ParamKind, Prim, Ty, TyParam, TyVar};
 
+mod bound;
 mod capabilities;
 mod effects;
 mod errors;
@@ -74,6 +75,10 @@ pub(crate) struct BodyTypes {
     /// Handler members opened inside an init through a handler that a `with` inside the init
     /// provides → that `with`: they are released at its end (`[effect.handler]`).
     pub(crate) member_open_withs: SparseMap<ExprId, ExprId>,
+    /// The `use E` expressions (W0403) and the effect aliases written as a value (E0453) for
+    /// which a bound item would send the other uses of E by name in the body of the `with` that
+    /// provides E to an outer handler (`[effect.with]`): their help does not suggest one.
+    pub(crate) bound_item_redirects: Vec<Span>,
     /// Method calls (the `Field` callee of `x.f(a)`) → the function they call.
     pub(crate) methods: SparseMap<ExprId, DefId>,
     /// Dependencies of the group's handlers (the union of the R of init, release and the
@@ -270,6 +275,8 @@ pub(crate) struct BodyInfer<'a> {
     member_opens: SparseMap<ExprId, DefId>,
     /// See [`BodyResult::member_open_withs`].
     member_open_withs: SparseMap<ExprId, ExprId>,
+    /// See [`BodyTypes::bound_item_redirects`].
+    bound_item_redirects: Vec<Span>,
     /// The `with`s inside the init being inferred, outermost first.
     init_withs: Vec<ExprId>,
     /// See [`BodyResult::narrowings`].
@@ -429,6 +436,7 @@ impl<'a> BodyInfer<'a> {
             ops: SparseMap::new(),
             member_opens: SparseMap::new(),
             member_open_withs: SparseMap::new(),
+            bound_item_redirects: Vec::new(),
             init_withs: Vec::new(),
             narrowings: SparseMap::new(),
             self_caps: FxHashSet::default(),
@@ -1243,6 +1251,7 @@ impl<'a> BodyInfer<'a> {
         self.check_fn_op_bodies();
         self.check_suspend_after_resume();
         self.check_handler_cycles();
+        self.find_bound_item_redirects();
         self.check_coverage();
 
         let program = self.program;
@@ -1331,6 +1340,7 @@ impl<'a> BodyInfer<'a> {
             ops: self.ops,
             members: self.member_opens,
             member_open_withs: self.member_open_withs,
+            bound_item_redirects: self.bound_item_redirects,
             methods: self.methods,
             handler_uses,
             handler_fails,

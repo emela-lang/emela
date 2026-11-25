@@ -1,7 +1,7 @@
 ---
 title: A named item does not provide its effect by name
 authors: [somnicattus]
-status: accepted
+status: implemented
 issue:
 touches: [effect.use, effect.with, effect.handler, effect.label, type.rules, task.group, dyn.with, diag.list]
 requires: []
@@ -167,13 +167,13 @@ The changes are applied to `spec/` in this pull request.
 
 ## Diagnostics
 
-- [ ] E0402: when a with between the place where E0402 is reported and the origin of the effect (searched for as for the help about `Platform`) has a named item of that effect, a note at the named item says ``= note: `tasks` is a named item, so it does not provide `TaskGroup` by name``, and the help is ``= help: remove `tasks =` to provide it by name, or call through `tasks` ``. No new code. The search stays inside the function where E0402 is reported, so a named item inside a function whose R is inferred (a function without a uses clause) gets no note when E0402 is reported at a caller of that function.
-- [ ] E0447: a label item that makes no handler bound to a name (`x = L`, `x = L by P` where P is an effect). The message is ``label item `Side by Db` cannot be bound to a name: it makes no handler``, and the help is ``= help: list it without a name, and write `side <- Side` in the body``, with the name of the item and the effect that the item provides when it has no name (L for `L by P`, the underlying effect for `L`). No new code: E0447 already covers the items that cannot be bound (a layer).
-- [ ] E0432: not given when one of the two items is named.
-- [ ] W0401: not given for a named label item.
-- [ ] W0403: the third help (``= help: write `x <- Logger`, or a named item `with x = H` ``, given for `x = use E` when the second help does not apply: x is used other than as the receiver of operations, or inside a later with) is left out when the body of the with that provides E also uses E by name. Rewriting that with into a named item would send the uses by name to an outer handler, and no form both binds a capability and provides its effect by name. The other two helps are unchanged.
-- [ ] E0453: the help ``= help: for a fixed value, use a named item `with x = H` `` is left out, for the same reason, when the body of the with that provides E also uses E by name.
-- [ ] E0454: for an effect E, the help ``= help: capture the capability of a named item (`with g = H { ... }`) and call its operations`` is left out, for the same reason, when the body of the with that provides E also uses E by name outside the callback. The uses inside the callback are the ones that the help rewrites into calls through g.
+- [x] E0402: when a with between the place where E0402 is reported and the origin of the effect (searched for as for the help about `Platform`) has a named item of that effect, a note at the named item says ``= note: `tasks` is a named item, so it does not provide `TaskGroup` by name``, and the help is ``= help: remove `tasks =` to provide it by name, or call through `tasks` ``. No new code. The search stays inside the function where E0402 is reported, so a named item inside a function whose R is inferred (a function without a uses clause) gets no note when E0402 is reported at a caller of that function.
+- [x] E0447: a label item that makes no handler bound to a name (`x = L`, `x = L by P` where P is an effect). The message is ``label item `Side by Db` cannot be bound to a name: it makes no handler``, and the help is ``= help: list it without a name, and write `side <- Side` in the body``, with the name of the item and the effect that the item provides when it has no name (L for `L by P`, the underlying effect for `L`). No new code: E0447 already covers the items that cannot be bound (a layer).
+- [x] E0432: not given when one of the two items is named.
+- [x] W0401: not given for a named label item.
+- [x] W0403: the third help (``= help: write `x <- Logger`, or a named item `with x = H` ``, given for `x = use E` when the second help does not apply: x is used other than as the receiver of operations, or inside a later with) is left out when the body of the with that provides E also uses E by name. Rewriting that with into a named item would send the uses by name to an outer handler, and no form both binds a capability and provides its effect by name. The other two helps are unchanged.
+- [x] E0453: the help ``= help: for a fixed value, use a named item `with x = H` `` is left out, for the same reason, when the body of the with that provides E also uses E by name.
+- [x] E0454: for an effect E, the help ``= help: capture the capability of a named item (`with g = H { ... }`) and call its operations`` is left out, for the same reason, when the body of the with that provides E also uses E by name outside the callback. The uses inside the callback are the ones that the help rewrites into calls through g.
 
 ## Compatibility
 

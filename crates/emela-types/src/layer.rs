@@ -77,9 +77,9 @@ pub(crate) struct Entry {
     pub(crate) origin: usize,
     /// Whether that name is a layer.
     pub(crate) from_layer: bool,
-    /// Whether it provides its effect by name. An item bound to a name (`x = H`) that a later
-    /// item of the same effect overrides is still initialized for its name, but does not provide
-    /// the effect (`[effect.with]`).
+    /// Whether it provides its effect by name. Only an unbound item does; an item bound
+    /// to a name (`x = H`) is initialized for its name and provides nothing by name
+    /// (`[effect.with]`).
     pub(crate) named: bool,
     /// The effects whose requirements the supplier leaves to the outside: every effect a handler
     /// implements (`[effect.handler]`, `[effect.with]`), or `effect` alone. A handler of several
@@ -190,8 +190,8 @@ pub struct WithBind {
     pub ty_args: Vec<Ty>,
     /// Where the arguments of the handler's init are written.
     pub args: ArgsSource,
-    /// Whether it provides `effect` by name ([`Entry::named`]). False for an item that opens a
-    /// handler member.
+    /// Whether it provides `effect` by name ([`Entry::named`]). False for a bound item,
+    /// including one that opens a handler member.
     pub named: bool,
 }
 
@@ -479,16 +479,36 @@ pub(crate) fn check_with_items(
             });
             continue;
         }
+        if let Some(local) = item.bind
+            && let Some(provided) = unmade_label_item(program, sigs, ty_table, item, insts, origin)
+        {
+            let item_text = match item.by {
+                Some((Res::Def(by), _)) => format!("{} by {}", name(def), name(by)),
+                _ => name(def).to_string(),
+            };
+            diags.push(Diagnostic {
+                span: Some(item.span),
+                kind: DiagnosticKind::BoundLabelItem {
+                    item: SmolStr::new(item_text),
+                    name: program.locals[local].name.clone(),
+                    effect: effect_name(&ty_table.cons, &provided),
+                },
+            });
+        }
         let Some((by, by_span)) = item.by else {
             continue;
         };
-        if plugged.contains(&def) {
-            diags.push(Diagnostic {
-                span: Some(item.span),
-                kind: DiagnosticKind::LabelProvidedTwice { label: name(def) },
-            });
+        // Only the unbound items provide the label by name, so only they can provide it
+        // twice (`[effect.label]`).
+        if item.bind.is_none() {
+            if plugged.contains(&def) {
+                diags.push(Diagnostic {
+                    span: Some(item.span),
+                    kind: DiagnosticKind::LabelProvidedTwice { label: name(def) },
+                });
+            }
+            plugged.push(def);
         }
-        plugged.push(def);
         let Some(base) = sigs.label_base(def) else {
             continue;
         };
@@ -530,6 +550,36 @@ pub(crate) fn check_with_items(
             });
         }
     }
+}
+
+/// For a label item that makes no handler (`L`, or `L by P` where P is an effect or a label),
+/// the effect it would provide by name if it had no name: L for `L by P`, the underlying effect
+/// for `L`. Such an item cannot be bound to a name (E0447, `[effect.with]`). `None` for an item
+/// whose right of `by` is a handler, or does not resolve.
+fn unmade_label_item(
+    program: &Program,
+    sigs: &Signatures,
+    ty_table: &TyTable,
+    item: &WithItem,
+    insts: &Insts,
+    origin: usize,
+) -> Option<Tag> {
+    let Res::Def(def) = item.res else {
+        return None;
+    };
+    let Some((by, _)) = item.by else {
+        return sigs.label_base(def).cloned();
+    };
+    let (supplier, _) = by_tag(
+        program,
+        sigs,
+        ty_table,
+        by,
+        &item.by_args,
+        insts.of(ArgsSource::Item(origin)),
+        &mut Vec::new(),
+    )?;
+    matches!(supplier, Supplier::Effect(_)).then(|| Tag::new(def))
 }
 
 /// Whether the `origin`-th item of a `with` initializes a handler: it names one, and no later
@@ -585,21 +635,26 @@ pub(crate) fn evaluated_args(
         .collect()
 }
 
-/// For handlers of the same effect, only the later one is kept. An item bound to a name
-/// (`bound`) is kept for its name, but no longer provides its effect ([`Entry::named`]).
+/// For handlers of the same effect, only the later unbound item is kept. An item bound
+/// to a name (`bound`) is always kept for its name, but provides nothing by name
+/// ([`Entry::named`], `[effect.with]`): it is never overridden, and it does not override an
+/// earlier item.
 fn keep_last(entries: Vec<Entry>, bound: impl Fn(usize) -> bool) -> Vec<Entry> {
+    let by_name = |e: &Entry| e.from_layer || !bound(e.origin);
     let mut out: Vec<Entry> = Vec::new();
     for (i, e) in entries.iter().enumerate() {
-        let overridden = entries[i + 1..]
-            .iter()
-            .any(|later| later.effect == e.effect);
-        if !overridden {
-            out.push(e.clone());
-        } else if !e.from_layer && bound(e.origin) {
+        if !by_name(e) {
             out.push(Entry {
                 named: false,
                 ..e.clone()
             });
+            continue;
+        }
+        let overridden = entries[i + 1..]
+            .iter()
+            .any(|later| by_name(later) && later.effect == e.effect);
+        if !overridden {
+            out.push(e.clone());
         }
     }
     out

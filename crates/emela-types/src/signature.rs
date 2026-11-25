@@ -665,6 +665,7 @@ fn check_bounds(
                 kind: DiagnosticKind::CallbackEffects {
                     effects: callback,
                     callee: None,
+                    bound_item: true,
                 },
             });
         }

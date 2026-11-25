@@ -246,16 +246,17 @@ impl BodyInfer<'_> {
         })
     }
 
-    /// E0459 for an item whose type arguments are neither written nor determined by the
-    /// arguments of init, when one of its effects unifies with an effect another item of the
-    /// same `with` provides (`[effect.with]`): whether one overrides the other would depend on
-    /// what inference picks. The other items include the handlers of a layer.
+    /// E0459 for an unbound item whose type arguments are neither written nor determined
+    /// by the arguments of init, when one of its effects unifies with an effect another unbound
+    /// item of the same `with` provides (`[effect.with]`): whether one overrides the
+    /// other would depend on what inference picks. The other items include the handlers of a
+    /// layer.
     pub(super) fn check_item_overrides(&mut self, expr: ExprId, entries: &[Entry]) {
         let Some(insts) = self.item_insts.get(expr).cloned() else {
             return;
         };
         for (i, inst) in insts.iter().enumerate() {
-            if inst.args.is_empty() || inst.determined {
+            if inst.args.is_empty() || inst.determined || bound_item(entries, i) {
                 continue;
             }
             let own: Vec<Tag> = entries
@@ -265,7 +266,7 @@ impl BodyInfer<'_> {
                 .collect();
             let other = entries
                 .iter()
-                .filter(|e| e.origin != i)
+                .filter(|e| e.origin != i && e.named)
                 .find(|e| own.iter().any(|t| self.ctx.could_be_same_tag(t, &e.effect)));
             if let Some(other) = other {
                 let other = other.clone();
@@ -288,9 +289,10 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// E0459 for an item none of whose type arguments the arguments of init determine, when
-    /// two or more effects of `candidates` (the R of the body and the requirements of the other
-    /// items) fit an effect it provides (`[effect.with]`). The item does not pick one.
+    /// E0459 for an unbound item none of whose type arguments the arguments of init
+    /// determine, when two or more effects of `candidates` (the R of the body and the
+    /// requirements of the other items) fit an effect it provides (`[effect.with]`). The item
+    /// does not pick one.
     pub(super) fn check_several_fits(
         &mut self,
         expr: ExprId,
@@ -302,7 +304,7 @@ impl BodyInfer<'_> {
             return;
         };
         for (i, inst) in insts.iter().enumerate() {
-            if inst.args.is_empty() || inst.determined || inst.reported {
+            if inst.args.is_empty() || inst.determined || inst.reported || bound_item(entries, i) {
                 continue;
             }
             let mut candidates: Vec<Tag> = Vec::new();
@@ -463,4 +465,12 @@ pub(crate) fn handler_with_params(
     }
     let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
     SmolStr::new(format!("{name}[{}]", names.join(", ")))
+}
+
+/// Whether the `origin`-th item of a `with` is bound to a name: its entries provide nothing by
+/// name ([`Entry::named`]). Such an item neither overrides nor is overridden, and its type
+/// arguments are not inferred from the R of the body (`[effect.with]`), so the checks of E0459
+/// for unbound items skip it.
+fn bound_item(entries: &[Entry], origin: usize) -> bool {
+    entries.iter().any(|e| e.origin == origin && !e.named)
 }

@@ -36,8 +36,8 @@ use smol_str::SmolStr;
 use super::{BodyInfer, FnParts, fn_parts};
 use crate::coverage::Shapes;
 use crate::diagnostic::LeakFrom;
+use crate::diagnostic::{BoundItem, EffectContext, LayerArg};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::diagnostic::{EffectContext, LayerArg};
 use crate::infer::{Origin, SetKind, Subset, substitute_row};
 use crate::row::{CapElem, CapId, Row, RowElem, RowVar, Tag};
 use crate::ty::{Ty, TyParam};
@@ -1093,6 +1093,10 @@ impl BodyInfer<'_> {
                     if is_process_effect(program, t.def))
                     && self.under_platform(&rows, body, e)
             });
+            let bound = elems
+                .iter()
+                .find_map(|e| self.bound_provider(&rows, body, e))
+                .map(Box::new);
             self.diags.push(Diagnostic {
                 span: Some(self.program.exprs[started.unwrap_or(origin)].span),
                 kind: DiagnosticKind::UnhandledEffects {
@@ -1101,6 +1105,7 @@ impl BodyInfer<'_> {
                     in_task: started.is_some(),
                     hosts,
                     process,
+                    bound,
                 },
             });
         }
@@ -1160,7 +1165,7 @@ impl BodyInfer<'_> {
     }
 
     /// Each expression's E (R if `kind` says so), with set variables solved.
-    fn resolved_rows(&mut self, kind: SetKind) -> SparseMap<ExprId, Row> {
+    pub(super) fn resolved_rows(&mut self, kind: SetKind) -> SparseMap<ExprId, Row> {
         let table = match kind {
             SetKind::Errors => self.expr_rows.clone(),
             SetKind::Effects | SetKind::Caps => self.expr_effects.clone(),
@@ -1242,6 +1247,46 @@ impl BodyInfer<'_> {
                 Some(next) => current = next,
                 None => return false,
             }
+        }
+    }
+
+    /// The first bound item of the effect of `elem` in a `with` on the way from `expr` to the
+    /// origin of `elem` ([`Self::origin_of`]), searched for as [`Self::under_platform`] does. A
+    /// bound item provides nothing by name (`[effect.with]`), so E0402 names it. The search stays
+    /// inside the body being reported.
+    fn bound_provider(
+        &self,
+        rows: &SparseMap<ExprId, Row>,
+        expr: ExprId,
+        elem: &RowElem,
+    ) -> Option<BoundItem> {
+        let RowElem::Tag(tag) = elem else {
+            return None;
+        };
+        let program = self.program;
+        let mut current = expr;
+        loop {
+            if let ExprKind::With { handlers, .. } = &program.exprs[current].kind {
+                let insts = self.item_insts(current, handlers);
+                let entries =
+                    crate::layer::with_entries(program, self.sigs, self.ty_table, handlers, &insts);
+                let found = entries.iter().find_map(|e| {
+                    let item = &handlers[e.origin];
+                    let local = item.bind?;
+                    (!e.named && e.effect.def == tag.def).then(|| BoundItem {
+                        span: item.span,
+                        name: program.locals[local].name.clone(),
+                        effect: program.defs[tag.def].name.clone(),
+                    })
+                });
+                if found.is_some() {
+                    return found;
+                }
+            }
+            current = self
+                .sub_exprs(current)
+                .into_iter()
+                .find(|&e| rows.get(e).is_some_and(|row| row.contains(elem)))?;
         }
     }
 

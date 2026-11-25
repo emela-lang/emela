@@ -206,6 +206,9 @@ pub enum DiagnosticKind {
         in_task: bool,
         hosts: Vec<SmolStr>,
         process: bool,
+        /// A bound item of one of `effects` in a `with` on the way to where it is required
+        /// (`[effect.with]`): it provides nothing by name.
+        bound: Option<Box<BoundItem>>,
     },
     /// A function value's R not contained in the expected function type's R (E0403, spec 9.2).
     /// `expected` and `found` are displayed effect sets (`{ Logger, Clock }`, or `{}` if empty).
@@ -238,6 +241,14 @@ pub enum DiagnosticKind {
     /// A layer bound to a name in `with` (E0447, `[effect.with]`): it provides more than one
     /// effect.
     BoundLayer { layer: SmolStr },
+    /// A label item that makes no handler (`L`, `L by P` where P is an effect) bound to a name
+    /// (E0447, `[effect.with]`). `item` is the item as written without its name, `name` the name
+    /// it is bound to, and `effect` the effect it provides when it has no name.
+    BoundLabelItem {
+        item: SmolStr,
+        name: SmolStr,
+        effect: SmolStr,
+    },
     /// A handler member opened outside a `with` item and an init (E0448, `[effect.use]`,
     /// `[effect.handler]`).
     MemberOutsideInit { member: SmolStr, effect: SmolStr },
@@ -408,10 +419,13 @@ pub enum DiagnosticKind {
     },
     /// The R of a callback passed to or returned from an external function contains effects
     /// (E0454, `[ext.boundary]`): the host calls it without handlers. `callee` is the external
-    /// function, `None` at the declaration.
+    /// function, `None` at the declaration. `bound_item` is false when a bound item would not
+    /// help: the body of the `with` that provides one of the effects also uses it by name outside
+    /// the callback, and a bound item provides nothing by name (`[effect.with]`).
     CallbackEffects {
         effects: Vec<SmolStr>,
         callee: Option<SmolStr>,
+        bound_item: bool,
     },
     /// The R of a callback passed to an external function contains capabilities, and the
     /// parameter is not `@borrowed` (E0454, `[ext.boundary]`): the host may call it after their
@@ -547,6 +561,17 @@ pub enum ImmediateSource {
     Bound { param: SmolStr, callee: SmolStr },
     /// A callback passed to an external function (spec 9.5).
     ExternalCallback { callee: SmolStr },
+}
+
+/// A bound item that provides an effect only through its capability ([`DiagnosticKind::UnhandledEffects`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BoundItem {
+    /// The item, as written in the `with`.
+    pub span: Span,
+    /// The name it is bound to.
+    pub name: SmolStr,
+    /// The effect it would provide by name without the name.
+    pub effect: SmolStr,
 }
 
 /// Where the set that R must be contained in came from ([`DiagnosticKind::UnhandledEffects`]).

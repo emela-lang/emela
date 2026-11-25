@@ -407,6 +407,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         self.http_service = emela_types::is_http_service(&hir);
         let mut types = check_program_with(&hir, &options);
         types.diags.extend(export_diagnostics);
+        drop_bound_item_helps(&mut diagnostics, &types, analysis);
         // Inference proceeds in call order, so sort by file and position like name resolution.
         let mut type_diagnostics: Vec<Diagnostic> = types
             .diags
@@ -637,6 +638,39 @@ fn last_lambda_after_or_line(parse: &Parse, range: line_index::TextRange) -> boo
                 == Some(&lambda)
     });
     last_in_block && emela_syntax::rewrite::starts_line_with_or(&lambda)
+}
+
+/// Leaves out the help of W0403 and E0453 that suggests a bound item where the body of the
+/// `with` that provides the effect also uses it by name: a bound item provides nothing by name,
+/// so the rewrite would send those uses to an outer handler (`[effect.with]`).
+fn drop_bound_item_helps(
+    diagnostics: &mut [Diagnostic],
+    types: &ProgramTypes,
+    analysis: &Analysis,
+) {
+    if types.bound_item_redirects.is_empty() {
+        return;
+    }
+    let redirects: Vec<crate::Span> = types
+        .bound_item_redirects
+        .iter()
+        .filter_map(|s| {
+            let &file = analysis.files.get(s.module)?;
+            Some(crate::Span::new(file, s.range))
+        })
+        .collect();
+    for d in diagnostics {
+        let suggests = matches!(
+            d.code,
+            Some(crate::code::DEPRECATED_USE | crate::code::EFFECT_ALIAS_MISUSE)
+        );
+        if suggests && matches!(&d.location, Some(Location::Span(s)) if redirects.contains(s)) {
+            d.notes.retain(|n| {
+                !(n.starts_with(crate::diagnostic::HELP_PREFIX)
+                    && n.contains(crate::diagnostic::NAMED_ITEM_SUGGESTION))
+            });
+        }
+    }
 }
 
 #[cfg(test)]

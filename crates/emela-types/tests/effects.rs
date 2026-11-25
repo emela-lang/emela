@@ -1992,8 +1992,8 @@ effect Audit of Console
 
 /// An item that opens a handler member requires the effect that declares it, so it is
 /// initialized after a provider of that effect in the same `with`; otherwise the items keep the
-/// order they are written in (`[dyn.with]`). A bound item a later one overrides is still
-/// initialized for its name (`[effect.with]`).
+/// order they are written in (`[dyn.with]`). A bound item is never overridden, so it is
+/// initialized even when a later item provides the same effect (`[effect.with]`).
 #[test]
 fn handler_member_items_in_initialization_order() {
     insta::assert_snapshot!(render_handlers(
@@ -2139,5 +2139,154 @@ fn local() -> String {
   }
 }
 "#
+    ));
+}
+
+/// `[effect.with]`: a bound item makes its capability and provides nothing by name, whether it
+/// is a handler, a handler of several effects or a label plugged into a handler. The body's uses
+/// by name are left to the withs around it, and a requirement of another item of the same `with`
+/// is not met by it. It provides no label declared `default` (`[effect.label]`). It is never
+/// overridden and does not override an unbound item, so both are initialized, and the E
+/// of its init and of its arguments are in the E of the `with` (`[type.rules]`).
+#[test]
+fn bound_items_provide_nothing_by_name() {
+    insta::assert_snapshot!(render_handlers(
+        r##"
+effect Db {
+  fn name() -> String
+}
+
+effect Clock {
+  fn now() -> Int
+}
+
+effect Side of Db
+
+effect Names of Db default
+
+error Down
+
+handler PrimaryDb: Db {
+  fn name() { "primary" }
+}
+
+fn probe(n: Int) -> () fails Down { if n > 0 { fail Down } else { () } }
+
+handler ReplicaDb: Db {
+  init {
+    probe(0)
+    ReplicaDb
+  }
+
+  fn name() { "replica" }
+}
+
+handler Both: Db + Clock {
+  fn name() { "both" }
+  fn now() { 0 }
+}
+
+handler NeedsDb: Clock {
+  fn now() {
+    _ = (use Db).name()
+    0
+  }
+}
+
+fn write_side() -> String uses { Db } { (use Db).name() }
+
+fn names() -> String uses { Names } { (use Names).name() }
+
+fn show(side: use Side) -> String { side.name() }
+
+fn now() -> Int uses { Clock } { (use Clock).now() }
+
+fn left_to_caller() {
+  with replica = ReplicaDb { "#{replica.name()} #{write_side()}" }
+}
+
+fn outer() {
+  with PrimaryDb {
+    with replica = ReplicaDb { "#{replica.name()} #{write_side()}" }
+  }
+}
+
+fn several() {
+  with both = Both { "#{both.name()} #{now()}" }
+}
+
+fn label() {
+  with side = Side by ReplicaDb { "#{show(side)} #{write_side()}" }
+}
+
+fn no_default() {
+  with replica = ReplicaDb { names() }
+}
+
+fn requirement() {
+  with replica = ReplicaDb, NeedsDb { now() }
+}
+
+fn never_overridden() {
+  with PrimaryDb, a = ReplicaDb, b = PrimaryDb {
+    "#{a.name()} #{b.name()} #{write_side()}"
+  }
+}
+"##
+    ));
+}
+
+/// `[effect.with]`, `[effect.label]`: a label item that makes no handler (`L`, `L by P` where P
+/// is an effect or a label) cannot be bound to a name (E0447); an unbound one is
+/// unchanged. Two bound items of one label are not E0432, and a bound label item is never
+/// W0401: it provides nothing by name, so the label is used through its capability.
+#[test]
+fn bound_label_items() {
+    insta::assert_snapshot!(render_handlers(
+        r##"
+effect Db {
+  fn name() -> String
+}
+
+effect Side of Db
+
+effect Other of Db
+
+handler PrimaryDb: Db {
+  fn name() { "primary" }
+}
+
+handler ReplicaDb: Db {
+  fn name() { "replica" }
+}
+
+fn bound_to_effect() -> String uses { Db } {
+  with side = Side by Db { side.name() }
+}
+
+fn bound_to_label() -> String uses { Other } {
+  with side = Side by Other { side.name() }
+}
+
+fn bound_alone() -> String uses { Side } {
+  with db = Side { db.name() }
+}
+
+fn unbound() -> String uses { Db } {
+  with Side by Db { (use Side).name() }
+}
+
+fn two_bound() -> String {
+  with a = Side by PrimaryDb, b = Side by ReplicaDb { "#{a.name()} #{b.name()}" }
+}
+
+fn two_unbound() {
+  with Side by PrimaryDb, Side by ReplicaDb { (use Side).name() }
+}
+
+fn bound_unused() {
+  with side = Side by PrimaryDb { () }
+}
+"##
     ));
 }

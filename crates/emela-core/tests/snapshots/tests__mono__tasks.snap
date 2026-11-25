@@ -32,7 +32,7 @@ export suspend fn main() -> Int {
         }
       }
     }
-    let ev%4: evidence = provide(; Std.Deferred.Deferred[String] = h%0)
+    let ev%4: evidence = provide(;)
   } {
     fiber#scope(suspend fn(s%5: fiber_scope) -> Int {
       with {

@@ -228,7 +228,9 @@ fn use_peek() -> Int uses { State[Int] } { peek() }
 }
 
 /// Type arguments that are not determined are E0459: nothing determines them, two effects of
-/// the body fit, or the item may override another item of the same `with`.
+/// the body fit, or the item may override another item of the same `with`. A bound item provides
+/// nothing by name (`[effect.with]`): neither of the last two applies to it, and its type
+/// arguments come from how its capability is used.
 #[test]
 fn not_determined() {
     insta::assert_snapshot!(repo(
@@ -271,6 +273,15 @@ fn may_override() { with Fixed, Pass { (use State[Int]).get() } }
 fn written_override() { with Fixed, Pass[Int] { (use State[Int]).get() } }
 
 fn init_narrows() { with Constant(value: [1]) { (ints(), strings()) } }
+
+fn bound_two_fit() {
+  with x = Empty {
+    x.set(["s"])
+    (ints(), strings())
+  }
+}
+
+fn bound_may_override() { with Fixed, x = Pass { x.get() + 1 } }
 "#
     ));
 }

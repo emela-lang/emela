@@ -1,6 +1,6 @@
 ## `[task.group]`, `[effect.with]`: a task uses the handlers outside the with of its group, even a
 ## closure made inside a `with` in the body of the group. `s <- TaskGroup` starts into the
-## innermost group at each call.
+## innermost unbound group at each call.
 
 import Std.Task.{Task, TaskGroup}
 
@@ -31,7 +31,9 @@ fn main() -> () uses { Async } {
       }
     }
     # A task of an outer group, given a closure made in a `with` inside an inner group.
-    with outer = Task.Group {
+    # A bound group provides nothing by name, so `outer` starts into the outer group even inside it.
+    with Task.Group {
+      outer <- TaskGroup
       with tasks = Task.Group {
         with Plain {
           g <- Greeter

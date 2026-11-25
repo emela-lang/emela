@@ -294,7 +294,7 @@ impl BodyInfer<'_> {
         row
     }
 
-    fn callee_uses(&mut self, callee: ExprId) -> Row {
+    pub(super) fn callee_uses(&mut self, callee: ExprId) -> Row {
         let ty = self.exprs.get(callee).cloned().unwrap_or(Ty::Error);
         match self.ctx.shallow_resolve(&ty) {
             Ty::Fn(f) => f.uses,
@@ -776,7 +776,9 @@ impl BodyInfer<'_> {
         for (i, entry) in entries.iter().enumerate() {
             let is_label_item = matches!(entry.supplier, Supplier::Effect(_))
                 || self.sigs.label_base(entry.effect.def).is_some();
-            if !is_label_item || entry.from_layer {
+            // A bound label item provides nothing by name, so the label never appears in the R
+            // of the body; it is used through its capability (`[effect.label]`).
+            if !is_label_item || entry.from_layer || !entry.named {
                 continue;
             }
             let tag = RowElem::Tag(entry.effect.clone());
