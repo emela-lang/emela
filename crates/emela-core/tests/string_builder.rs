@@ -15,7 +15,7 @@
 //! target; the law is off in the driver's default pipeline, so that pair checks that the two
 //! forms agree, while this file turns the law on and checks the IR it builds.
 
-mod support;
+use crate::support;
 
 use emela_core::opt::fusion::{self, Laws};
 use emela_core::opt::{CoreFns, Stats};

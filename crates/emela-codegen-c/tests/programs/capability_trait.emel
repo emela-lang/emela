@@ -1,0 +1,51 @@
+effect Db {
+  fn query(q: String) -> Int
+}
+
+effect Logger {
+  fn info(msg: String) -> ()
+}
+
+handler PrimaryDb: Db {
+  fn query(q) {
+    _ = dbg("primary #{q}")
+    1
+  }
+}
+
+handler ReplicaDb: Db {
+  fn query(q) {
+    _ = dbg("replica #{q}")
+    2
+  }
+}
+
+handler PrintLogger: Logger {
+  fn info(msg) {
+    _ = dbg("log #{msg}")
+  }
+}
+
+fn keep[C: Capability](c: C) -> C { c }
+
+fn forward[C: Capability](c: C) -> C { keep(c) }
+
+fn both[C: Capability](first: C, second: C) -> List[C] { [first, second] }
+
+fn second[C: Capability](items: List[C]) -> Option[C] {
+  items match {
+    [_, c] -> Some(c)
+    _      -> None
+  }
+}
+
+fn main() {
+  with primary = PrimaryDb, log = PrintLogger {
+    with replica = ReplicaDb {
+      _ = dbg(forward(primary).query("forwarded"))
+      _ = dbg(keep(replica).query("kept"))
+      keep(log).info("kept")
+      _ = second(both(primary, replica)) |> Option.map(|db| dbg(db.query("second")))
+    }
+  }
+}

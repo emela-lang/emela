@@ -1,0 +1,117 @@
+# Tasks (`[task]`). A task is a piece of concurrent work, running on a fiber of the run time. It
+# is started only through the capability of a with item that bounds its lifetime: a
+# `Task.Group` for tasks whose results are awaited, and a `Task.Background` for tasks whose
+# results are not.
+#
+# Import it with `import Std.Task.{Task}`:
+#
+#   (user, orders) = Task.both(|| fetch_user(1), || fetch_orders(1))
+#
+#   with tasks = Task.Group {
+#     a = tasks.start(|| fetch_user(1))
+#     a.join()
+#   }
+#
+# The effects `TaskGroup` and `Spawn`, the handlers `Group` and `Background`, and `join` are
+# built in (the runtime schedules the tasks). The combinators `all`, `race`, `both`, `map` and
+# `timeout` are written in Emela on top of them (`[task.combinators]`).
+
+import Std.Cause.{Cause}
+import Std.Clock.{Clock}
+import Std.Deferred.{Deferred}
+
+## The capability to start tasks whose results are awaited. `E` and `R` are the `fails` and
+## `uses` of the tasks. Only `Task.Group` provides it (`[task.group]`).
+@intrinsic
+pub effect TaskGroup[E, R] {
+  ## Starts `f` as a task of the group. The task starts running the next time the starting task
+  ## suspends. `f` may use the group itself, to start siblings.
+  fn start[A](f: fn() -> A fails E uses { R }) -> Task[A]
+}
+
+## A task started in a group. It lives only while the capability of the group does
+## (`[task.group]`).
+@external
+pub type Task[A] uses TaskGroup
+
+## Provides TaskGroup. When the body ends, its release interrupts the tasks left and waits until
+## they have unwound. A failure of a task interrupts its siblings and fails the with.
+@intrinsic
+pub handler Group[E, R]: TaskGroup[E, R]
+
+## The capability to start tasks whose results are not awaited. Only `Task.Background` provides it
+## (`[task.background]`).
+@intrinsic
+pub effect Spawn[E, R] {
+  ## Starts `f` as a task. The task starts running the next time the starting task suspends.
+  fn start(f: fn() -> () fails E uses { R }) -> ()
+}
+
+## Provides Spawn. Its release waits until the tasks have ended, without interrupting them. A
+## failure of a task goes to `on_failure`, called in that task after it has unwound.
+@intrinsic
+pub handler Background[E, R]: Spawn[E, R] {
+  init(on_failure: fn(Cause[E]) -> () uses { R })
+}
+
+## Waits for the task to end and returns its value.
+@intrinsic
+pub fn join[A](task: Task[A]) -> A uses { Async }
+
+## Runs all of `fs` concurrently and returns their values in order. If one fails, the others are
+## interrupted and `all` fails.
+pub fn all[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> List[A] fails E uses { Async, R } {
+  with tasks = Group {
+    started = fs.map(|f| tasks.start(f))
+    started.map(|task| join(task))
+  }
+}
+
+## Runs all of `fs` concurrently and takes the first to end; the others are interrupted. If the
+## first to end fails, `race` fails with that error.
+pub fn race[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R } {
+  with first = Deferred, tasks = Group {
+    fs.map(|f| tasks.start(|| first.complete(f())))
+    first.await()
+  }
+}
+
+## Runs `f` and `g` concurrently and returns both values. If one fails, the other is interrupted
+## and `both` fails.
+pub fn both[A, B, E, R](f: fn() -> A fails E uses { R }, g: fn() -> B fails E uses { R }) -> (A, B)
+  fails E
+  uses { Async, R } {
+  with tasks = Group {
+    a = tasks.start(f)
+    b = tasks.start(g)
+    (join(a), join(b))
+  }
+}
+
+## Applies `f` to each element of `xs` concurrently and returns the results in order. If one
+## fails, the others are interrupted and `map` fails.
+pub fn map[A, B, E, R](xs: List[A], f: fn(A) -> B fails E uses { R }) -> List[B]
+  fails E
+  uses { Async, R } {
+  with tasks = Group {
+    started = xs.map(|x| tasks.start(|| f(x)))
+    started.map(|task| join(task))
+  }
+}
+
+## Waits for `f` up to `ms` milliseconds. Returns `Some` with its value if it ends in time;
+## otherwise interrupts it and returns `None`. Wrap it in `Option.or_fail` to fail instead. The
+## time is measured with `Clock`.
+pub fn timeout[A, E, R](ms: Int, f: fn() -> A fails E uses { R }) -> Option[A]
+  fails E
+  uses { Clock, Async, R } {
+  with first = Deferred, tasks = Group {
+    tasks.start(|| first.complete(Some(f())))
+    tasks.start(|| {
+      clock <- Clock
+      clock.sleep(ms)
+      first.complete(None)
+    })
+    first.await()
+  }
+}

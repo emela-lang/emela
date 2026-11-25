@@ -1,0 +1,112 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/generic_handler.emel
+---
+ROOT@0..124
+  HANDLER_DECL@0..68
+    HANDLER_KW@0..7 "handler"
+    WHITESPACE@7..8 " "
+    TYPE_NAME@8..14 "Broken"
+    TYPE_PARAM_LIST@14..17
+      L_BRACK@14..15 "["
+      TYPE_PARAM@15..17
+        UPPER_NAME@15..16 "S"
+        COLON@16..17 ":"
+    WHITESPACE@17..18 " "
+    FIELD_LIST@18..28
+      L_PAREN@18..19 "("
+      FIELD@19..27
+        LOWER_NAME@19..24 "value"
+        COLON@24..25 ":"
+        WHITESPACE@25..26 " "
+        TYPE_VAR@26..27
+          UPPER_NAME@26..27 "S"
+      R_PAREN@27..28 ")"
+    COLON@28..29 ":"
+    WHITESPACE@29..30 " "
+    HANDLER_EFFECT@30..38
+      PATH@30..35
+        TYPE_NAME@30..35 "State"
+      TYPE_ARG_LIST@35..38
+        L_BRACK@35..36 "["
+        TYPE_VAR@36..37
+          UPPER_NAME@36..37 "S"
+        R_BRACK@37..38 "]"
+    WHITESPACE@38..39 " "
+    ITEM_LIST@39..68
+      L_BRACE@39..40 "{"
+      NEWLINE@40..41 "\n"
+      WHITESPACE@41..43 "  "
+      FN_DECL@43..66
+        FN_KW@43..45 "fn"
+        WHITESPACE@45..46 " "
+        LOWER_NAME@46..49 "get"
+        PARAM_LIST@49..51
+          L_PAREN@49..50 "("
+          R_PAREN@50..51 ")"
+        WHITESPACE@51..52 " "
+        BLOCK_EXPR@52..66
+          L_BRACE@52..53 "{"
+          WHITESPACE@53..54 " "
+          FIELD_EXPR@54..64
+            NAME_REF@54..58
+              SELF_KW@54..58 "self"
+            DOT@58..59 "."
+            LOWER_NAME@59..64 "value"
+          WHITESPACE@64..65 " "
+          R_BRACE@65..66 "}"
+      NEWLINE@66..67 "\n"
+      R_BRACE@67..68 "}"
+  NEWLINE_CONT@68..69 "\n"
+  NEWLINE_CONT@69..70 "\n"
+  FN_DECL@70..123
+    FN_KW@70..72 "fn"
+    WHITESPACE@72..73 " "
+    LOWER_NAME@73..77 "main"
+    PARAM_LIST@77..79
+      L_PAREN@77..78 "("
+      R_PAREN@78..79 ")"
+    WHITESPACE@79..80 " "
+    BLOCK_EXPR@80..123
+      L_BRACE@80..81 "{"
+      NEWLINE@81..82 "\n"
+      WHITESPACE@82..84 "  "
+      WITH_EXPR@84..121
+        WITH_KW@84..88 "with"
+        WHITESPACE@88..89 " "
+        SUPPLY@89..111
+          PATH@89..95
+            TYPE_NAME@89..95 "Memory"
+          TYPE_ARG_LIST@95..99
+            L_BRACK@95..96 "["
+            PATH_TYPE@96..99
+              PATH@96..99
+                TYPE_NAME@96..99 "Int"
+          ARG_LIST@99..111
+            L_PAREN@99..100 "("
+            NAMED_ARG@100..110
+              LOWER_NAME@100..107 "initial"
+              COLON@107..108 ":"
+              WHITESPACE@108..109 " "
+              LITERAL@109..110
+                INT@109..110 "0"
+            R_PAREN@110..111 ")"
+        WHITESPACE@111..112 " "
+        BLOCK_EXPR@112..121
+          L_BRACE@112..113 "{"
+          WHITESPACE@113..114 " "
+          CALL_EXPR@114..119
+            NAME_REF@114..117
+              LOWER_NAME@114..117 "run"
+            ARG_LIST@117..119
+              L_PAREN@117..118 "("
+              R_PAREN@118..119 ")"
+          WHITESPACE@119..120 " "
+          R_BRACE@120..121 "}"
+      NEWLINE_CONT@121..122 "\n"
+      R_BRACE@122..123 "}"
+  NEWLINE@123..124 "\n"
+error[E0110]@18..19: expected type name
+error[E0110]@18..19: expected `]`
+error[E0110]@99..100: expected `]`

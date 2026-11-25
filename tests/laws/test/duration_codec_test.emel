@@ -1,0 +1,178 @@
+# Encode, Decode and Shaped for Duration (`[api.std.dynamic]`, `[api.std.shape]`): the text of
+# `Duration.to_string` and `Duration.parse`, and a record with a Duration field that derives them.
+
+import Std.Bytes.{Bytes}
+import Std.Duration.{Duration}
+import Std.Dynamic.{
+  Dynamic,
+  Decode,
+  Encode,
+  DecodeError,
+  Segment,
+  Key,
+  Index,
+  Text,
+  Binary,
+  Number,
+  Items,
+  Null,
+}
+import Std.Dynamic.Number
+import Std.Json
+import Std.Shape.{Shape, Shaped, Named, Record, Field}
+import Std.Shape
+
+fn ms(n: Int64) -> Duration {
+  Duration.milliseconds(n)
+}
+
+# A literal is checked as a positive number, so the least Int64 is written as a difference.
+fn int64_min() -> Int64 {
+  0 - 9223372036854775807 - 1
+}
+
+fn failure(value: Dynamic) -> (String, Dynamic, List[Segment]) {
+  {
+    decoded: Duration = Decode.from_dynamic(value)
+    ("", Null, [])
+  } escape {
+    DecodeError(expected:, actual:, path:) -> (expected, actual, path)
+  }
+}
+
+@test
+fn encodes_as_the_text_of_to_string() {
+  assert ms(1500).to_dynamic() == Text("1500ms")
+  assert ms(0).to_dynamic() == Text("0ms")
+  assert ms(-1500).to_dynamic() == Text("-1500ms")
+  assert ms(5400000).to_dynamic() == Text("5400000ms")
+  assert ms(int64_min()).to_dynamic() == Text("-9223372036854775808ms")
+}
+
+@test
+fn decodes_text_in_both_forms() {
+  forms = ["5400000ms", "1h30m", "1.5h", "1h 30min", "90 minutes", "PT1H30M", "pt1.5h"]
+  forms.each(|s| {
+    decoded: Duration = Decode.from_dynamic(Text(s))
+    assert decoded == ms(5400000)
+  })
+  negative: Duration = Decode.from_dynamic(Text("-PT0.5S"))
+  assert negative == ms(-500)
+  min: Duration = Decode.from_dynamic(Text("-9223372036854775808ms"))
+  assert min == ms(int64_min())
+}
+
+@test
+fn decode_reads_back_what_encode_writes() {
+  lengths: List[Int64] = [0, 1, -1, 999, -999, 1500, 5400000, 9223372036854775807, int64_min()]
+  lengths.each(|n| {
+    decoded: Duration = Decode.from_dynamic(ms(n).to_dynamic())
+    assert decoded == ms(n)
+  })
+}
+
+@test
+fn a_value_that_is_not_text_fails_as_text() {
+  # A Number is not read: its unit is not in the value.
+  number = Number(Number.from_int64(1500))
+  assert failure(number) == ("text", number, [])
+  zero = Number(Number.from_int64(0))
+  assert failure(zero) == ("text", zero, [])
+  assert failure(Null) == ("text", Null, [])
+  items = Items([Text("1500ms")])
+  assert failure(items) == ("text", items, [])
+  object = Dynamic.object([("timeout", Text("1500ms"))])
+  assert failure(object) == ("text", object, [])
+  binary = Binary(Bytes.encode_utf8("1500ms"))
+  assert failure(binary) == ("text", binary, [])
+}
+
+@test
+fn text_that_parse_does_not_read_fails_as_duration() {
+  texts = [
+    "",
+    "1500",
+    "1.5",
+    "1d",
+    "P1D",
+    "PT1,5S",
+    " 1500ms",
+    "1H",
+    "01:30:00",
+    "9223372036854775808ms",
+  ]
+  texts.each(|s| assert failure(Text(s)) == ("duration", Text(s), []))
+}
+
+type Job(name: String, timeout: Duration)
+  derive Eq, Encode, Decode, Shaped
+
+@test
+fn a_record_with_a_duration_field_derives_encode_and_decode() {
+  job = Job(name: "build", timeout: ms(30000))
+  expected = Dynamic.object([("name", Text("build")), ("timeout", Text("30000ms"))])
+  assert job.to_dynamic() == expected
+  decoded: Job = Decode.from_dynamic(job.to_dynamic())
+  assert decoded == job
+}
+
+@test
+fn a_record_with_a_duration_field_goes_through_json() {
+  job = Job(name: "build", timeout: ms(30000))
+  text = Json.encode(job)
+  assert text == "{\"name\":\"build\",\"timeout\":\"30000ms\"}"
+  decoded: Job = Json.decode(text)
+  assert decoded == job
+  configured: Job = Json.decode("{\"name\":\"build\",\"timeout\":\"30s\"}")
+  assert configured == job
+  iso: Job = Json.decode("{\"name\":\"build\",\"timeout\":\"PT30S\"}")
+  assert iso == job
+}
+
+@test
+fn the_failure_of_a_field_has_its_path() {
+  result = {
+    decoded: Job = Json.decode("{\"name\":\"build\",\"timeout\":\"30\"}")
+    ("", [])
+  } escape {
+    DecodeError(expected:, path:, ..) -> (expected, path)
+  }
+  assert result == ("duration", [Key("timeout")])
+  number = {
+    decoded: Job = Json.decode("{\"name\":\"build\",\"timeout\":30000}")
+    ("", [])
+  } escape {
+    DecodeError(expected:, path:, ..) -> (expected, path)
+  }
+  assert number == ("text", [Key("timeout")])
+}
+
+@test
+fn lists_and_options_of_duration_encode_and_decode() {
+  list: List[Duration] = Decode.from_dynamic(Items([Text("1s"), Text("PT1M")]))
+  assert list == [ms(1000), ms(60000)]
+  assert [ms(1000), ms(60000)].to_dynamic() == Items([Text("1000ms"), Text("60000ms")])
+  some: Option[Duration] = Decode.from_dynamic(Text("1s"))
+  assert some == Some(ms(1000))
+  none: Option[Duration] = Decode.from_dynamic(Null)
+  assert none == None
+  failed = {
+    decoded: List[Duration] = Decode.from_dynamic(Items([Text("1s"), Text("x")]))
+    ("", [])
+  } escape {
+    DecodeError(expected:, path:, ..) -> (expected, path)
+  }
+  assert failed == ("duration", [Index(1)])
+}
+
+@test
+fn the_shape_is_a_named_string_without_a_note() {
+  assert Shape.of_value(ms(1500)) == Named(name: "Duration", shape: Shape.String)
+}
+
+@test
+fn the_shape_of_a_record_with_a_duration_field() {
+  duration = Named(name: "Duration", shape: Shape.String)
+  fields = [Field(name: "name", shape: Shape.String), Field(name: "timeout", shape: duration)]
+  assert Shape.of_value(Job(name: "build", timeout: ms(30000))) == Record(name: "Job", fields:)
+}

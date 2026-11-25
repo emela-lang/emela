@@ -3,7 +3,7 @@
 //! For each top-level fn of one module (`main.emel`), prints the declared type (`Signatures`) as
 //! `∀ A. fn(List[A]) -> Option[A]`, quantifying the fn's type parameters.
 
-mod common;
+use crate::common;
 
 use emela_resolve::hir::DefKind;
 

@@ -5,8 +5,7 @@
 //! Heap IR, then run the pass through `opt::run_heap_with` with only DCE on. Every result must pass
 //! the verifier.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::{Module as CoreModule, Roots, TypeId, monomorphize_from, verify_monomorphic};
 use emela_lir::opt::{self, LirRules, Options};
