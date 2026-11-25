@@ -341,7 +341,7 @@ fn main() {
 ```
 
 - `effect L of E` declares an effect L that has the same operations as E. L is called a label of E, and E is called the underlying effect of L. In R, L and E count as different effects. The operations of a capability value obtained with `use L` are the operations of E, and calling them adds L to R. Whether L is Immediate (9.5) is determined by E.
-- A label L of E has the handler members of E. `x = L.M(arguments)` in a with opens M of the handler that provides L, and requires L. On `c: use L`, `c.M(arguments)` opens M of the handler that provides c.
+- A label L of E has the handler members of E. `x = L.M(arguments)` in a with opens M of the innermost handler that provides L by name, and requires L. On `c: use L`, `c.M(arguments)` opens M of the handler that provides c.
 - The underlying effect MUST be a user effect that has operations or handler members. Writing a label, or a built-in effect such as Async or TaskGroup, is a compile error (E0429). This keeps the underlying effect always determined in one step, and gives `default` only one meaning. To separate the contents, declare `effect X of Console` flatly and plug it in with `X by AuditLog`.
 - A label of an effect with type parameters writes the type arguments of the underlying effect (`effect Hits of State[Int]`). The label itself has no type parameters, so only concrete types can be written. The types of the operations are determined by those type arguments. The effect to the right of `by` can also have type arguments (`Hits by State[Int]`). Omitting the type arguments is a compile error (E0423). Labels can also be used to have two states of the same type (8.8).
 - Writing a handler for a label is a compile error (E0433). Plug in a handler of the underlying effect with `by` instead.
@@ -358,7 +358,7 @@ fn main() {
 - A label item (`L`, `L by P`) that appears neither in the R of the body nor in the requirements of other items in the same with produces a warning (W0401). No warning is produced when the R of the body includes a hidden set. No warning is produced for a named label item (`x = L by H`): it provides nothing by name (`[effect.with]`), and it is used through x.
 - A label has no body. Writing `{ ... }` after the declaration is a compile error (E0122).
 - Labels are distinguished by name (nominal). Two separately declared labels are different effects even if their underlying effect is the same, and labels with the same name in different modules are also different.
-- An `L` item, and an `L by P` item where P is an effect or a label, do not create a new handler. They provide the outer handler (or that of an item initialized earlier in the same with) again under the name L. An `L by P` item where P is a handler initializes P and provides it.
+- An `L` item, and an `L by P` item where P is an effect or a label, do not create a new handler. They provide the handler that an outer with provides by name (or that of an item without a name initialized earlier in the same with) again under the name L. An `L by P` item where P is a handler initializes P and provides it.
 
 ## 8.10 Host effects `[effect.host]`
 

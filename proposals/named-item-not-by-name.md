@@ -3,7 +3,7 @@ title: A named item does not provide its effect by name
 authors: [somnicattus]
 status: draft
 issue:
-touches: [effect.use, effect.with, effect.handler, effect.label, type.rules, task.group, diag.list]
+touches: [effect.use, effect.with, effect.handler, effect.label, type.rules, task.group, dyn.with, diag.list]
 requires: []
 related: [handler-member, capability-identity, effect-alias, task]
 ---
@@ -124,7 +124,7 @@ No change.
 - The rule holds for every item that can be bound: an item of a handler (`x = H`, `x = H(arguments)`), an item that opens a handler member (`x = E.M(...)`, `x = c.M(...)`, as now) and a label item plugged into a handler (`x = L by H`, `x = L by H(arguments)`). A named handler that implements several effects provides none of them by name.
 - A named item does not meet the requirements of the other items of the same with. A requirement on its effect is met by an item without a name of the same with, or from outside the with. A handler that has to use the handler of a named item is listed in a with inside the with of the named item, and takes the capability as an argument of its init.
 - A named item does not provide the labels of its effect declared `default` (`[effect.label]`). Those labels are provided together only by an item that provides the effect by name.
-- Every rule that looks for the innermost handler of an effect looks only at the withs that provide it by name: an effect alias (`x.op(...)`), `(use E).M(...)` and `use E` (`[effect.use]`), an item `x = E.M(...)` (`[effect.with]`), and `E.M(...)` inside an init (`[effect.handler]`). In `with r = ReplicaDb { with c = Db.Conn() { ... } }`, `Db.Conn()` opens the handler member of the handler that an outer with provides by name, not of ReplicaDb; `r.Conn()` opens that of ReplicaDb.
+- Every rule that looks for the innermost handler of an effect looks only at the withs that provide it by name: an effect alias (`x.op(...)`), `(use E).M(...)` and `use E` (`[effect.use]`), an item `x = E.M(...)` (`[effect.with]`, `[dyn.with]`), an item `x = L.M(...)` and the provider of an item `L` or `L by P` where P is an effect or a label (`[effect.label]`), and `E.M(...)` inside an init (`[effect.handler]`). In `with r = ReplicaDb { with c = Db.Conn() { ... } }`, `Db.Conn()` opens the handler member of the handler that an outer with provides by name, not of ReplicaDb; `r.Conn()` opens that of ReplicaDb.
 - Precedence applies only among the items without a name: a later item without a name takes precedence for the same effect, and the earlier item is not initialized. A named item is never overridden: it is always initialized, its arguments are always evaluated, and the E and R of its arguments and the E of its init are always in the E and R of the with.
 - The type arguments of a named item are inferred from the arguments of its init and from how x is used, not from the R of the body (`[effect.with]`). E0459 for two or more effects of the body that unify with the effect of an item applies only to items without a name.
 - A task of a group starts siblings through the capability of the group, which the R of the task MAY contain (`[task.group]`). A group without a name also provides TaskGroup by name, as now.
@@ -157,9 +157,10 @@ The changes are applied to `spec/` in this pull request.
 - `[effect.use]`: an effect alias, `(use E).M(...)` and `use E` find the innermost handler that provides the effect by name.
 - `[effect.handler]`: `E.M(...)` inside an init opens the handler member of the innermost handler that provides E by name.
 - `[effect.with]`: a named item provides nothing by name, whether it is an item of a handler, of a handler member or of a label plugged into a handler. A label item that makes no handler cannot be bound (E0447). Precedence, the exception for an overridden named item, the requirements met in the same with, the inference of type arguments from the R of the body, and E0459 for effects that unify are stated for the items without a name. `use X` and an item `x = E.M(...)` find the innermost handler that provides the effect by name.
-- `[effect.label]`: the labels declared `default` are provided together only by an item without a name. E0432 counts only the items without a name, and W0401 is not given for a named label item.
+- `[effect.label]`: the labels declared `default` are provided together only by an item without a name. E0432 counts only the items without a name, and W0401 is not given for a named label item. An item `x = L.M(...)` opens M of the innermost handler that provides L by name, and an item `L` or `L by P` where P is an effect or a label provides again the handler that an outer with provides by name, or that of an item without a name initialized earlier in the same with.
 - `[type.rules]`: `provides(H)` in the row of `with H { e }` is the effects of the items without a name.
 - `[task.group]`: TaskGroup by name comes from a group without a name; a task of a named group starts siblings through the capability of the group.
+- `[dyn.with]`: an item `x = E.M(...)` runs the init of M of the innermost handler that provides E by name, and the effects used in the operation bodies of a handler are provided by the handlers outside the with or by the handlers of the items without a name initialized earlier in the same with.
 - `[diag.list]`: the note and the help of E0402, the third help of W0403, the help of E0453, the cases of E0432 and W0401, and the new case, message and help of E0447.
 
 ## Diagnostics
@@ -188,7 +189,7 @@ The changes are applied to `spec/` in this pull request.
 - E0402: the note and the help. The with is searched for between the place of E0402 and the origin of the effect, as `under_platform` in `crates/emela-types/src/body/errors.rs` does for `Platform`.
 - E0459: `check_several_fits` and `check_item_overrides` in `crates/emela-types/src/body/items.rs` do not look at `named` now. Both skip named items, and `check_item_overrides` compares an item only with the items without a name.
 - W0403 and E0453: leave out the help that suggests a named item when the body of the with that provides E also uses E by name.
-- The lookups of the innermost handler for an effect alias, `(use E).M(...)`, `use E`, `x = E.M(...)` and `E.M(...)` in an init skip named items. A test checks each of them.
+- The lookups of the innermost handler for an effect alias, `(use E).M(...)`, `use E`, `x = E.M(...)`, `x = L.M(...)`, the provider of an item `L` or `L by P` where P is an effect or a label, and `E.M(...)` in an init skip named items. A test checks each of them.
 - E0447 and E0432: `check_with_items` in `crates/emela-types/src/layer.rs` reports E0447 for a bound label item that has no `by` or whose `by` resolves to an effect (`Supplier::Effect` of `by_tag`), and leaves out the items with `bind` when it looks for a label given a provider twice.
 - W0401: `unused_label_providers` in `crates/emela-types/src/body/effects.rs` skips the named items. Today it gives no W0401 for a named label item whose x is used, but only because the capability x in the R of the body makes it return early.
 - The comment of `Entry::named`, and the tests and snapshots listed in Compatibility.
