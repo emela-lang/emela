@@ -58,6 +58,7 @@ fn sra(records: bool) -> Options {
             sra_records: records,
             devirt: false,
             rc_cleanup: false,
+            rc_borrow: false,
         },
     }
 }
