@@ -20,8 +20,10 @@
 //!
 //! # Status
 //!
-//! B0/PR-002 fixes the API. Every analysis in [`effect`], [`uses`], [`callgraph`] and [`ranges`]
-//! currently returns `Unknown`; B1/PR-020, B2/PR-021 and B5/PR-024 fill them.
+//! B0/PR-002 fixes the API. B2/PR-021 implements [`uses`] and [`callgraph`]: their [`Analysis`]
+//! implementations return `Known` for a well-formed module. [`effect`] (B1/PR-020) and [`ranges`]
+//! (B5/PR-024) still return `Unknown`, as do the analyses of the LIR
+//! (`emela_lir::opt::analysis`) until their own pull requests land.
 
 use std::any::Any;
 
@@ -195,14 +197,27 @@ mod tests {
         assert_eq!(fact.known(), None);
     }
 
-    /// The analyses that are still skeletons are conservative: they answer `Unknown`, not an empty
-    /// summary. B1/PR-020 implemented the effect analysis; the others are still skeletons.
+    /// The implemented analyses answer `Known`, even for an empty module, and carry their stable
+    /// id.
     #[test]
-    fn every_stub_analysis_is_unknown() {
+    fn implemented_analyses_are_known() {
         let m = Module::new();
         assert!(effect::analyze(&m).is_known());
-        assert!(uses::analyze(&m).is_unknown());
-        assert!(callgraph::analyze(&m).is_unknown());
+        assert_eq!(uses::analyze(&m), Fact::Known(uses::UseCounts::default()));
+        assert_eq!(
+            callgraph::analyze(&m),
+            Fact::Known(callgraph::CallGraph::default())
+        );
+        assert_eq!(effect::Effect::ID, AnalysisId::Effect);
+        assert_eq!(uses::Uses::ID, AnalysisId::Uses);
+        assert_eq!(callgraph::CallGraphAnalysis::ID, AnalysisId::CallGraph);
+    }
+
+    /// The analyses that are still stubs are conservative: they answer `Unknown`, not an empty
+    /// summary.
+    #[test]
+    fn the_stub_analyses_are_unknown() {
+        let m = Module::new();
         assert!(ranges::analyze(&m).is_unknown());
     }
 
