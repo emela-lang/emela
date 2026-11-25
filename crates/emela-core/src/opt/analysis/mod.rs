@@ -195,11 +195,12 @@ mod tests {
         assert_eq!(fact.known(), None);
     }
 
-    /// The stub analyses are conservative: they answer `Unknown`, not an empty summary.
+    /// The analyses that are still skeletons are conservative: they answer `Unknown`, not an empty
+    /// summary. B1/PR-020 implemented the effect analysis; the others are still skeletons.
     #[test]
     fn every_stub_analysis_is_unknown() {
         let m = Module::new();
-        assert!(effect::analyze(&m).is_unknown());
+        assert!(effect::analyze(&m).is_known());
         assert!(uses::analyze(&m).is_unknown());
         assert!(callgraph::analyze(&m).is_unknown());
         assert!(ranges::analyze(&m).is_unknown());

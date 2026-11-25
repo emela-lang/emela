@@ -6,6 +6,7 @@
 mod support;
 
 mod algebra;
+mod analysis_effect;
 mod beta;
 mod delta;
 mod dump;
