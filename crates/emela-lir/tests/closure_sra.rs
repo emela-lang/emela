@@ -7,8 +7,7 @@
 //! closure-converted, so the pass sees the shapes lowering makes. Every result must pass the
 //! verifier; the ownership test continues through the Heap IR and checks the reference balance.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::{FnType, Roots, TypeId, monomorphize_from, verify_monomorphic};
 use emela_lir::opt::{self, LirRules, Options};

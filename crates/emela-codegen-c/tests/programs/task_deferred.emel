@@ -1,0 +1,65 @@
+import Std.Task.{Task}
+import Std.Deferred.{Deferred}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+error Boom
+
+effect Tick {
+  suspend fn tick() -> ()
+}
+
+handler Ticks: Tick {
+  suspend fn tick(resume) { resume(()) }
+}
+
+fn spin(n: Int) -> () uses { Tick } {
+  if n == 0 { () } else {
+    (use Tick).tick()
+    spin(n - 1)
+  }
+}
+
+fn fetch(n: Int, ticks: Int) -> Int uses { Tick } {
+  spin(ticks * 100)
+  print("fetched #{n}")
+  n * 10
+}
+
+fn boom() -> Int fails Boom { fail Boom }
+
+fn main() -> () uses { Async } {
+  with Ticks {
+    with d = Deferred[Int], names = Deferred[List[String]], done = Deferred[()] {
+      with tasks = Task.Group {
+        a = tasks.start(|| d.await() + 1)
+        b = tasks.start(|| d.await() + 2)
+        tasks.start(|| {
+          spin(1000)
+          d.complete(40)
+        })
+        print("poll #{d.poll()}")
+        print("joined #{a.join()} #{b.join()}")
+        print("again #{d.complete(1)} #{d.poll()}")
+        tasks.start(|| names.complete(["x", "y"]))
+        print("list #{names.await()}")
+        tasks.start(|| done.complete(()))
+        done.await()
+        print("unit #{done.poll()}")
+      }
+    }
+    xs = Task.all([|| fetch(1, 60), || fetch(2, 10)])
+    print("all #{xs}")
+    w = Task.race([|| fetch(3, 200), || fetch(4, 10)])
+    print("race #{w}")
+    (p, q) = Task.both(|| fetch(5, 10), || "x")
+    print("both #{p} #{q}")
+    ys = Task.map([1, 2, 3], |i| fetch(i, 130 - i * 40))
+    print("map #{ys}")
+    r = Task.race([|| boom(), || fetch(8, 1000)]) escape { Boom -> -1 }
+    print("race failed #{r}")
+    ()
+  }
+}

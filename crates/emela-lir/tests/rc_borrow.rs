@@ -5,8 +5,7 @@
 //! the Heap IR passes with the flag on or off, and checks the output with the verifier. The flag is
 //! on by default (M3); a test that needs it off sets it explicitly.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::{Builtin, Roots, Type, TypeId, monomorphize_from, verify_monomorphic};
 use emela_lir::opt::analysis::{liveness, ownership};

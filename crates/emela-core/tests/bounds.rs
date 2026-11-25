@@ -7,7 +7,7 @@
 //! analysis cannot bound deopts. The flag is off by default, so `Rules::none()` must leave the test
 //! exactly where the fusion built it.
 
-mod support;
+use crate::support;
 
 use emela_core::intrinsics::Builtin;
 use emela_core::opt::{CoreFn, CoreFns, Options, Rules, Stats, run_with};

@@ -29,6 +29,7 @@ trait Decode {
 - A trait function whose return type is omitted returns `()`.
 - A function can also be written without `self`. The expected return type determines which type's implementation is used.
 - A function with a body is a default implementation and can be omitted in an impl.
+- A type parameter that a trait function declares itself follows the rule of `[fn.decl]` for type parameters that do not appear in the type (W0305). The warning is reported at the trait declaration, not at the impls.
 - `trait A: B` requires that every type implementing A also implements B. B is called a supertrait of A.
 - Writing `impl Type: A` checks at that point that an implementation of `Type: B` exists (E0326 if not). For an impl with type parameters, the bounds that the impl of B requires MUST be derivable from the bounds of the impl of A (10.3). `impl Pair[A: Eq, B: Eq]: Eq` for `impl Pair[A: Ord, B: Ord]: Ord` is accepted, because `A: Eq` can be derived from `A: Ord`. When they cannot be derived, E0326 is reported at the head of the impl of A (for `impl Pair[A: Ord, B]: Ord` with `impl Pair[A: Eq, B: Eq]: Eq`, ``type `B` does not implement `Eq` ``).
 - A declaration that returns to itself by following supertraits (`trait A: B` and `trait B: A`) is a compile error (E0329). The diagnostic is reported once per cycle, at the name of the trait in the cycle that is defined first, and lists the cycle starting from that trait.
@@ -143,8 +144,9 @@ trait Encode {
 | Capability | The type is a capability type `use E` (8.2) | Not allowed (determined automatically) |
 
 - Capability has no functions. It is satisfied only by `use E`, where E is an effect or a label, with its type arguments. A type that contains a capability type (`List[use Db]`, `(use Db, Int)`) and a function type do not satisfy it.
-- Capability can be put only on an ordinary type parameter. Putting it on an error set or effect set type parameter is a compile error (code to be assigned).
-- An impl of Capability or Immediate is a compile error (code to be assigned).
+- Capability is satisfied by capability types, not by capability-bound types (9.4). `[C: Capability]` is decided at each call with the set of the capability passed.
+- Capability can be put only on an ordinary type parameter. Putting it on an error set or effect set type parameter is a compile error (E0340).
+- An impl of Capability or Immediate is a compile error (E0341).
 
 The compiler owns the declarations of Eq, Ord and Show. Written in source form, they are as follows. `==` and `!=` call `eq`, `<`, `<=`, `>` and `>=` call `compare`, and interpolation calls `show`.
 

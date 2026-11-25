@@ -1,10 +1,11 @@
 //! `Std.Http.serve` on WASI 0.3 (`wasi:http/types`, `[lib.http-service]`).
 //!
 //! The component exports `handle` of `wasi:http/handler@0.3.0` (`emit_entry`). Each call serves
-//! one request to its end before it returns: the launch runs, `task.return` hands the response
-//! to the host, and the body and the trailers are written after it. Every wait (the request
-//! body, the response body, the trailers) blocks the task with `waitable-set.wait`, like the file
-//! system runtime. A task lifted with a callback runs alone in its instance, and one that blocks
+//! one request to its end before it returns: the launch runs until `serve` has the response,
+//! `task.return` hands it to the host and the body and the trailers are written (`http_answer`),
+//! and then the launch goes on with the tasks the app started with Spawn (`[target.wasm.output]`).
+//! Every wait (the request body, the response body, the trailers, and those of the tasks) blocks
+//! the task with `waitable-set.wait`, like the file system runtime. A task lifted with a callback runs alone in its instance, and one that blocks
 //! in `waitable-set.wait` keeps the instance, so the host starts the next `handle` only after this
 //! one returned: requests are served one after another, which `[lib.http-service]` allows (the
 //! host MAY call again before an earlier call returned; it is not required to). One request at a
@@ -58,6 +59,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ("http_draft_header", &[ValType::I32; 3], &[ValType::I32]),
     ("http_finish_draft", &[ValType::I32], &[ValType::I32]),
     ("http_respond", &[], &[]),
+    ("http_answer", &[ValType::I32; 2], &[]),
 ];
 
 pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
@@ -110,6 +112,9 @@ pub(crate) struct Plan {
     body_writer: u32,
     trailers_writer: u32,
     sent: u32,
+    /// Whether the launch has answered (`http_answer`), so that the `http_respond` after the
+    /// launch has nothing left to do.
+    answered: u32,
     /// The arena `cabi_realloc` bumps while a request is read (`canon.rs`): its next free byte
     /// (0 when the arena is not in use), its start and its end.
     pub(crate) arena_cur: u32,
@@ -303,6 +308,7 @@ pub(super) fn prepare(b: &mut Builder<'_>) {
         arena_cur: cells[13],
         arena_start: cells[14],
         arena_end: cells[15],
+        answered: cells[16],
         raw_desc,
         empty,
         methods,
@@ -341,6 +347,13 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
         "http_draft_header" => draft_header(b, ins),
         "http_finish_draft" => finish_draft(b, ins),
         "http_respond" => respond(b, ins),
+        "http_answer" => {
+            // The incoming request and the response stand for the cells; `respond` reads those.
+            ins.call(b.rt("http_respond"));
+            ins.i32_const(plan(b).answered as i32);
+            ins.i32_const(1);
+            ins.i32_store(mem(0, 4));
+        }
         _ => return false,
     }
     true
@@ -1100,9 +1113,14 @@ fn finish_draft(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(b.rt("http_box"));
 }
 
-/// `http_respond()`: ends `handle`. Returns the response built by the launch with `task.return`,
-/// then writes its body and completes its trailers with `ok(none)`. A launch that made no
-/// response (it ended interrupted, `[lib.http-service]`) returns `error-code.internal-error`.
+/// `http_respond()`: returns the response built by the launch with `task.return`, then writes its
+/// body and completes its trailers with `ok(none)`. A launch that made no response (it ended
+/// interrupted, `[lib.http-service]`) returns `error-code.internal-error`.
+///
+/// `serve` calls it through `http_answer` as soon as it has the response, before the release of
+/// the background of the launch waits for its tasks; the call after the launch then only clears
+/// `answered`. The tasks run after `task.return`, in the same `handle`, so the next request waits
+/// for them (`[target.wasm.output]`).
 fn respond(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const PTR: u32 = 0;
     const REM: u32 = 1;
@@ -1118,6 +1136,14 @@ fn respond(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let drop_trailers = import(b, "[future-drop-writable-1][static]response.new");
     let drop_sent = import(b, "[future-drop-readable-2][static]response.new");
     let wait_code = b.rt("http_wait_code");
+    ins.i32_const(p.answered as i32);
+    ins.i32_load(mem(0, 4));
+    ins.if_(BlockType::Empty);
+    ins.i32_const(p.answered as i32);
+    ins.i32_const(0);
+    ins.i32_store(mem(0, 4));
+    ins.return_();
+    ins.end();
     ins.i32_const(p.response as i32);
     ins.i32_load(mem(0, 4));
     ins.local_set(RESPONSE);

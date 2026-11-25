@@ -1,0 +1,151 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse.debug_dump()
+input_file: crates/emela-syntax/test_data/parser/ok/intrinsic_handler.emel
+---
+ROOT@0..214
+  HANDLER_DECL@0..47
+    ANNOTATION@0..10
+      AT@0..1 "@"
+      LOWER_NAME@1..10 "intrinsic"
+    NEWLINE@10..11 "\n"
+    PUB_KW@11..14 "pub"
+    WHITESPACE@14..15 " "
+    HANDLER_KW@15..22 "handler"
+    WHITESPACE@22..23 " "
+    TYPE_NAME@23..31 "Deferred"
+    TYPE_PARAM_LIST@31..34
+      L_BRACK@31..32 "["
+      TYPE_PARAM@32..33
+        UPPER_NAME@32..33 "A"
+      R_BRACK@33..34 "]"
+    COLON@34..35 ":"
+    WHITESPACE@35..36 " "
+    HANDLER_EFFECT@36..47
+      PATH@36..44
+        TYPE_NAME@36..44 "Deferred"
+      TYPE_ARG_LIST@44..47
+        L_BRACK@44..45 "["
+        TYPE_VAR@45..46
+          UPPER_NAME@45..46 "A"
+        R_BRACK@46..47 "]"
+  NEWLINE@47..48 "\n"
+  NEWLINE@48..49 "\n"
+  HANDLER_DECL@49..105
+    ANNOTATION@49..59
+      AT@49..50 "@"
+      LOWER_NAME@50..59 "intrinsic"
+    NEWLINE@59..60 "\n"
+    PUB_KW@60..63 "pub"
+    WHITESPACE@63..64 " "
+    HANDLER_KW@64..71 "handler"
+    WHITESPACE@71..72 " "
+    TYPE_NAME@72..77 "Queue"
+    TYPE_PARAM_LIST@77..80
+      L_BRACK@77..78 "["
+      TYPE_PARAM@78..79
+        UPPER_NAME@78..79 "A"
+      R_BRACK@79..80 "]"
+    FIELD_LIST@80..95
+      L_PAREN@80..81 "("
+      FIELD@81..94
+        LOWER_NAME@81..89 "capacity"
+        COLON@89..90 ":"
+        WHITESPACE@90..91 " "
+        PATH_TYPE@91..94
+          PATH@91..94
+            TYPE_NAME@91..94 "Int"
+      R_PAREN@94..95 ")"
+    COLON@95..96 ":"
+    WHITESPACE@96..97 " "
+    HANDLER_EFFECT@97..105
+      PATH@97..102
+        TYPE_NAME@97..102 "Queue"
+      TYPE_ARG_LIST@102..105
+        L_BRACK@102..103 "["
+        TYPE_VAR@103..104
+          UPPER_NAME@103..104 "A"
+        R_BRACK@104..105 "]"
+  NEWLINE@105..106 "\n"
+  NEWLINE@106..107 "\n"
+  HANDLER_DECL@107..213
+    ANNOTATION@107..117
+      AT@107..108 "@"
+      LOWER_NAME@108..117 "intrinsic"
+    NEWLINE@117..118 "\n"
+    PUB_KW@118..121 "pub"
+    WHITESPACE@121..122 " "
+    HANDLER_KW@122..129 "handler"
+    WHITESPACE@129..130 " "
+    TYPE_NAME@130..140 "Background"
+    TYPE_PARAM_LIST@140..146
+      L_BRACK@140..141 "["
+      TYPE_PARAM@141..142
+        UPPER_NAME@141..142 "E"
+      COMMA@142..143 ","
+      WHITESPACE@143..144 " "
+      TYPE_PARAM@144..145
+        UPPER_NAME@144..145 "R"
+      R_BRACK@145..146 "]"
+    COLON@146..147 ":"
+    WHITESPACE@147..148 " "
+    HANDLER_EFFECT@148..159
+      PATH@148..153
+        TYPE_NAME@148..153 "Spawn"
+      TYPE_ARG_LIST@153..159
+        L_BRACK@153..154 "["
+        TYPE_VAR@154..155
+          UPPER_NAME@154..155 "E"
+        COMMA@155..156 ","
+        WHITESPACE@156..157 " "
+        TYPE_VAR@157..158
+          UPPER_NAME@157..158 "R"
+        R_BRACK@158..159 "]"
+    WHITESPACE@159..160 " "
+    ITEM_LIST@160..213
+      L_BRACE@160..161 "{"
+      NEWLINE@161..162 "\n"
+      WHITESPACE@162..164 "  "
+      HANDLER_INIT@164..211
+        LOWER_NAME@164..168 "init"
+        PARAM_LIST@168..211
+          L_PAREN@168..169 "("
+          PARAM@169..210
+            LOWER_NAME@169..179 "on_failure"
+            COLON@179..180 ":"
+            WHITESPACE@180..181 " "
+            FN_TYPE@181..210
+              FN_KW@181..183 "fn"
+              PARAM_TYPE_LIST@183..193
+                L_PAREN@183..184 "("
+                PATH_TYPE@184..192
+                  PATH@184..189
+                    TYPE_NAME@184..189 "Cause"
+                  TYPE_ARG_LIST@189..192
+                    L_BRACK@189..190 "["
+                    TYPE_VAR@190..191
+                      UPPER_NAME@190..191 "E"
+                    R_BRACK@191..192 "]"
+                R_PAREN@192..193 ")"
+              WHITESPACE@193..194 " "
+              RET_TYPE@194..199
+                THIN_ARROW@194..196 "->"
+                WHITESPACE@196..197 " "
+                UNIT_TYPE@197..199
+                  L_PAREN@197..198 "("
+                  R_PAREN@198..199 ")"
+              WHITESPACE@199..200 " "
+              USES_CLAUSE@200..210
+                LOWER_NAME@200..204 "uses"
+                WHITESPACE@204..205 " "
+                EFFECT_SET@205..210
+                  L_BRACE@205..206 "{"
+                  WHITESPACE@206..207 " "
+                  TYPE_VAR@207..208
+                    UPPER_NAME@207..208 "R"
+                  WHITESPACE@208..209 " "
+                  R_BRACE@209..210 "}"
+          R_PAREN@210..211 ")"
+      NEWLINE@211..212 "\n"
+      R_BRACE@212..213 "}"
+  NEWLINE@213..214 "\n"

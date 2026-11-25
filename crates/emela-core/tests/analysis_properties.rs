@@ -12,7 +12,7 @@
 //! The per-analysis edge cases (a divisor that may be zero, an unprovable loop bound, an external
 //! call, …) are in `analysis_effect.rs` and `analysis_ranges.rs`; this file does not repeat them.
 
-mod support;
+use crate::support;
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};

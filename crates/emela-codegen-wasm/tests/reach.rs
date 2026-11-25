@@ -6,7 +6,7 @@
 //! (and call a trap stub) while the import it needed was pruned. Both decisions now read
 //! `emela_lir::analysis::reach`.
 
-mod common;
+use crate::common;
 
 use common::*;
 use wasmparser::{Operator, Parser, Payload};
