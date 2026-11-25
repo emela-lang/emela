@@ -9,11 +9,10 @@
 //! `wasmtime` is present) compares stdout, stderr and the exit code. The structural checks read the
 //! core module nested in the component.
 
-mod common;
+use crate::common;
 
 #[allow(clippy::duplicate_mod)] // `common` includes the same Core test support.
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use common::*;
 use emela_codegen_wasm::{Entry, WasmOptions, compile_with_wasm_options};

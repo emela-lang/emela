@@ -14,11 +14,10 @@
 //! The source language has no value of type `Any`, so the `Any` direction is exercised by a
 //! hand-built IR module in `emit::values`'s unit test rather than from a program here.
 
-mod common;
+use crate::common;
 
 #[allow(clippy::duplicate_mod)] // `common` includes the same Core test support.
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use common::*;
 use emela_codegen_wasm::{Entry, WasmOptions, compile_with_wasm_options};
