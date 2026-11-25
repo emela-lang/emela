@@ -129,6 +129,7 @@ type       = type_ref [ "[" type_arg { "," type_arg } "]" ]
            | "fn" "(" [ type { "," type } ] ")" "->" type
              [ "fails" error_set ] [ "uses" effect_set ]
            | "use" effect_item { "+" effect_item }            (* the type of a capability; 8.2 *)
+           | "scope" effect_item { "+" effect_item }          (* the type of a scope; 8.11 *)
 type_ref   = [ module_path "." ] type_name
 
 type_arg   = type
@@ -164,7 +165,7 @@ unary      = ( "!" | "-" ) unary
            | "use" type_ref [ "[" type { "," type } "]" ]
            | lambda
            | postfix
-postfix    = primary { "(" [ args ] ")" | "." lower_name | "." type_name "(" [ args ] ")" }   (* "." type_name: a handler member, inside an init only; 8.4 *)
+postfix    = primary { "(" [ args ] ")" | "." lower_name | "." type_name "(" [ args ] ")" }   (* "." type_name: a handler member, inside an init or through a scope; 8.4, 8.11 *)
 
 primary    = literal | lower_name | upper_name | type_ref | "self" | "Self"
            | "(" ")"
@@ -180,7 +181,7 @@ arg        = expr | lower_name ":" [ expr ]
 if_expr    = "if" expr block [ "else" ( block | if_expr ) ]
 arm        = pattern [ "if" expr ] "->" expr
 with_expr  = "with" with_item { "," with_item } block
-with_item  = [ lower_name "=" ] supply [ "by" by_right ]                 (* by is in 8.9 *)
+with_item  = [ lower_name "=" ] [ "scope" ] supply [ "by" by_right ]     (* by is in 8.9; scope is in 8.11 *)
 by_right   = type_ref [ "[" type { "," type } "]" ] [ "(" [ args ] ")" ]
 lambda     = ( "||" | "|" [ lambda_param { "," lambda_param } ] "|" ) expr
 lambda_param = pattern [ ":" type ]

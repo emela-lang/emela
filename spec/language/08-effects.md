@@ -36,7 +36,7 @@ effect Clock {
   - A call of an operation (`clock.now()`, `(use Clock).now()`) is determined by the declaration of the operation. If it is a `suspend fn`, the call may suspend.
   - A call of a function or a function value is determined by the R of the callee's type. If that R is not Immediate, the call may suspend. Calling a closure that captures a capability (`f = || clock.now()`) or an operation taken out as a value (`g = clock.now`) is also a call of a function value.
   - A call of an `@external suspend fn` may suspend.
-  - Opening a handler member (`x = E.M(arguments)` in a with, or `E.M(arguments)` inside an init, 8.3, 8.4) is determined by the declaration of the handler member. If it is a `suspend handler`, it may suspend. For a with item, the end of the with, where the handler opened is released, may suspend too.
+  - Opening a handler member (`x = E.M(arguments)` in a with, `E.M(arguments)` inside an init, or `s.M(arguments)` opened in an expression through a scope, 8.3, 8.4, 8.11) is determined by the declaration of the handler member. If it is a `suspend handler`, it may suspend. For a with item, the end of the with, where the handler opened is released, may suspend too; for opening in an expression, the end of the with of the scope does.
 - If the body contains no call that may suspend, its R is not restricted. The R of `fn now() { (use Clock).now() }` contains Clock, which becomes a requirement of the handler. Mixing `now` of the outer Clock and `sleep` inside an inner `with InstantClock` in the same body satisfies neither condition and is a compile error (E0417). Accepting it would require looking, for each call, at the innermost with that provides its effect, which makes the rule heavier, so this is not done. A call through a function is treated as possibly suspending even if that function calls only fn operations (`fn now() { stamp() }`, which calls `fn stamp() -> Instant uses { Clock }`, is a compile error (E0417)). That a function does not suspend is not inferred from its body. The implementations of fn operations in every handler are bound by the same rule, so a call of a fn operation does not suspend whichever handler it reaches.
 - An operation that involves waiting (waiting on an `@external suspend fn`, calling a suspend operation) MUST be declared as a suspend fn on the effect side. Otherwise its implementation is a compile error (E0417). This is because the caller can learn whether a call suspends only from the effect's declaration. Only operation declarations of effects carry a mark of whether they suspend. Function signatures (`uses { Http }`) and calls do not.
 - An effect declared in source MUST have at least one operation or handler member (E0446). The effects without operations and handler members are the host effects, which only the compiler declares (`[effect.host]`).
@@ -90,7 +90,7 @@ with PrimaryDb {
 - `use E` satisfies the built-in trait Capability (10.6). A type parameter with `[C: Capability]` accepts a capability of any effect.
 - The type of a capability of several effects is written `use E1 + ... + En`. A capability can be passed to a parameter of type `use F1 + ... + Fm` when every Fi is one of the Ej. Only the operations of the Fi can be called through the parameter. There is no way to recover the other effects from it. Passing a capability that does not have some Fi is a compile error (E0452).
 - A property that a type has to guarantee, such as contents that do not change or exclusive access, is expressed by a separate effect that no handler implements together with an effect that breaks the property.
-- On a capability c of an effect E that has handler members, `c.M(arguments)` opens the handler member M of the handler that provides c. It can be written only as a with item `x = c.M(arguments)` (8.3) and inside an init (8.4).
+- On a capability c of an effect E that has handler members, `c.M(arguments)` opens the handler member M of the handler that provides c. It can be written only as a with item `x = c.M(arguments)` (8.3) and inside an init (8.4), except when c is a scope: through a scope it can also be opened in other expressions (opening in an expression, 8.11).
 - Writing an operation that the capability value's effect does not have is a compile error (E0401). The labels of named arguments are the parameter names in the effect's operation declaration.
 - The effect set R of a function that contains `use X` includes X. Even when written inside a branch, X is in the R of the whole function.
 - Calls carry no mark (such as await or `!`) that indicates side effects or suspension. Suspend operations are written in the same form as ordinary calls.
@@ -140,6 +140,7 @@ fn run[R](f: fn() -> () uses { Logger, R }) -> () uses { R } {
 - The return type of main is `()` or `ExitCode` (`[api.std.process]`); another type, other than Never, is W0304 (`[dyn.error]`). This is separate from the rule on R above.
 - Each item of a with runs its init and makes a capability. Leaving the with releases it, and the capability ends.
 - An item can be written as `x = Item` (a named item). Within the body, x is bound to the capability of the item (of type `use F`, 8.2), and refers to the handler of that item even when another item of the same with provides the same effect. An item without a name provides its effect by name only. A named item provides nothing by name: the effects that the body uses by name (through the R of a function the body calls, or through an effect alias) are provided by the withs that enclose this with, or by the caller. The rule holds for every item that can be bound: a handler (`x = H`), a handler member (`x = E.M(...)`, `x = c.M(...)`) and a label plugged into a handler (`x = L by H`). To provide an effect by name, the item is written without a name.
+- A named item whose right side makes a handler can be marked `scope` (`x = scope H`, `x = scope c.M(...)`, `x = scope L by H`). Its capability is then a scope, through which handler members can be opened in expressions (8.11).
 - `E.M(arguments)`, where E is an effect and M one of its handler members, can be written as an item only in the form `x = E.M(arguments)`. It calls the init of M of the innermost handler that provides E by name at that position. `x = c.M(arguments)`, where c is a capability of E, calls the init of M of the handler that provides c. The arguments are treated as for `H(arguments)`. The item requires E (or c), not the requirements of the inner handler.
 - As for every named item, the effect of a handler member item is used only through the bound capability.
 - A handler member cannot be an item of a layer, and a layer cannot be bound (`with x = AppLayer` is a compile error), since it provides more than one effect.
@@ -268,6 +269,7 @@ fn make_greeter() {
 
 - If the type of the value of a with body, the error type that leaves the body, or the R of the with contains a capability made by that with, it is a compile error (E0455).
 - A with that provides E by name counts the name E in types as its own capability.
+- A with that made a scope s counts the elements `s.M`, the handlers opened in an expression through s, as its own capabilities (8.11).
 - A function provides E by name to an argument when the R of the function type of that parameter has E written out and the R of the function does not have E (`body` of `State.run`, and `app` of `Http.serve` for Spawn). At a call of such a function, if the result type or the error type of the function passed to that parameter contains the name E, it is a compile error (E0455). A hidden set variable does not write E out, so it does not provide E by name.
 - A type fixed outside the with (the type argument of an outer `State`, the parameter types of an operation of a handler provided outside) cannot contain the capability, so other paths out do not type check. They are reported as E0455 too, at the place where the capability enters the type fixed outside.
 - A closure that is used up inside the with (`List.map(names, |n| log.info(n))`) is fine.
@@ -379,3 +381,61 @@ fn main() {
 
 - `ProcessHost` and `PageHost` are Immediate (`[type.effect-bound]`).
 - Host effects do not name targets. A program whose entry type checks runs on every target that supports that entry (`[target]`).
+
+## 8.11 Scopes `[effect.scope]`
+
+```emel
+pub enum Kind {
+  Small
+  Large
+}
+
+pub effect Enemy {
+  fn move_to(x: Int, y: Int) -> ()
+}
+
+pub effect Spawner {
+  handler SpawnEnemy(kind: Kind): Enemy
+}
+
+pub effect Engine {
+  handler SpawnEnemy(kind: Kind): Enemy
+  handler Wave(): Spawner
+}
+
+fn summon_wave(wave: scope Spawner, count: Int) -> List[use Enemy] {
+  List.range(0, count) |> List.map(|_| wave.SpawnEnemy(kind: Small))
+}
+
+fn stage(engine: use Engine) {
+  with wave = scope engine.Wave() {
+    enemies = summon_wave(wave, 3)
+    enemies.each(|enemy| enemy.move_to(10, 0))
+  } # the enemies, then the wave, are released here
+}
+```
+
+- A named item of a with whose right side makes a handler can be marked `scope`: `x = scope H(arguments)`, `x = scope E.M(arguments)`, `x = scope c.M(arguments)` or `x = scope L by H(arguments)`. The item makes its handler as it does without the mark, and the capability bound to x is a scope. A scope of a label L is of type `scope L`, and has the handler members of the underlying effect of L (8.9). A scope is always the capability of a handler that its item makes: a capability that is already bound cannot be made a scope.
+- Marking an item without a name is a compile error (E0463). For a handler member item without a name, E0463 is reported in place of E0447. A layer, or a label item that makes no handler (8.3), bound to a name is E0447 whether or not it is marked.
+- Through a scope s, a handler member M can be opened outside a with item and an init: `s.M(arguments)` in any other expression. This is called opening in an expression. It runs the init of M of the handler of s, and its value is the capability of the handler opened. As a with item (`x = s.M(arguments)`) and inside an init, `s.M(arguments)` opens as through any capability: the handler is released at the end of that with (8.3), or after the handler of that init (8.4). Opening in an expression through an effect (`E.M(arguments)`) or through a capability that is not a scope is a compile error (E0448).
+- A handler opened in an expression through s belongs to s. When s is released, the handlers that belong to it are released first, in the reverse order of opening, and then the release of s runs. The order of opening is the order in which the inits of the handlers opened return. The handlers that the init of s opened are released after the release of s (8.4). A with item and an init give what they open a lifetime of their own; the scope gives one to what is opened in an expression.
+- If the init of a handler opened in an expression fails, nothing is opened, and the error is the error of the expression. The `fails` of M is in the E of the expression. Opening may suspend if M is a `suspend handler` (8.1).
+- A handler that belongs to a scope is not released before the scope is.
+- A field of a handler can have the type `scope E`. A handler opened in an expression in an operation body or in release through a scope in a field (`self.wave.SpawnEnemy(...)`) belongs to that scope: it lives until the scope is released, also after the operation returns. Opening through the field and calling an operation of the handler opened are treated as calling an operation of a capability in a field (`[effect.use]`, including its rule for release): they do not make a requirement of the handler, since the scope and what it opens outlive the handler, and they count for whether the body may suspend (8.1).
+- The type of a scope of E is written `scope E` (or `scope E1 + ... + En`). It is a capability type `use E` whose set has only scopes (9.4), and can be written wherever a type can. A scope can be passed to a parameter of type `use E`. A parameter of type `scope E` ranges over sets of scopes (9.4). Passing a capability that is not a scope to it is a compile error (E0464). A value whose set has a scope and a capability that is not a scope (a join of the two) is a `use E`, through which a handler member cannot be opened in an expression (E0448).
+- In the set of a capability type, the handlers opened in an expression through a scope s with a handler member M are one element, written `s.M`. They are all released when s is. The element is not a scope.
+- `s.M(arguments)` opened in an expression adds the capabilities of the set of s to R, as calling an operation of s does. Its type is `use F1 + ... + Fn`, where the Fi are the effects after the colon of M, and its set has the element `t.M` for each scope t in the set of s. Calling an operation of the handler opened adds those elements to R.
+- An element `s.M` counts as a capability made by the with that made s. The rules on such capabilities apply to it unchanged: that with removes it from R (`[type.rules]`), and it cannot leave that with, including through a type fixed outside (`[effect.escape]`, E0455).
+- The set of `use F` or of a capability-bound type of F written in the result type of a function also has, for each scope s of an effect E in the parameter types (including those inside other types and the hidden sets of fields) and each handler member M of E that has F after its colon, the element `s.M` (9.4). `summon_wave` returns a list whose element type records `wave.SpawnEnemy`.
+
+```emel
+fn stage() {
+  with engine = scope SystemEngine {
+    boss = engine.SpawnEnemy(kind: Large)
+    with wave = scope engine.Wave() {
+      enemies = summon_wave(wave, 3)
+      boss.move_to(10, 0)
+    } # the enemies, then the wave, are released here
+  } # the boss, then the engine, are released here
+}
+```

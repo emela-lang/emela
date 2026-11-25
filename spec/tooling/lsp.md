@@ -74,7 +74,7 @@ This section defines the contents of the responses that `emela lsp` (`[cmd.lsp]`
   - A suspend fn (an effect operation and `@external suspend fn`): `suspend` is put before the type.
   - The type of a capability value is shown as `use Logger` (`log: use Logger`). For an effect with type arguments, `use State[Int]`. Types are shown as written in source (`use Counter`, `Task[Int]`); the sets of capabilities they record are not written in them.
   - The type of a handler value shows the handler's name and its type arguments (`self: PostgresUsers`, `self: Memory[S]`).
-- When the type of a value records capabilities (`[type.rules]`), the hover shows a line `capabilities: ...` below the type that names which capabilities the type of the value records: the variable of a named item, the handler of an item without a name, the parameter that received it, or `any` for a parameter of a quantified function type.
+- When the type of a value records capabilities (`[type.rules]`), the hover shows a line `capabilities: ...` below the type that names which capabilities the type of the value records: the variable of a named item, the handler of an item without a name, the parameter that received it, the element of the handlers opened in an expression through a scope, as the scope and the handler member (`wave.SpawnEnemy`, `[effect.scope]`), or `any` for a parameter of a quantified function type.
 - The `uses { ... }` of a closure or a function lists capabilities by the same names (`uses { f, Console }`).
 
 ```
