@@ -46,6 +46,13 @@
 //!           (switches replaced by a direct block).
 //! ```
 //!
+//! # Reachability
+//!
+//! The walk follows the same edges the rest of the Heap IR does: a statement's nested sequences, a
+//! `let`'s defect landing, and the body of a failing call's `Handle` (the landing where a failure
+//! is caught and handled). A switch inside a failure handler is therefore normalised like one in
+//! the function body.
+//!
 //! # Why the body comparison is structural
 //!
 //! The pattern compiler gives each arm its own sequence, even when two variants have the same
@@ -79,8 +86,8 @@ use rustc_hash::FxHashSet;
 use super::Stats;
 use crate::heap::compact;
 use crate::ir::{
-    Case, CaseKey, Const, FnId, Function, LabelData, Module, Seq, SeqId, Stage, Stmt, SwitchOn,
-    Term,
+    Case, CaseKey, Const, FnId, Function, LabelData, Module, OnFail, Seq, SeqId, Stage, Stmt,
+    SwitchOn, Term, Value,
 };
 
 /// Normalises every switch of the module and returns what it changed.
@@ -184,9 +191,16 @@ fn push_seq(f: &Function, id: SeqId, seen: &mut FxHashSet<SeqId>, out: &mut Vec<
 /// Calls `visit` for every sequence a statement holds.
 fn for_each_seq(stmt: &Stmt, visit: &mut impl FnMut(SeqId)) {
     match stmt {
-        Stmt::Let { on_defect, .. } => {
+        Stmt::Let {
+            value, on_defect, ..
+        } => {
             if let Some(landing) = on_defect {
                 visit(*landing);
+            }
+            if let Value::Call { on_fail, .. } | Value::Fiber { on_fail, .. } = value
+                && let Some(OnFail::Handle { body, .. }) = on_fail
+            {
+                visit(*body);
             }
         }
         Stmt::If { then, else_, .. } => {
@@ -541,7 +555,7 @@ pub fn is_dense(cases: &[Case]) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::Suspend;
+    use crate::ir::{Callee, Suspend, VarId};
     use crate::{FnBuilder, Value, dump_function, verify};
     use emela_core::{EnumDef, Module as CoreModule, TypeId, VariantDef};
 
@@ -750,6 +764,100 @@ mod tests {
         let text = dump(&m, id);
         assert_eq!(text.matches("case Color.Red").count(), 1, "{text}");
         assert!(verify(&m).is_ok(), "the rewritten module does not verify");
+    }
+
+    /// A module with a failing function `call` and a caller whose only statement calls it with a
+    /// failure handler built by `handler`. `handler` sees the caught error and the caller's `s`.
+    fn caller_with_handler(
+        core: &CoreModule,
+        ty: TypeId,
+        handler: impl FnOnce(&mut FnBuilder<'_>, VarId, VarId) -> SeqId,
+    ) -> (Module, FnId) {
+        let call = {
+            let mut b = FnBuilder::new(core, "call");
+            b.set_fails();
+            b.term(Term::Return(None));
+            b.finish()
+        };
+        let mut m = Module::new(core.clone());
+        let call_id = m.add(call);
+
+        let mut b = FnBuilder::new(core, "f");
+        b.set_fails();
+        let s = b.param("s", ty);
+        // The failure edge binds the caught error, a reference (`TypeId::ANY` as `defects` does).
+        let error = b.var("e", TypeId::ANY);
+        let body = handler(&mut b, s, error);
+        b.stmt(Stmt::Let {
+            dst: None,
+            value: Value::Call {
+                callee: Callee::Direct(call_id),
+                args: Vec::new(),
+                suspends: false,
+                on_fail: Some(OnFail::Handle { error, body }),
+            },
+            on_defect: None,
+            on_suspend: None,
+        });
+        b.term(Term::Return(None));
+        let id = m.add(b.finish());
+        m.stage = Stage::RefCounted;
+        (m, id)
+    }
+
+    /// The walk follows a failing call's handler, so `reachable_seqs` contains the handler body.
+    #[test]
+    fn a_failure_handler_body_is_reachable() {
+        let (core, _ty) = colors(&["Red", "Green"]);
+        let mut handler = None;
+        let (m, id) = caller_with_handler(&core, TypeId::INT, |b, _s, error| {
+            let body = b.seq(|b| b.term(Term::Fail(error.into())));
+            handler = Some(body);
+            body
+        });
+        let handler = handler.expect("the handler was built");
+
+        let reachable = reachable_seqs(&m.functions[id]);
+
+        assert!(
+            reachable.contains(&handler),
+            "the walk did not reach the failure handler: {reachable:?}"
+        );
+    }
+
+    /// A switch inside a failure handler is normalised like one in the function body.
+    #[test]
+    fn a_switch_in_a_failure_handler_is_normalised() {
+        let (core, ty) = colors(&["Red", "Green", "Blue"]);
+        let (mut m, id) = caller_with_handler(&core, ty, |b, s, error| {
+            let red = b.seq(yield_unit);
+            let green = b.seq(yield_unit);
+            let blue = b.seq(|b| {
+                b.let_(None, Value::Const(Const::Int(1)));
+                b.term(Term::Yield(None));
+            });
+            b.seq(|b| {
+                b.switch(
+                    None,
+                    SwitchOn::Tag(s),
+                    vec![
+                        (CaseKey::Variant(0), red),
+                        (CaseKey::Variant(1), green),
+                        (CaseKey::Variant(2), blue),
+                    ],
+                    None,
+                );
+                b.term(Term::Fail(error.into()));
+            })
+        });
+
+        let stats = run(&mut m);
+
+        assert_eq!(stats.switch_cases_merged, 1, "{stats:?}");
+        assert_eq!(stats.switch_direct, 0, "{stats:?}");
+        let text = dump(&m, id);
+        assert!(text.contains("case Color.Red, Color.Green"), "{text}");
+        assert!(text.contains("case Color.Blue"), "{text}");
     }
 
     /// The keys and their runs describe a dense set and a sparse one.
