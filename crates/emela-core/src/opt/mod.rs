@@ -30,6 +30,7 @@
 //! | `fusion::run`: `range_fold` | [`Stats::range_fold`] | range fusion |
 //! | `fusion::run`: `range_map_array` | [`Stats::map_range`] | range fusion |
 //! | `fusion::run`: `range_map` | [`Stats::range_map`] | range fusion |
+//! | `reduce::bounds` | [`Stats::bounds`] | bounds-check elimination (A11/PR-040) |
 //! | `reduce::delta` | [`Stats::delta`] | δ reduction (A8/PR-017) |
 //! | `reduce::beta` | [`Stats::beta`] | β reduction (A3/PR-012) |
 //! | `reduce::iota` | [`Stats::iota`] | ι reduction (A5/PR-014) |
@@ -54,6 +55,11 @@
 //!   comes before `range_map`, which would otherwise rewrite the `List.map` inside the
 //!   `Array.from_list` it is looking for. The order of the laws is the registry order of
 //!   [`fusion::laws`], not a second list in this pipeline.
+//! - **Bounds-check elimination, then δ.** It matches the bounds test `array_get_match` has just
+//!   built, and the range fusion has just built the loop whose counter bounds the index. Running
+//!   it here, before δ, keeps the condition in the exact shape the fusion wrote; the constant
+//!   folder and the algebraic laws would simplify a literal index's condition before the next
+//!   sweep. It stays off by default until its milestone measures it (A11/PR-040).
 //! - **δ, then β.** δ expands the direct calls; β applies the linear lambdas that survived the
 //!   expansion and the ones a copy brought in. β runs after δ for that reason, and both run after
 //!   the fusions.
@@ -74,13 +80,13 @@
 //! # Status of the reduction kernel
 //!
 //! A0/PR-002 added the rules and the order above; each rule landed with its own pull request
-//! (A2–A8). A10/PR-019 turns every implemented rule on by default, so [`run`] and
-//! [`run_with`] with [`Options::default`] run the whole pipeline. A rule whose flag is off is
-//! skipped entirely and contributes nothing to [`Stats`], not even a deopt.
+//! (A2–A8). A10/PR-019 turns the rules of A2–A8 on by default, so [`run`] and [`run_with`] with
+//! [`Options::default`] run the whole pipeline. A11/PR-040 adds bounds-check elimination, which
+//! stays off until its milestone measures it. A rule whose flag is off is skipped entirely and
+//! contributes nothing to [`Stats`], not even a deopt.
 //!
-//! `bounds` stays off in [`Rules::default`] because its rule does not exist yet (A11/PR-040).
-//! `cse` is implemented (A12/PR-041) but also stays off until the M5 integration; [`Rules::all`]
-//! turns both on.
+//! `bounds` (A11/PR-040) and `cse` (A12/PR-041) are implemented but stay off in
+//! [`Rules::default`] until their integrations measure them; [`Rules::all`] turns both on.
 //!
 //! # Fusion laws
 //!
@@ -99,9 +105,9 @@
 //! and is the argument of [`run_with`]; [`run`] keeps its old signature and uses
 //! [`Options::default`].
 //!
-//! [`Rules::default`] turns every implemented reduction rule of the default pipeline on: `zeta`,
-//! `beta`, `eta`, `iota`, `delta`, `fold` and `algebra`. `bounds` is off because its rule does not
-//! exist yet, and `cse` is off until the M5 integration; [`Rules::all`] turns every flag on and
+//! [`Rules::default`] turns every reduction rule of the default pipeline on: `zeta`, `beta`,
+//! `eta`, `iota`, `delta`, `fold` and `algebra`. `bounds` (A11/PR-040) and `cse` (A12/PR-041) are
+//! implemented but off until their integrations; [`Rules::all`] turns every flag on and
 //! [`Rules::none`] turns every flag off. `loop::unswitch` is
 //! a loop transformation, not a reduction rule, and has no flag: it runs whatever the flags say.
 //! The flags are a programmatic API only: no command-line flag is added.
@@ -226,11 +232,11 @@ impl RuleStats {
 
 /// The reduction rules [`run_with`] may run, one flag per rule.
 ///
-/// [`Rules::default`] turns on every implemented rule of the default pipeline. `bounds` is
-/// reserved for A11/PR-040 and stays off; `cse` is implemented (A12/PR-041) but stays off until
-/// the M5 integration. [`Rules::all`] turns every flag on, which the per-rule tests use, and
-/// [`Rules::none`] turns every flag off. The unswitch of [`r#loop`] and the fusion laws of
-/// [`fusion`] are not gated here; the unswitch has no flag, and the laws have their own.
+/// [`Rules::default`] turns on every rule of the default pipeline. `bounds` (A11/PR-040) and
+/// `cse` (A12/PR-041) are implemented but stay off until their integrations. [`Rules::all`] turns
+/// every flag on, which the per-rule tests use, and [`Rules::none`] turns every flag off. The
+/// unswitch of [`r#loop`] and the fusion laws of [`fusion`] are not gated here; the unswitch has no
+/// flag, and the laws have their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rules {
     /// ζ reduction: `let x = v in e → e[x := v]` and the dead trivial let.
@@ -247,7 +253,8 @@ pub struct Rules {
     pub fold: bool,
     /// Algebraic reduction of Bool and integer operations.
     pub algebra: bool,
-    /// Bounds-check elimination. Reserved; no rule reads it yet (A11/PR-040).
+    /// Bounds-check elimination: the test of a fused `Array.get` whose index is provably in the
+    /// array (A11/PR-040). Off in [`Rules::default`] until its milestone measures it.
     pub bounds: bool,
     /// Common subexpression elimination of a straight-line `let` chain (A12/PR-041). Off in
     /// [`Rules::default`] until the M5 integration.
@@ -287,11 +294,10 @@ impl Rules {
 }
 
 impl Default for Rules {
-    /// Every rule of the default pipeline on; `bounds` reserved and off, `cse` implemented but
-    /// off until the M5 integration.
+    /// Every rule of the default pipeline on; `bounds` and `cse` off.
     ///
-    /// This is the default pipeline (A10/PR-019). [`Rules::all`] differs only in `bounds` and
-    /// `cse`.
+    /// This is the default pipeline (A10/PR-019). [`Rules::all`] differs only in the two flags
+    /// that are not in the default pipeline yet (A11/PR-040, A12/PR-041).
     fn default() -> Self {
         Self {
             zeta: true,
@@ -385,7 +391,8 @@ pub struct Stats {
     pub constant: u32,
     /// Algebraic simplifications: a constant side of a Bool or integer operation removed.
     pub algebra: u32,
-    /// Bounds checks removed. Reserved for A11/PR-040; zero until then.
+    /// Bounds checks removed: the test of a fused `Array.get` whose index was proved to be in the
+    /// array (A11/PR-040).
     pub bounds: u32,
     /// Common subexpressions removed by [`reduce::cse`] (A12/PR-041).
     pub cse: u32,
@@ -502,6 +509,15 @@ pub fn run_with(m: &mut Module, core_fns: &CoreFns, options: Options) -> Stats {
         // The fusion laws run in the registry's order, which is the order of the table above.
         // `fusion::run` adds their counters and verifies after each law that runs.
         fusion::run(m, core_fns, laws, &mut sweep);
+        // Bounds-check elimination reads the test the fusions have just built and the loop the
+        // range fusion has just built. It runs before δ (and before the constant folder would
+        // simplify the condition) for the reason in the pipeline docs.
+        if rules.bounds {
+            let done = reduce::bounds(m);
+            sweep.bounds += done.applied;
+            sweep.deopt += done.deopt;
+            check(m);
+        }
         // δ keeps the inliner's place after the fusions, for the reason in the pipeline docs. β
         // runs after it so that it applies the lambdas that survive the expansion and the ones a
         // copy brought in.

@@ -14,16 +14,20 @@
 //!
 //! # Status
 //!
-//! Every rule of the kernel is implemented (A2/PR-011 to A8/PR-017, A12/PR-041), and the rules
-//! of A2–A8 are on by default (A10/PR-019). CSE stays off in `Rules::default` until the M5
-//! integration. A rule whose [`crate::opt::Rules`] flag is off is skipped by the pipeline and
-//! contributes nothing, not even a deopt. [`subst`] is the shared substitution engine the rules
-//! build on.
+//! Every rule of the kernel is implemented (A2/PR-011 to A8/PR-017, A11/PR-040 and A12/PR-041),
+//! and the rules of A2–A8 are on by default (A10/PR-019). `bounds` and `cse` stay off in
+//! `Rules::default` until their integrations. A rule whose [`crate::opt::Rules`] flag is off is
+//! skipped by the pipeline and contributes nothing, not even a deopt. [`subst`] is the shared
+//! substitution engine the rules build on.
+//!
+//! [`bounds`] is the first rule that depends on an analysis (B5's ranges) and the first that stays
+//! off in [`crate::opt::Rules::default`] until its milestone measures it (A11/PR-040).
 
 pub mod subst;
 
 mod algebra;
 mod beta;
+mod bounds;
 mod cse;
 mod delta;
 mod eta;
@@ -35,6 +39,7 @@ mod zeta;
 // of the crate's public API: only the pipeline calls them.
 pub(super) use algebra::algebra;
 pub(super) use beta::beta;
+pub(super) use bounds::bounds;
 pub(super) use cse::cse;
 pub(super) use delta::delta;
 pub(super) use eta::eta;

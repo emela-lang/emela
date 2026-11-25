@@ -10,6 +10,7 @@ mod analysis_effect;
 mod analysis_properties;
 mod analysis_ranges;
 mod beta;
+mod bounds;
 mod cse;
 mod delta;
 mod dump;

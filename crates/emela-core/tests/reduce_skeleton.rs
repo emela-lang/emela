@@ -4,8 +4,8 @@
 //! new rules against the pipeline from before the kernel (the A0/PR-002 skeleton did). It fixes
 //! the three properties the default pipeline needs:
 //!
-//! 1. `Rules::default()` is every implemented rule on, with only the reserved `bounds` and `cse`
-//!    off.
+//! 1. `Rules::default()` is every rule of the default pipeline on. `bounds` is implemented but
+//!    off until its milestone (A11/PR-040), and `cse` is still reserved (A12/PR-041).
 //! 2. Each implemented rule can be turned off on its own, and its counter then stays zero.
 //! 3. On one corpus program every implemented rule fires at least once. A rule that stops firing
 //!    fails the test instead of turning into a silent no-op.
@@ -99,8 +99,8 @@ fn run_rules(rules: Rules) -> Stats {
     )
 }
 
-/// The default is every implemented rule on; `bounds` and `cse` are the only flags off, because
-/// their rules do not exist yet.
+/// The default is every rule of the default pipeline on; `bounds` and `cse` are the only flags
+/// off, because `bounds` waits for its milestone and `cse` has no rule yet.
 #[test]
 fn default_rules_are_every_implemented_rule() {
     let default = Rules::default();
