@@ -1,11 +1,13 @@
 ---
 title: A named item does not provide its effect by name
 authors: [somnicattus]
-status: draft
+status: accepted
 issue:
 touches: [effect.use, effect.with, effect.handler, effect.label, type.rules, task.group, dyn.with, diag.list]
 requires: []
 related: [handler-member, capability-identity, effect-alias, task]
+pr: 863
+decided: 2026-11-25
 ---
 
 # A named item does not provide its effect by name
@@ -209,6 +211,8 @@ The changes are applied to `spec/` in this pull request.
 
 ## Open questions
 
-None.
-
 ## Decision
+
+A named item makes a capability and provides nothing by name, so every item follows one rule: a named item is reached through its capability, and an item without a name provides its effect by name. Binding a capability no longer redirects the uses by name of an outer handler without a diagnostic, and no longer needs a label and a second with to avoid that.
+
+It lands in 0.29, with capability-identity (#732), so that the rules for capabilities change in one version. 0.29 has not been released, and the measurement found no program affected outside the tests of the current rule, so no warning is given ahead of the change. No form is added for a named item that also provides its effect by name: removing the name and declaring an effect alias keeps the meaning, except when the capability is passed as an argument.
