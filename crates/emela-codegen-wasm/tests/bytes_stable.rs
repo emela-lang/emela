@@ -247,5 +247,5 @@ fn main() {
     );
     wasmparser::validate(&output.module).expect("the inline-array module is valid");
     // The C2 profitability rule changes the borrows of the call sites in this program.
-    check([("inline_array", output.module, 15679, 0xc50f_9575_2749_36be)]);
+    check([("inline_array", output.module, 15672, 0x57b2_b022_451b_e787)]);
 }
