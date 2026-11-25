@@ -61,7 +61,7 @@ import Std.Console.{Console, SystemConsole}
 
 fn main() {
   with SystemConsole {
-    console = use Console
+    console <- Console
     console.print_line(\"Hello, world!\")
   }
 }
