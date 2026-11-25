@@ -8,7 +8,7 @@
 //!
 //! An interruption is not caught: the pending `interrupted` defect stays pending. While the run
 //! unwinds as interrupted (it stalled, spec 14.5) a defect is not caught either, so that the
-//! defect of a release stays the result of the run (`[fiber.cause]`). `unwind_ops` sets the
+//! defect of a release stays the result of the run (`[task.cause]`). `unwind_ops` sets the
 //! `unwinding` cell when it unwinds the whole run, and the entry clears it before each test.
 //!
 //! A `Cause` is an object of one slot, the failure (an error value) or the defect (a String), and
@@ -353,14 +353,12 @@ fn attempt_resume(b: &mut Builder, ins: &mut InstructionSink) {
     ins.i32_store(mem(0, 4));
 }
 
-/// `cause_to_string(cause) -> String`: `error: ...`, `defect: ...` or `interrupted`. Borrows the
-/// cause.
+/// `cause_to_string(cause) -> String`: `error: ...` or `defect: ...`. Borrows the cause.
 fn cause_to_string(b: &mut Builder, ins: &mut InstructionSink) {
     const SHOWN: u32 = 1;
     const RESULT: u32 = 2;
     let error = b.string_literal(b"error: ");
     let defect = b.string_literal(b"defect: ");
-    let interrupted = b.string_literal(b"interrupted");
     ins.local_get(0);
     ins.i32_load(mem(AUX, 4));
     ins.i32_const(CAUSE_FAIL);
@@ -388,23 +386,14 @@ fn cause_to_string(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(RESULT);
     ins.return_();
     ins.end();
-    ins.local_get(0);
-    ins.i32_load(mem(AUX, 4));
-    ins.i32_const(CAUSE_DIE);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
     ins.i32_const(defect as i32);
     ins.local_get(0);
     ins.i32_load(mem(HDR, 4));
     ins.call(rt(b, "str_append"));
-    ins.return_();
-    ins.end();
-    ins.i32_const(interrupted as i32);
 }
 
-/// `cause_raise(cause)`: `Fail` leaves its error as the pending failure, `Die` raises its defect
-/// again (the same String, so its markers stay), and `Interrupt` unwinds as interrupted. Borrows
-/// the cause.
+/// `cause_raise(cause)`: `Fail` leaves its error as the pending failure, and `Die` raises its
+/// defect again (the same String, so its markers stay). Borrows the cause.
 fn cause_raise(b: &mut Builder, ins: &mut InstructionSink) {
     ins.local_get(0);
     ins.i32_load(mem(AUX, 4));
@@ -420,24 +409,6 @@ fn cause_raise(b: &mut Builder, ins: &mut InstructionSink) {
     ins.return_();
     ins.end();
     ins.local_get(0);
-    ins.i32_load(mem(AUX, 4));
-    ins.i32_const(CAUSE_DIE);
-    ins.i32_eq();
-    ins.if_(BlockType::Empty);
-    ins.local_get(0);
     ins.i32_load(mem(HDR, 4));
     ins.call(rt(b, "raise"));
-    ins.return_();
-    ins.end();
-    // `Interrupt`: only `Fiber.await` makes one, so it needs the suspend runtime.
-    if b.sus.is_some() {
-        if b.fiber_plan.is_some() {
-            ins.i32_const(0);
-            let f = b.rt("fb_interrupted_new");
-            ins.call(f);
-        } else {
-            ins.call(rt(b, "interrupted"));
-        }
-        ins.call(rt(b, "raise"));
-    }
 }

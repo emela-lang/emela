@@ -3,7 +3,7 @@
 //!
 //! The output shows each fn's type and its local variables' types, then the diagnostics.
 
-mod common;
+use crate::common;
 
 use common::render_bodies;
 

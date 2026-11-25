@@ -1,0 +1,78 @@
+---
+source: crates/emela-core/tests/lower.rs
+expression: "mine.join(\"\\n\\n\")"
+---
+enum Tx {
+  Tx(conn: Int)
+}
+
+export fn main() -> Int {
+  let _%0: Int = @dbg[Int](with {
+    let self%1: Tx = Tx$init()
+    let hs%2: (handler Query, handler Execute) = Tx(self%1) cleanup Tx {
+      Tx$release(self%1)
+    }
+    let h%3: handler Query = match hs%2 {
+      (x%4, _) -> x%4
+    } release Tx {
+      ()
+    }
+    let h%5: handler Execute = match hs%2 {
+      (_, x%6) -> x%6
+    } release Tx {
+      ()
+    }
+    let h%7: handler Execute = h%5
+    let h%8: handler Query = h%3
+  } {
+    h%8.Query#query("b")
+  })
+  @dbg[Int](with {
+    let self%9: Tx = Tx$init()
+    let hs%10: (handler Query, handler Execute) = Tx(self%9) cleanup Tx {
+      Tx$release(self%9)
+    }
+    let h%11: handler Query = match hs%10 {
+      (x%12, _) -> x%12
+    } release Tx {
+      ()
+    }
+    let h%13: handler Execute = match hs%10 {
+      (_, x%14) -> x%14
+    } release Tx {
+      ()
+    }
+    let h%15: handler Execute = h%13
+    let h%16: handler Query = h%11
+    let ev%17: evidence = provide(; Execute = h%15 Query = h%16)
+  } {
+    (read_only[{ev}](match hs%10 {
+      (x%18, _) -> x%18
+    }, ev%17) +[Int] {
+      let h%19: handler Query = match hs%10 {
+        (x%20, _) -> x%20
+      }
+      h%19.Query#query("c")
+    })
+  })
+}
+
+fn Tx(self%0: Tx) -> (handler Query, handler Execute) {
+  (handler Tx: Query {
+    query: fn(sql%1: String) -> Int {
+      self%0.conn#0
+    }
+  }, handler Tx: Execute {
+    execute: fn(sql%2: String) -> () {
+      ()
+    }
+  })
+}
+
+fn Tx$init() -> Tx {
+  Tx.Tx(conn: 1)
+}
+
+fn Tx$release(self%0: Tx) -> Int {
+  @dbg[Int](self%0.conn#0)
+}

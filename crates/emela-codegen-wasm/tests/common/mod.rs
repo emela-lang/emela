@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 #[path = "../../../emela-core/tests/support/mod.rs"]
-mod support;
+pub(crate) mod support;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};

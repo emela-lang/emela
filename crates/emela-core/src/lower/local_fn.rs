@@ -3,10 +3,10 @@
 //! A local fn becomes a function of the module at its declaration. What its body refers to from
 //! the enclosing scopes becomes leading parameters:
 //!
-//! 1. the HIR locals of the enclosing scopes that the body refers to (its captures), in the order
-//!    of their first reference, and the captures of the local fns the body refers to;
-//! 2. the handler values of the `with`s that enclose the declaration in the same function
-//!    ([`Lowerer::bound`]), which `use X` in the body looks at first (`[effect.with]`).
+//! the HIR locals of the enclosing scopes that the body refers to (its captures), in the order of
+//! their first reference, and the captures of the local fns the body refers to. The `with`s that
+//! enclose the declaration provide nothing to the body: the side that calls the local fn passes
+//! its R in the evidence table (`[effect.with]`).
 //!
 //! Its declared parameters follow, and the evidence table last when its R needs one, as for a
 //! lambda. Every captured local is bound before the declaration and is immutable (`[fn.block]`),
@@ -25,7 +25,7 @@ use emela_resolve::hir::{DefKind, ExprId, ExprKind, Item, LocalFn, LocalId, Res}
 use emela_types::Ty;
 use rustc_hash::FxHashSet;
 
-use super::{Call, Lowerer, Target, mentions};
+use super::{Call, Lowerer, Target};
 use crate::ir::{Callee, Expr, FnId, Local, SetSummary, Type, TypeId};
 
 /// A local fn lifted to a function of the module ([`Lowerer::local_fns`]).
@@ -34,10 +34,6 @@ pub(super) struct Lifted {
     f: FnId,
     /// The HIR locals of the enclosing scopes whose values are passed first, in this order.
     captures: Vec<LocalId>,
-    /// How many handler values of enclosing `with`s are passed after them: the first `bound` of
-    /// [`Lowerer::bound`]. Every call is inside the scope of the declaration, where `bound` only
-    /// grows, so these are the same `with`s at every call.
-    bound: usize,
     ty_args: Vec<TypeId>,
     call: Call,
     takes_ev: bool,
@@ -80,14 +76,13 @@ impl Lowerer<'_> {
             Lifted {
                 f: id,
                 captures: captures.clone(),
-                bound: self.bound.len(),
                 ty_args,
                 call,
                 takes_ev,
             },
         );
 
-        // The body sees the captures and the handler values as the lifted function's parameters.
+        // The body sees the captures as the lifted function's parameters.
         let mut params = Vec::new();
         let mut outer_locals = Vec::new();
         for &l in &captures {
@@ -99,13 +94,7 @@ impl Lowerer<'_> {
             outer_locals.push((l, outer));
             self.locals.insert(l, p);
         }
-        let outer_bound = self.bound.clone();
-        for i in 0..self.bound.len() {
-            let ty = self.module.locals[self.bound[i].1].ty;
-            let p = self.module.local("h", ty);
-            params.push(p);
-            self.bound[i].1 = p;
-        }
+        let outer_bound = std::mem::take(&mut self.bound);
         params.extend(f.sig.params.iter().map(|p| self.local(p.local)));
         let outer_ev = self.ev;
         let outer_name = std::mem::replace(&mut self.fn_name, name);
@@ -191,48 +180,22 @@ impl Lowerer<'_> {
         }
     }
 
-    /// The values of the captures and handler values of `lifted`, at a call in its scope.
+    /// The values of the captures of `lifted`, at a call in its scope.
     fn capture_args(&self, lifted: &Lifted) -> Vec<Expr> {
-        let locals = lifted.captures.iter().map(|&l| Expr::Var(self.locals[l]));
-        let bound = self.bound[..lifted.bound]
+        lifted
+            .captures
             .iter()
-            .map(|(_, h)| Expr::Var(*h));
-        locals.chain(bound).collect()
+            .map(|&l| Expr::Var(self.locals[l]))
+            .collect()
     }
 
-    /// The body of a function or lambda that takes the evidence table `p`, lowered with the
-    /// handler values of enclosing `with`s added to it, since `use X` looks at them first
-    /// (`[effect.with]`).
+    /// The body of a function or lambda that takes the evidence table `p`: the table its caller
+    /// passes is the body's table (`[effect.with]`). [`Lowerer::bound`] is empty here.
     pub(super) fn body_with_ev(&mut self, p: Local, body: ExprId) -> Expr {
         let outer = self.ev;
-        let (ctx, prelude) = if self.bound.is_empty() {
-            (p, None)
-        } else {
-            let c = self.ev_local();
-            let bindings = self
-                .bound
-                .clone()
-                .into_iter()
-                .map(|(e, h)| (self.effect_id(&e), Expr::Var(h)))
-                .collect();
-            (
-                c,
-                Some(Expr::Provide {
-                    base: Some(Box::new(Expr::Var(p))),
-                    bindings,
-                }),
-            )
-        };
-        self.ev = Some(ctx);
-        let mut body = self.expr(body);
+        self.ev = Some(p);
+        let body = self.expr(body);
         self.ev = outer;
-        if let Some(value) = prelude.filter(|_| mentions(&body, ctx)) {
-            body = Expr::Let {
-                var: ctx,
-                value: Box::new(value),
-                body: Box::new(body),
-            };
-        }
         body
     }
 
