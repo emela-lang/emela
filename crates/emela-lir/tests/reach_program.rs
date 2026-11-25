@@ -5,8 +5,7 @@
 //! the hosts they alone call must not be reachable. This is the discrepancy the WASM backend had
 //! between the Flow-IR walk used for imports and the Heap-IR walk used for body pruning.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::Roots;
 use emela_lir::Module;

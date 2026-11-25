@@ -6,7 +6,7 @@
 //! note's `Ping` program: only `print_line` is performed, so `print_error_line` must be
 //! `referenced` but not `called`.
 
-mod common;
+use crate::common;
 
 use common::{Fixture, string};
 use emela_core::External;
