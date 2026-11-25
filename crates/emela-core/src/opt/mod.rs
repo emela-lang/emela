@@ -1,4 +1,5 @@
-//! Optimisation of the Core IR, between lowering and monomorphisation.
+//! Optimisation of the Core IR: the target-neutral pipeline after lowering, and the δ stage on the
+//! monomorphic module.
 //!
 //! The passes work on the target-neutral Core IR, so every target gets them. [`run`] is the fixed
 //! sequence; there is no generic pass framework. A build turns all of them off together with
@@ -30,12 +31,11 @@
 //! | `fusion::run`: `range_fold` | [`Stats::range_fold`] | range fusion |
 //! | `fusion::run`: `range_map_array` | [`Stats::map_range`] | range fusion |
 //! | `fusion::run`: `range_map` | [`Stats::range_map`] | range fusion |
-//! | `inline::inline` | [`Stats::inline`] | inlining |
+//! | `reduce::delta` | [`Stats::inline`] | δ reduction (A8/PR-017) |
 //! | `reduce::iota` | [`Stats::iota`] | ι reduction (A5/PR-014) |
 //! | `reduce::fold` | [`Stats::constant`] | constant folding (A6/PR-015) |
 //! | `reduce::algebra` | [`Stats::algebra`] | algebraic reduction (A7/PR-016) |
 //! | `reduce::eta` | [`Stats::eta`] | η reduction (A4/PR-013) |
-//! | `reduce::delta` | [`Stats::delta`] | δ reduction (A8/PR-017) |
 //!
 //! The positions are chosen for the patterns each pass exposes:
 //!
@@ -45,29 +45,33 @@
 //!   before the fusions cannot hide a fusion pattern.
 //! - **The hoisting and the fusions keep their previous place.** Hoisting runs before the Option
 //!   fusion because it matches the `match Array.get` that the fusion replaces by a bounds test; the
-//!   fusions run before inlining because they match the calls the source wrote, and inlining a
-//!   function such as `List.fold` first would dissolve the call the range fusion looks for.
+//!   fusions run before δ because they match the calls the source wrote, and expanding a function
+//!   such as `List.fold` first would dissolve the call the range fusion looks for.
 //!   `range_map_array` comes before `range_map`, which would otherwise rewrite the `List.map`
 //!   inside the `Array.from_list` it is looking for. The order of the laws is the registry order
 //!   of [`fusion::laws`], not a second list in this pipeline.
-//! - **Inlining stays after the fusions**, in the position it had before the reduction kernel was
+//! - **δ stays after the fusions**, in the position the inliner had before the reduction kernel was
 //!   added. The new rules run after it, so they simplify the body it exposes in the same sweep
 //!   instead of waiting for the next one.
-//! - **ι, then constant folding and algebra.** Inlining and β expose a known constructor and a
-//!   constant condition; ι removes the match, and folding and the algebraic laws simplify the
-//!   values and conditions it leaves.
+//! - **ι, then constant folding and algebra.** δ and β expose a known constructor and a constant
+//!   condition; ι removes the match, and folding and the algebraic laws simplify the values and
+//!   conditions it leaves.
 //! - **η after the algebraic laws**, which remove forwarding bodies and so leave more wrapper
 //!   lambdas for it to see.
-//! - **δ last**, because it is the only rule that may grow the program. Everything that shrinks
-//!   runs first, and a body δ copies is simplified on the next sweep.
+//!
+//! δ is the only rule that may grow the program, so it carries a budget; every shrinking rule runs
+//! before it, and a body δ copies is simplified on the next sweep.
 //!
 //! # Status of the reduction kernel
 //!
-//! A0/PR-002 adds the rules and the order above, but every rule in [`reduce`] is a no-op: it
-//! returns [`RuleStats::default`] and rewrites nothing. The pipeline skips a rule whose flag is
-//! off, and [`Options::default`] has every new rule off, so a default run still calls only the
-//! older passes. The skeleton therefore changes no output, no counter of a rewrite, and no sweep
-//! count. `subst` exposes the substitution API with a conservative body; A1/PR-010 completes it.
+//! A0/PR-002 adds the rules and the order above. Each rule lands with its own pull request; one
+//! that has not landed yet returns [`RuleStats::default`] and rewrites nothing. The pipeline skips
+//! a rule whose flag is off, and [`Options::default`] has every new rule off, so a default run
+//! still applies only the rules that exist and are on by default. `subst` exposes the substitution
+//! API with a conservative body; A1/PR-010 completes it.
+//!
+//! δ is the exception to the flag policy: it is the inliner that existed before the kernel, so it
+//! always runs, even with every new rule off. See [`Rules::delta`].
 //!
 //! # Fusion laws
 //!
@@ -98,8 +102,11 @@
 //! not even a deopt; [`fusion::Laws::none`] therefore turns the fusions off without touching the
 //! rest of the pipeline. The reserved laws have no body and never run, whatever their flag says.
 //!
-//! `hoist` and `inline` do not have a flag yet; A10/PR-019 unifies their gating with the reduction
-//! rules. `Rules::none()` with `Laws::none()` therefore still runs hoisting and inlining.
+//! `hoist` and δ (`reduce::delta`) do not have a flag yet; A10/PR-019 unifies their gating with the
+//! reduction rules. `Rules::none()` with `Laws::none()` therefore still runs hoisting and δ.
+//! [`Rules::delta`] is reserved for A10/PR-019 and is not consulted yet: δ is existing behaviour, so
+//! turning the flag off would change the default pipeline. A10/PR-019 makes the flag control the
+//! rule and unifies [`Stats::inline`] with [`Stats::delta`].
 //!
 //! # Fixed point
 //!
@@ -123,13 +130,35 @@
 //! ```
 //!
 //! The range fusion looks for `List.fold(List.range(…), …)`. It does not see one in the first
-//! sweep, because the argument is the call `span()`; inlining `span` replaces the call by its
-//! body, but inlining runs after the fusions. The next sweep finds `List.fold(List.range(0, 3), …)`
-//! and rewrites it. Repeating the whole table keeps the order that the fusions need and still finds
-//! the patterns inlining exposes. A pattern that appears only by substituting an argument into a
-//! parameter is not exposed at all: inlining binds each argument to a fresh local first, so the
-//! pattern has to be in the callee's body. A module that is already at the fixed point takes one
-//! sweep, which changes nothing.
+//! sweep, because the argument is the call `span()`; δ replaces the call by its body, but δ runs
+//! after the fusions. The next sweep finds `List.fold(List.range(0, 3), …)` and rewrites it.
+//! Repeating the whole table keeps the order that the fusions need and still finds the patterns δ
+//! exposes. A pattern that appears only by substituting an argument into a parameter is not exposed
+//! at all: δ binds each argument to a fresh local first, so the pattern has to be in the callee's
+//! body. A module that is already at the fixed point takes one sweep, which changes nothing.
+//!
+//! # After monomorphisation
+//!
+//! A build checks the module and monomorphizes it after [`run`] (`crate::mono`), and then runs one
+//! further stage on the monomorphic module: δ reduction alone, through
+//! `delta_after_monomorphization`. Nothing else runs there. This is not a second pipeline and it
+//! has no fixed point of its own; the stage is deliberately δ only, with the rule's existing
+//! contract, budget and counter.
+//!
+//! The reason is the rule's `set_params` precondition. Before monomorphisation a callee whose E or
+//! R still mentions a set type parameter is left as a call, because its evidence and type
+//! arguments do not substitute with [`crate::ir::TypeTable::subst`] alone. A small higher-order
+//! wrapper such as `fn apply(f, x) { f(x) }` is exactly such a callee. After monomorphisation its
+//! copy has no type or set parameters and no unresolved dispatch, so the same rule can copy it.
+//! The WASM backend has no inliner of its own, so a call that survives the Core IR stays a call
+//! there.
+//!
+//! The stage's invariant is that its input is monomorphic and that its [`CoreFns`] map is rebuilt
+//! for the output function ids: each output function is followed through
+//! `Monomorphized::origins` to the input function it copies, and then through the identity map
+//! lowering built. A stale or empty map would let δ copy a reserved bundled collection function
+//! (`List.fold`, `List.reverse`, ...) into every caller. See `delta_after_monomorphization` and
+//! [`reduce::delta`] for the stage and the contract.
 //!
 //! # Pass contract
 //!
@@ -170,7 +199,6 @@ use crate::ir::{Expr, FnId, Lit, Module};
 pub mod analysis;
 pub mod fusion;
 mod hoist;
-mod inline;
 pub mod r#loop;
 pub mod reduce;
 
@@ -199,8 +227,9 @@ impl RuleStats {
 /// A new rule is off in [`Rules::default`] until its implementation and tests have landed; the
 /// integrator turns the defaults on at A10/PR-019. [`Rules::all`] turns every rule on, which the
 /// per-rule tests use. `bounds` and `cse` are reserved for A11/PR-040 and A12/PR-041; no pass reads
-/// them yet. The existing passes of this module (`hoist`, `option`, `range`, `inline`) are not
-/// gated here yet; A10/PR-019 unifies the gating, so [`Rules::none`] still runs them.
+/// them yet. The existing passes of this module (`hoist`, `option`, `range`) are not gated here
+/// yet; A10/PR-019 unifies the gating, so [`Rules::none`] still runs them. [`Rules::delta`] is
+/// reserved for A10/PR-019 too and is not consulted: δ is existing behaviour and always runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rules {
     /// ζ reduction: `let x = v in e → e[x := v]` and the dead trivial let.
@@ -211,7 +240,8 @@ pub struct Rules {
     pub eta: bool,
     /// ι reduction: a match of a known constructor.
     pub iota: bool,
-    /// δ reduction: expansion of a direct call (inlining), within a budget.
+    /// δ reduction: expansion of a direct call (inlining), within a budget. Reserved for
+    /// A10/PR-019; not consulted yet, because δ is existing behaviour and always runs.
     pub delta: bool,
     /// Constant folding.
     pub fold: bool,
@@ -325,7 +355,9 @@ pub struct Stats {
     /// `Array.from_list(List.map(List.range(lo, hi), f))` rewritten to the internal
     /// `ArrayMapRange(lo, hi, f)`, which builds neither the range nor a list.
     pub map_range: u32,
-    /// Calls inlined: direct calls replaced by a copy of the callee's body.
+    /// Calls inlined (δ reductions): direct calls replaced by a copy of the callee's body. This is
+    /// the historical name of the δ counter; [`Stats::delta`] is reserved for A10/PR-019 and stays
+    /// zero, so one expansion is never counted twice.
     pub inline: u32,
     /// ζ reductions: let bindings substituted away, including dead trivial lets.
     pub zeta: u32,
@@ -335,7 +367,8 @@ pub struct Stats {
     pub eta: u32,
     /// ι reductions: matches of a known constructor removed.
     pub iota: u32,
-    /// δ reductions: direct calls expanded within the budget.
+    /// δ reductions: direct calls expanded within the budget. Reserved for A10/PR-019; δ fills
+    /// [`Stats::inline`] until then, so this is zero.
     pub delta: u32,
     /// Constant foldings: an operation on literals replaced by its result.
     pub constant: u32,
@@ -466,8 +499,13 @@ pub fn run_with(m: &mut Module, core_fns: &CoreFns, options: Options) -> Stats {
         // The fusion laws run in the registry's order, which is the order of the table above.
         // `fusion::run` adds their counters and verifies after each law that runs.
         fusion::run(m, core_fns, laws, &mut sweep);
-        // Inlining keeps its place after the fusions, for the reason in the pipeline docs.
-        sweep.merge(inline::inline(m, core_fns));
+        // δ keeps the inliner's place after the fusions, for the reason in the pipeline docs, and
+        // always runs: it is existing behaviour, not one of the new default-off rules
+        // (`Rules::delta` is reserved for A10/PR-019). It fills `Stats::inline`, the historical
+        // name of the δ counter, not `Stats::delta`.
+        let done = reduce::delta(m, core_fns);
+        sweep.inline += done.applied;
+        sweep.deopt += done.deopt;
         check(m);
         if rules.iota {
             let done = reduce::iota(m);
@@ -493,12 +531,6 @@ pub fn run_with(m: &mut Module, core_fns: &CoreFns, options: Options) -> Stats {
             sweep.deopt += done.deopt;
             check(m);
         }
-        if rules.delta {
-            let done = reduce::delta(m);
-            sweep.delta += done.applied;
-            sweep.deopt += done.deopt;
-            check(m);
-        }
         stats.merge(sweep);
         if sweep.is_empty() {
             converged = true;
@@ -513,6 +545,29 @@ pub fn run_with(m: &mut Module, core_fns: &CoreFns, options: Options) -> Stats {
     // One sweep is enough to see that there is nothing to do; report that as one.
     stats.passes = changed_sweeps.max(1);
     stats
+}
+
+/// Runs δ reduction once on a monomorphic module: the stage after monomorphisation.
+///
+/// The input must be the module [`crate::mono`] produced, with `core_fns` rebuilt for its function
+/// ids. This calls [`reduce::delta`] once with the rule's existing budget; there is no other
+/// reduction, no fusion law and no fixed-point loop. The returned [`Stats`] fills only
+/// [`Stats::delta`] and [`Stats::deopt`], which the caller merges with the counters of [`run`].
+/// [`Stats::passes`] stays zero: it counts sweeps of [`run_with`], not stages.
+///
+/// δ keeps its contract and is not a different rule here; the only difference is that the module
+/// is monomorphic, so a callee with no set type parameters (an effect-polymorphic wrapper before
+/// it was copied) is eligible. The [`CoreFns`] map must be rebuilt for the monomorphic function
+/// ids, or the reserved bundled functions would become candidates; see the module's
+/// "After monomorphisation" section.
+pub(crate) fn delta_after_monomorphization(m: &mut Module, core_fns: &CoreFns) -> Stats {
+    let done = reduce::delta(m, core_fns);
+    check(m);
+    Stats {
+        delta: done.applied,
+        deopt: done.deopt,
+        ..Stats::default()
+    }
 }
 
 /// Applies `f` to the body of every function, with the module to allocate locals in.
