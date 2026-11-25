@@ -5,8 +5,8 @@
 //! [lowering recorded](crate::opt::CoreFn), by identity. The laws are data: [`laws`] returns the
 //! [`Law`] descriptors in pipeline order, each with the contract of plan §3.4, so the order, the
 //! contract and the run are one table instead of five separate calls. The bodies are in the
-//! `option` and `list` submodules, beside the table, so that a law's contract and its code are one
-//! entry and one function.
+//! `option`, `list` and `string` submodules, beside the table, so that a law's contract and its
+//! code are one entry and one function.
 //!
 //! # Registry order
 //!
@@ -20,15 +20,16 @@
 //!   `List.map` inside the `Array.from_list` that the array fusion is looking for.
 //!
 //! A reserved law has no body, so its position does not affect the pipeline yet; it is the place
-//! its body will take when its pull request lands (D3–D5).
+//! its body will take when its pull request lands (D3–D4).
 //!
 //! # Flags
 //!
 //! [`Laws`] has one flag per law. A law whose flag is off is skipped entirely: it does not
 //! rewrite, does not run the verifier and contributes nothing to [`Stats`] — no change counter and
-//! no [`Stats::deopt`]. [`Laws::default`] has the five implemented laws on, because the pipeline
-//! ran them before the registry existed, and the reserved laws off. A reserved law never runs,
-//! even in [`Laws::all`]: it has no body.
+//! no [`Stats::deopt`]. [`Laws::default`] has the five laws the pipeline ran before the registry
+//! on and the laws added later off: `string_concat` is implemented but new (D5/PR-032), so it is
+//! opt-in until it has run on the corpus. [`Laws::all`] turns every flag on. A reserved law never
+//! runs, even in [`Laws::all`]: it has no body.
 //!
 //! # Budget
 //!
@@ -51,6 +52,7 @@ use crate::opt::{CoreFns, Stats};
 mod law;
 mod list;
 mod option;
+mod string;
 
 pub use law::{Law, LawId};
 
@@ -72,11 +74,12 @@ pub fn laws() -> &'static [Law] {
 /// Which fusion laws [`run`] may run, one flag per law.
 ///
 /// A law whose flag is off is skipped: it rewrites nothing, is not verified and adds nothing to
-/// [`Stats`], not even a deopt. The reserved laws ([`LawId::MapMap`] to [`LawId::StringConcat`])
-/// have no body, so their flags have no effect until their pull request lands.
+/// [`Stats`], not even a deopt. The reserved laws ([`LawId::MapMap`] to
+/// [`LawId::ArrayPipeline`]) have no body, so their flags have no effect until their pull request
+/// lands. `string_concat` has a body but is off by default (D5/PR-032).
 ///
-/// [`Laws::default`] turns on the five implemented laws, which keeps the pipeline that ran before
-/// the registry; [`Laws::none`] turns every law off; [`Laws::all`] turns every flag on.
+/// [`Laws::default`] turns on the five laws the pipeline ran before the registry;
+/// [`Laws::none`] turns every law off; [`Laws::all`] turns every flag on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Laws {
     /// `Option.or(Array.get(a, i), d)` to `ArrayGetOr`.
@@ -97,7 +100,7 @@ pub struct Laws {
     pub filter_map: bool,
     /// An `Array` pipeline over a range. Reserved (D4/PR-031).
     pub array_pipeline: bool,
-    /// A chain of string concatenations to one allocation. Reserved (D5/PR-032).
+    /// A chain of string concatenations to one allocation (D5/PR-032).
     pub string_concat: bool,
 }
 
@@ -152,7 +155,9 @@ impl Laws {
 }
 
 impl Default for Laws {
-    /// The five implemented laws on, the reserved ones off: the pipeline before the registry.
+    /// The five laws the pipeline ran before the registry on, the newer and reserved ones off: the
+    /// pipeline before the registry. `string_concat` is implemented but new (D5/PR-032), so it is
+    /// opt-in.
     fn default() -> Self {
         Self {
             option_or: true,

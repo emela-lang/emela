@@ -1,0 +1,15 @@
+# A mutation pair for the string builder law (D5/PR-032). This is the form the law takes as its
+# input: a chain of `String.append` calls. `concat_expanded.emel` is the same program with the
+# interpolation written by hand, which lowering already turns into one `concat` (one allocation).
+# The law is off by default, so this pair checks that the two source forms agree on every target;
+# `crates/emela-core/tests/string_builder.rs` turns the law on and compares their IR.
+#
+# The `dbg` calls are between the operands: the law must keep their order (left to right).
+
+fn build(a: String, b: String, c: String) -> String {
+  String.append(String.append(dbg(a), dbg(b)), dbg(c))
+}
+
+fn main() {
+  dbg(build("a", "b", "c"))
+}

@@ -30,6 +30,7 @@
 //! | `fusion::run`: `range_fold` | [`Stats::range_fold`] | range fusion |
 //! | `fusion::run`: `range_map_array` | [`Stats::map_range`] | range fusion |
 //! | `fusion::run`: `range_map` | [`Stats::range_map`] | range fusion |
+//! | `fusion::run`: `string_concat` | [`Stats::string_concat`] | string builder (D5/PR-032) |
 //! | `reduce::bounds` | [`Stats::bounds`] | bounds-check elimination (A11/PR-040) |
 //! | `reduce::delta` | [`Stats::delta`] | δ reduction (A8/PR-017) |
 //! | `reduce::beta` | [`Stats::beta`] | β reduction (A3/PR-012) |
@@ -112,8 +113,8 @@
 //! a loop transformation, not a reduction rule, and has no flag: it runs whatever the flags say.
 //! The flags are a programmatic API only: no command-line flag is added.
 //!
-//! [`fusion::Laws::default`] turns on the five implemented fusion laws and leaves the reserved ones
-//! off. A disabled law is skipped entirely and contributes nothing to [`Stats`], not even a deopt;
+//! [`fusion::Laws::default`] turns on the five fusion laws that existed before D5 and leaves the
+//! reserved ones and the new string law off. A disabled law is skipped entirely and contributes nothing to [`Stats`], not even a deopt;
 //! [`fusion::Laws::none`] therefore turns the fusions off without touching the rest of the
 //! pipeline. The reserved laws have no body and never run, whatever their flag says.
 //!
@@ -376,6 +377,9 @@ pub struct Stats {
     /// `Array.from_list(List.map(List.range(lo, hi), f))` rewritten to the internal
     /// `ArrayMapRange(lo, hi, f)`, which builds neither the range nor a list.
     pub map_range: u32,
+    /// A chain of three or more `String.append` calls fused into one `Expr::Concat`, which the
+    /// backend builds with one allocation (D5/PR-032).
+    pub string_concat: u32,
     /// ζ reductions: let bindings substituted away, including dead trivial lets.
     pub zeta: u32,
     /// β reductions: linear lambda calls reduced to a let binding.
@@ -418,6 +422,7 @@ impl Stats {
         self.range_fold += other.range_fold;
         self.range_map += other.range_map;
         self.map_range += other.map_range;
+        self.string_concat += other.string_concat;
         self.zeta += other.zeta;
         self.beta += other.beta;
         self.eta += other.eta;
@@ -443,6 +448,7 @@ impl Stats {
             && self.range_fold == 0
             && self.range_map == 0
             && self.map_range == 0
+            && self.string_concat == 0
             && self.zeta == 0
             && self.beta == 0
             && self.eta == 0

@@ -3,13 +3,13 @@
 //!
 //! A law's contract is data here instead of rustdoc only, so the registry can be inspected by the
 //! tests and by the report that counts how often a law fires (plan §5 Track F). The prose of a
-//! contract is the one in the module of the body ([`super::option`], [`super::list`]): this table
-//! repeats it so that a law that has no body yet can have its contract reviewed before its
-//! implementation (D3–D5).
+//! contract is the one in the module of the body ([`super::option`], [`super::list`],
+//! [`super::string`]): this table repeats it so that a law that has no body yet can have its
+//! contract reviewed before its implementation (D3–D4).
 //!
-//! [`LAWS`] is in pipeline order: the order of the five implemented laws is the order the pipeline
-//! runs them in, and the reserved laws sit where they will be inserted once they have a body
-//! (after the range laws, the string law last). [`super::laws`] exposes the table.
+//! [`LAWS`] is in pipeline order: the order of the implemented laws is the order the pipeline runs
+//! them in, and the reserved laws sit where they will be inserted once they have a body (after the
+//! range laws and `string_concat`). `super::laws` exposes the table.
 
 use crate::ir::Module;
 use crate::opt::{CoreFns, PassStats};
@@ -54,7 +54,7 @@ pub enum LawId {
     FilterMap,
     /// An `Array` pipeline over a range. Reserved; no body yet (D4/PR-031).
     ArrayPipeline,
-    /// A chain of string concatenations to one allocation. Reserved; no body yet (D5/PR-032).
+    /// A chain of `String.append` calls to one `concat` (D5/PR-032).
     StringConcat,
 }
 
@@ -253,6 +253,36 @@ pub(super) const LAWS: &[Law] = &[
         measures: "Stats::range_map; the list forms of the range fusion.",
     },
     Law {
+        id: LawId::StringConcat,
+        run: Some(super::string::concat),
+        theory: "String builder fusion: a chain of String.append calls makes each intermediate \
+                 string only for the next append to copy it, so the chain can become one concat \
+                 (plan §2.2, D5 and E7).",
+        equation: "String.append(…String.append(a, b)…) → concat([a, b, …]) \
+                   (the internal Expr::Concat that interpolation already lowers to, which the LIR \
+                   builds as one RuntimeOp::Concat)",
+        preconditions: "Every leaf of the append tree is a String, the tree has at least three \
+                        leaves, and not every leaf is the empty string literal. The leaves are \
+                        collected left to right, which is the order the appends evaluate them in.",
+        postconditions: "The result has the bytes of the leaves in order, and the intermediate \
+                         strings are not made: the runtime adds up the lengths, allocates one \
+                         String and copies each leaf into it. All leaves are evaluated before the \
+                         one allocation.",
+        preserves: "Evaluation order, effects, failures, suspension points and drop points of the \
+                    leaves, and the byte content of the result. A leaf is evaluated exactly once, \
+                    in the order it had in the append tree.",
+        deopt: "A single append or a chain of two leaves (one append already allocates once), and a \
+                chain whose leaves are all the empty string literal: lowering it would make the \
+                literal empty string, and the native target rejects a constant empty String.split \
+                separator at compile time while a separator empty at run time is a defect or a \
+                split by character. A dynamic chain is not matched.",
+        budget: "One concat per site: the intermediate appends and their allocations are removed. \
+                 The per-sweep budget is that of the registry.",
+        measures: "Stats::string_concat; one String per site in the C allocation report (the form \
+                   the law builds is the one a_three_part_interpolation_allocates_one_string \
+                   pins).",
+    },
+    Law {
         id: LawId::MapMap,
         run: None,
         theory: "Map fusion: a producer map and a consumer map compose into one traversal (plan \
@@ -326,23 +356,5 @@ pub(super) const LAWS: &[Law] = &[
                 representation, an unknown callee, or an over-budget site.",
         budget: "One array, built once, within the per-sweep budget (PR-031).",
         measures: "A reserved Stats counter; the array pipelines of the benchmarks (PR-031).",
-    },
-    Law {
-        id: LawId::StringConcat,
-        run: None,
-        theory: "String builder fusion: a chain of concatenations becomes one allocation (plan \
-                 §2.2, D5 and E7).",
-        equation: "a + (b + c) → String.concat([a, b, c])",
-        preconditions: "The operands are strings; the chain has at least three parts; the \
-                        evaluation order and the effects of the operands are preserved; the site \
-                        stays within the budget.",
-        postconditions: "The result has the bytes of the parts in order; the intermediate strings \
-                         are not made.",
-        preserves: "Evaluation order, effects, failures and drop points of the operands, and the \
-                    byte content of the result.",
-        deopt: "A dynamic chain, an operand whose effect cannot be kept in order, or an over-budget \
-                site.",
-        budget: "One allocation per site, within the per-sweep budget (D6/PR-032).",
-        measures: "The allocation count of the string-building benchmarks (PR-032).",
     },
 ];
