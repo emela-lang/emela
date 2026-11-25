@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-25 (A background does not close)
+
+- `[task.background]`, `[task.interrupt]`, `[api.std.task]`, `[lib.http-service]`: A `Task.Background` does not close. Its tasks can start siblings while the body runs, after a task has failed, and after the body has ended while the release waits for the tasks. The release waits for the tasks started while it waits as well, so no task outlives the with. A task started after the with was interrupted from outside is interrupted before it starts running: it ends without calling its function, and `on_failure` is not called for it. A start on a background is never a defect. Adopted in the proposal `background-never-closes` (#871).
+
 ## 2026-11-25 (Reading an offset with seconds in Instant.parse)
 
 - `[api.std.instant]`: `Instant.parse` also reads an offset from UTC that has seconds, written `±HH:MM:SS` or `±HHMMSS`. Within one offset, either every field after the hour follows a colon or none does, and the second of the offset is 00 to 59, with no fraction. Every text that `parse` read before the change reads as the same Instant after the change. Adopted in the proposal `instant-offset-seconds` (#868).
