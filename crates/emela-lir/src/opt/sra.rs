@@ -45,7 +45,9 @@
 //!   tuple would make the field's definition unreachable, and that definition may have effects;
 //! - the tuple has no read at all, so removing it could drop the effect of a field's definition;
 //! - the construction has a defect landing or a suspension edge (`on_defect` / `on_suspend`);
-//! - a `tuple_get` of it has a defect landing or a suspension edge.
+//! - a `tuple_get` of it has a defect landing or a suspension edge;
+//! - a `tuple_get`'s index is outside the tuple. The verifier rejects such a module; the check
+//!   only keeps the pass total when it meets one.
 //!
 //! A tuple nested inside another tuple is a reference field of the outer one, and the inner one is
 //! used by the outer construction, so the first version replaces neither. That is a safe deopt,
@@ -389,6 +391,15 @@ fn plan_tuple(
         || !used.field_reads.is_empty()
         || !used.tag_switches.is_empty()
         || used.tuple_reads.is_empty()
+    {
+        return;
+    }
+    // A read's index must address the tuple. The verifier rejects an out-of-range `TupleGet`, so
+    // this only keeps the pass total on a malformed module; indexing `args` below would panic.
+    if used
+        .tuple_reads
+        .iter()
+        .any(|&(_, index)| index >= args.len())
     {
         return;
     }
@@ -837,6 +848,28 @@ mod tests {
         let text = dump(&fx, id);
         assert!(!text.contains("tuple_get"), "{text}");
         assert!(text.matches("a").count() >= 2, "{text}");
+    }
+
+    /// A `tuple_get` whose index is outside the tuple is refused instead of indexed, so the pass
+    /// stays total on a module the verifier rejects. The module is malformed on purpose, so the
+    /// test calls the pass directly rather than the fixture's verifying helper.
+    #[test]
+    fn an_out_of_range_tuple_read_is_left_alone() {
+        let mut fx = Fixture::new();
+        let pair = fx.pair;
+        let (id, _) = fx.build("bad", |b| {
+            b.set_ret(TypeId::INT);
+            let t = b.assign("t", pair, Value::Tuple(vec![int(1), int(2)]));
+            let x = b.assign("x", TypeId::INT, Value::TupleGet { base: t, index: 5 });
+            b.term(Term::Return(Some(x.into())));
+        });
+        fx.m.stage = Stage::ClosuresConverted;
+
+        let stats = super::run(&mut fx.m, true);
+
+        assert_eq!(stats.sra_tuples, 0, "the pass planned an out-of-range read");
+        let text = dump(&fx, id);
+        assert!(text.contains("tuple_get"), "{text}");
     }
 
     #[test]
