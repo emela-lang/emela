@@ -155,6 +155,24 @@ pub fn lower_files_with_stats(
     (lowered.module, lowered.stats)
 }
 
+/// Lowers with the Core IR passes off, then runs the reduction pipeline with `rules`.
+///
+/// This is how a rule's tests isolate it while the per-rule flags are off by default (A10 flips
+/// them on later): the module arrives at the pipeline as lowering made it, and only the requested
+/// reduction rules are on. The existing passes (hoist, the fusions, inlining) still run, because
+/// they are not behind the new flags. `core_fns` is empty, so a fusion that matches a bundled
+/// `List` function does not fire; a rule test does not depend on one.
+pub fn lower_files_with_rules(
+    files: &[(&str, &str)],
+    rules: emela_core::opt::Rules,
+) -> (Module, emela_core::opt::Stats) {
+    let mut module = lower_files(files);
+    let core_fns = emela_core::opt::CoreFns::default();
+    let stats =
+        emela_core::opt::run_with(&mut module, &core_fns, emela_core::opt::Options { rules });
+    (module, stats)
+}
+
 fn try_lower_rooted(
     files: &[(&str, &str)],
     roots: Roots,
