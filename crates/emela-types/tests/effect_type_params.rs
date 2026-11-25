@@ -6,7 +6,7 @@
 //! local variable types, handler dependencies, diagnostics of `main.emel`, and expressions with a
 //! non-empty R.
 
-mod common;
+use crate::common;
 
 use std::fmt::Write;
 

@@ -89,7 +89,7 @@ fn library_build_only_typechecks_and_never_calls_backend_hooks() {
         // and leaves no output directory. `show` is an export, so a build of the file lowers it.
         (
             "app/src/lib.emel",
-            "import Std.Console.{Console, SystemConsole}\n\n@export(js, \"show\")\npub fn show() -> String {\n  with SystemConsole {\n    c = use Console\n    c.print_line(\"shown\")\n    \"shown\"\n  }\n}\n",
+            "import Std.Console.{Console, SystemConsole}\n\n@export(js, \"show\")\npub fn show() -> String {\n  with SystemConsole {\n    c <- Console\n    c.print_line(\"shown\")\n    \"shown\"\n  }\n}\n",
         ),
     ]);
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
@@ -157,7 +157,7 @@ fn library_run_is_e0230_even_if_lib_defines_main() {
         ("with-main", "fn main() { panic(\"must not run\") }\n"),
         (
             "effectful-main",
-            "effect Logger { fn info(msg: String) -> () }\nfn main() { (use Logger).info(\"not an executable boundary\") }\n",
+            "effect Logger { fn info(msg: String) -> () }\nfn main() {\n  log <- Logger\n  log.info(\"not an executable boundary\")\n}\n",
         ),
     ] {
         let fs = MemoryFiles::new([("app/Pome.toml", ""), ("app/src/lib.emel", source)]);

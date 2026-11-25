@@ -16,7 +16,7 @@
 //! `iota_fused.emel` / `iota_expanded.emel` in `emela-driver/tests/opt_diff.rs`; the tests here fix
 //! the shape the pass leaves behind.
 
-mod support;
+use crate::support;
 
 use emela_core::dump;
 use emela_core::opt::{CoreFns, Options, Rules, run_with};

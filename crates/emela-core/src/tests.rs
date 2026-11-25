@@ -542,6 +542,7 @@ fn verify_checks_operations() {
             args,
             ops: vec![OpDef::new("get", vec![], ret)],
             label_of: None,
+            display: None,
         })
     };
     let g_int = generic(&mut m, "G[Int]", "G", vec![TypeId::INT]);

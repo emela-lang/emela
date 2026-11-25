@@ -110,16 +110,15 @@ impl fmt::Display for RowDisplay<'_> {
         if braces {
             f.write_str("{ ")?;
         }
-        // A capability of several effects has an element for each effect whose operations are
-        // called; it is shown once, by its name.
-        let mut shown_caps = Vec::new();
         let mut first = true;
         for e in self.row.elems() {
-            if let RowElem::Cap(c) = e {
-                if shown_caps.contains(&c.local) {
-                    continue;
-                }
-                shown_caps.push(c.local);
+            // The name of an effect inside its provider is the effect (`[type.rules]`): shown
+            // once.
+            if let RowElem::Cap(c) = e
+                && matches!(c.id, crate::row::CapId::Named { .. })
+                && self.row.tags().any(|t| t.def == c.tag.def)
+            {
+                continue;
             }
             if !first {
                 f.write_str(if self.effects { ", " } else { " | " })?;
@@ -127,7 +126,9 @@ impl fmt::Display for RowDisplay<'_> {
             first = false;
             match e {
                 RowElem::Tag(tag) => self.ty.tag(f, tag)?,
+                // The set of a capability parameter is named by the parameter (`[lsp.hover]`).
                 RowElem::Bound(i) => match self.ty.bound.get(*i as usize) {
+                    Some(p) if p.caps.is_some() => f.write_str(cap_param_name(&p.name))?,
                     Some(p) => f.write_str(&p.name)?,
                     None => write!(f, "'{i}")?,
                 },
@@ -196,9 +197,16 @@ impl TyDisplay<'_> {
             Some(name) => f.write_str(name)?,
             None => write!(f, "#{}", tag.def.into_raw())?,
         }
-        if !tag.args.is_empty() {
+        // The capability sets an error records are not written (`[type.rules]`).
+        let args: Vec<Ty> = tag
+            .args
+            .iter()
+            .filter(|a| !matches!(a, Ty::Set(SetKind::Caps, _)))
+            .cloned()
+            .collect();
+        if !args.is_empty() {
             f.write_str("[")?;
-            self.list(f, &tag.args)?;
+            self.list(f, &args)?;
             f.write_str("]")?;
         }
         Ok(())
@@ -230,7 +238,7 @@ impl fmt::Display for TyDisplay<'_> {
                 Some(p) => f.write_str(&p.name),
                 None => write!(f, "'{i}"),
             },
-            Ty::Cap(tags) => {
+            Ty::Cap(tags, _) => {
                 f.write_str("use ")?;
                 for (i, tag) in tags.iter().enumerate() {
                     if i > 0 {
@@ -243,8 +251,13 @@ impl fmt::Display for TyDisplay<'_> {
             Ty::Fn(fun) => {
                 f.write_str("fn(")?;
                 self.params(f, &fun.params)?;
+                // The quantified sets are in the R of their function type without being written
+                // (`[type.rules]`).
+                let uses = Row::from_elems(fun.uses.elems().iter().filter(|e| {
+                    !matches!(e, RowElem::Cap(c) if matches!(c.id, crate::row::CapId::Quant(_)))
+                }).cloned());
                 let show_fails = !fun.fails.is_empty() || self.in_param;
-                let show_uses = !fun.uses.is_empty() || self.in_param;
+                let show_uses = !uses.is_empty() || self.in_param;
                 match &fun.ret {
                     Ty::Fn(_) if show_fails || show_uses => {
                         write!(f, ") -> ({})", self.child(&fun.ret))?
@@ -262,7 +275,7 @@ impl fmt::Display for TyDisplay<'_> {
                 }
                 if show_uses {
                     let row = RowDisplay {
-                        row: &fun.uses,
+                        row: &uses,
                         effects: true,
                         clause: true,
                         ty: self.child(&fun.ret),
@@ -289,9 +302,17 @@ impl fmt::Display for TyDisplay<'_> {
             Ty::List(elem) => write!(f, "List[{}]", self.child(elem)),
             Ty::Named(id, args) => {
                 f.write_str(&self.cons[*id].name)?;
-                if !args.is_empty() {
+                // The hidden capability sets of a declaration are not written (`[type.rules]`).
+                let params = &self.cons[*id].params;
+                let visible: Vec<Ty> = args
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| params.get(*i).is_none_or(|p| p.caps.is_none()))
+                    .map(|(_, a)| a.clone())
+                    .collect();
+                if !visible.is_empty() {
                     f.write_str("[")?;
-                    self.list(f, args)?;
+                    self.list(f, &visible)?;
                     f.write_str("]")?;
                 }
                 Ok(())
@@ -308,7 +329,14 @@ pub struct SchemeDisplay<'a> {
 
 impl fmt::Display for SchemeDisplay<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let params = &self.scheme.params;
+        // The sets of capability parameters are named after the parameters in R, not
+        // quantified in the display (`[lsp.hover]`).
+        let params: Vec<&TyParam> = self
+            .scheme
+            .params
+            .iter()
+            .filter(|p| p.caps.is_none())
+            .collect();
         if !params.is_empty() {
             f.write_str("∀ ")?;
             for (i, p) in params.iter().enumerate() {
@@ -326,9 +354,18 @@ impl fmt::Display for SchemeDisplay<'_> {
         let ty = TyDisplay {
             ty: &self.scheme.ty,
             cons: self.cons,
-            bound: params,
+            bound: &self.scheme.params,
             in_param: false,
         };
         write!(f, "{ty}")
     }
+}
+
+/// The parameter that the set type parameter of a capability parameter belongs to: `db` for
+/// `C(db)` (`[lsp.hover]`).
+pub(crate) fn cap_param_name(name: &str) -> &str {
+    name.strip_prefix("C(")
+        .and_then(|n| n.strip_suffix(')'))
+        .map(|n| n.split(',').next().unwrap_or(n))
+        .unwrap_or(name)
 }

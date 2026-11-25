@@ -6,7 +6,7 @@
 //! and `concat` copy the slots. The same program must print the same thing, write the same
 //! standard error and exit the same way with the option off and on.
 
-mod common;
+use crate::common;
 
 use common::*;
 use emela_codegen_wasm::WasmOptions;

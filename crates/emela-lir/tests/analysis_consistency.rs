@@ -14,8 +14,7 @@
 //!   the call, and a saved variable is live before its suspension;
 //! - two runs and two arena orders give the same facts, and the module is visited in arena order.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use std::collections::{BTreeMap, BTreeSet};
 

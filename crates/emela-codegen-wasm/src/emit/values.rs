@@ -1102,6 +1102,7 @@ mod tests {
             args: Vec::new(),
             ops: vec![op],
             label_of: None,
+            display: None,
         });
         let values = values_of(core, |b| {
             b.assign("p", rec, Value::Const(Const::Unit));
