@@ -13,6 +13,11 @@
 //! reference when it proves the base stays alive for the whole region; the check agrees with the
 //! rule.
 //!
+//! A `let` whose value is a `Make` that reuses an old block
+//! ([`Function::reuse`](crate::ir::Function::reuse), C4/PR-042) consumes the old variable: the drop
+//! that released it is gone and the reference moved to the destination of the `Make`. Without that
+//! rule the old variable would leave its scope with a reference.
+//!
 //! The ownership rules are shared with the pass, so a mistake in the rules themselves is not
 //! caught here.
 
@@ -260,6 +265,12 @@ impl Check<'_> {
                     if mode == Mode::Consume {
                         self.take(&mut tokens, v, "a consuming use of");
                     }
+                }
+                // A `Make` that reuses the block of an old variable consumes it (C4/PR-042,
+                // `opt::reuse`): the `drop` that would have released it is gone, and its reference
+                // moved to the destination of the `Make`.
+                if let Some(&old) = f.reuse.get(&s) {
+                    self.take(&mut tokens, old, "the reuse of");
                 }
                 for &(v, mode) in &uses {
                     if mode == Mode::Borrow {

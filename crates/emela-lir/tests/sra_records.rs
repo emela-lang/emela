@@ -62,6 +62,7 @@ fn sra(records: bool) -> Options {
             dce: false,
             drop_spec: false,
             borrow: false,
+            reuse: false,
         },
     }
 }

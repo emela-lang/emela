@@ -25,7 +25,7 @@ use emela_core::{Builtin, EnumId, FiberOp, HostModule, HostRef, Type, TypeId};
 use emela_lir::{
     Callee, CaseKey, Const, FnId, Function, LabelId, Module, OnFail, Operand, PrimOp, PrimTy, Repr,
     RuntimeOp, SeqId, Stage, Stmt, StmtId, Suspend, SwitchOn, Term, Value, VarId, enum_repr,
-    repr_of,
+    repr_of, repr_of_subst,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -871,7 +871,12 @@ impl<'m> Emitter<'m> {
                 if sync {
                     cx.w.stmt("em_sync_enter()");
                 }
-                self.value(cx, *dst, value);
+                match f.reuse.get(&id).copied() {
+                    // Perceus reuse (C4/PR-042): write the new fields into the old block instead
+                    // of allocating a new one.
+                    Some(old) => self.reuse_make(cx, *dst, old, value),
+                    None => self.value(cx, *dst, value),
+                }
                 if sync {
                     cx.w.stmt("em_sync_leave()");
                 }
@@ -1121,6 +1126,95 @@ impl<'m> Emitter<'m> {
         let init = self.values.get(i).init(values.into_iter());
         let c_ty = self.values.get(i).c_ty.clone();
         cx.w.assign(&var(d), &format!("({c_ty}){init}"));
+    }
+
+    /// The `Make` `dst = …` of a statement whose old block is reused (C4/PR-042): the destination
+    /// becomes the old variable, every old field that holds a reference is released, and the new
+    /// fields are written into the same object.
+    ///
+    /// `opt::reuse` proved that the old variable has exactly one use, the removed drop, so no
+    /// argument reads the old block and no other variable reaches it. A reference field is
+    /// released with the drop the old block's own release would have run, before the new field is
+    /// stored: the slot owns one reference and the new argument owns another (the `Make` consumes
+    /// it), so the release cannot free the argument's value, even when both denote the same
+    /// object. The constructor and the type are the same, so the descriptor, the tag, the number
+    /// of slots and the reference slots are the ones the object already has; a value held by
+    /// value is a struct copy, exactly as without reuse (a nullary constructor is static data,
+    /// which both values already are).
+    fn reuse_make(&mut self, cx: &mut Cx<'_>, dst: Option<VarId>, old: VarId, value: &Value) {
+        let Value::Make { ctor, args } = value else {
+            self.internal(format!(
+                "a reuse of a value that is not a `make` in {}",
+                cx.f.name
+            ));
+            return;
+        };
+        let Some(d) = dst else {
+            self.internal(format!("reuse without a destination in {}", cx.f.name));
+            return;
+        };
+        let f = cx.f;
+        if enum_repr(self.core(), ctor.enum_id) == Repr::I32 {
+            // The representation is the tag itself: there is no block.
+            cx.w.assign(&var(d), &var(old));
+            return;
+        }
+        if let Some(i) = self.values.index(f.vars[d].ty) {
+            // Held by value: no allocation to reuse; the copy is the whole statement.
+            self.aggregate(cx, Some(d), i, args);
+            return;
+        }
+        cx.w.assign(&var(d), &var(old));
+        // The old slots own one reference each: give each back with the drop the removed `drop`
+        // would have run, in slot order, before the slot is overwritten.
+        for slot in self.ref_slots(f, old, ctor.enum_id, ctor.variant) {
+            let slot = format!("{}->slots[{slot}].p", var(d));
+            cx.w.stmt(&call("em_drop", [slot]));
+        }
+        for (slot, a) in args.iter().enumerate() {
+            let w = self.word(f, a);
+            cx.w.assign(&format!("{}->slots[{slot}]", var(d)), &w);
+        }
+    }
+
+    /// The slots of the object of `old` that hold a reference, in slot order, from the fields of
+    /// the constructor's variant and the type arguments of the object's type.
+    ///
+    /// The descriptor was made from the same field representations
+    /// ([`Value::Make`] marks a slot a reference when its argument is `Repr::Ref`, and the
+    /// verifier takes an argument's representation from the field type), so these are the slots
+    /// the old block's drop would release.
+    fn ref_slots(
+        &mut self,
+        f: &Function,
+        old: VarId,
+        enum_id: EnumId,
+        variant: usize,
+    ) -> Vec<usize> {
+        let reprs = {
+            let core = self.core();
+            match core.ty(f.vars[old].ty) {
+                Type::Enum(id, args) if *id == enum_id => {
+                    core.enums[enum_id].variants.get(variant).map(|v| {
+                        v.tys
+                            .iter()
+                            .map(|&t| repr_of_subst(core, t, args))
+                            .collect::<Vec<_>>()
+                    })
+                }
+                _ => None,
+            }
+        };
+        let Some(reprs) = reprs else {
+            self.internal(format!("a reuse of an unexpected value in {}", f.name));
+            return Vec::new();
+        };
+        reprs
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| **r == Repr::Ref)
+            .map(|(i, _)| i)
+            .collect()
     }
 
     fn value(&mut self, cx: &mut Cx<'_>, dst: Option<VarId>, value: &Value) {
