@@ -44,7 +44,7 @@ import Data.Json.{Json, decode} # use Json and decode unqualified
 ```
 
 - `import A.B` brings the last name, B, into scope.
-- Only the names listed in braces can be used unqualified. There is no notation that imports everything.
+- Only the names listed in braces can be used unqualified, together with the effects that a listed handler implements (`[module.resolution]`). There is no notation that imports everything.
 - Imports are placed at the top of the file. Comments do not count. An import after a declaration is a compile error (E0127).
 - Aliases (`as`) are not part of the language yet.
 - The diagnostics for an undefined module (E0205) and an import cycle (E0206) point to the path part (`A.B` in `import A.B.{x}`), not to the whole import statement.
@@ -105,7 +105,7 @@ The names in a module are split into three namespaces (types, constructors, and 
 - `import Email` alone does not make the type `Email` usable unqualified. Write `Email.Email`, or import it with `import Email.{Email}`.
 - A name on the left of `.` is looked up among the module's definitions and imports, and if not found, among the built-in modules and the Traits of the Prelude. If both a module and a Trait are found at the same level, it is a compile error (E0218). If both a module and an effect are found, `X.M` names the handler member M of the effect if it has one, and otherwise the definition M of the module.
 - The B in `A.B.f` is limited to a pub Trait of module A. There are no nested modules. An operation cannot be named on an effect (`Logger.info` is a compile error, 8.2); only its handler members can.
-- In the `import A.B.{x}` form, B is also brought into scope as a module. Each listed name imports the pub definitions with that name from every namespace that has it (for a type, the type and the constructor).
+- In the `import A.B.{x}` form, B is also brought into scope as a module. Each listed name imports the pub definitions with that name from every namespace that has it (for a type, the type and the constructor). A listed handler also imports the effects named after `:` in its declaration, as if they were listed (`import Std.Console.{SystemConsole}` makes `Console` usable unqualified).
 - Imported names are not re-exported. Other modules can look up only the names that a module defines. Importing the same definition twice is not a duplicate.
 - Variants and type constructors follow the pub and opaque of their parent type. Variants can be imported individually by name.
 - A duplicate in the same namespace is a compile error (E0213). Declaring the same name twice among effect operations, trait functions, fields, or a list of type parameters is the same compile error. Two enums in the same module that have variants with the same name are duplicates, and so are `type Green` and a variant `Green`.
