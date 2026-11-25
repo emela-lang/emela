@@ -13,7 +13,7 @@ Evaluation is strict and proceeds from left to right, and the initialization on 
 
 `with H1, ..., Hn { body }` runs in the following order.
 
-1. Evaluate the arguments of the items (`H(arguments)`, 8.3) in the order the items are written. Then sort the handlers by their dependencies, and run their inits in that order. A handler member item `x = E.M(arguments)` or `x = c.M(arguments)` runs the init of M of the handler that provides E (or c), and is ordered with the other items by its requirements (only E or c).
+1. Evaluate the arguments of the items (`H(arguments)`, 8.3) in the order the items are written. Then sort the handlers by their dependencies, and run their inits in that order. A handler member item `x = E.M(arguments)` or `x = c.M(arguments)` runs the init of M of the innermost handler that provides E by name (or of the handler that provides c), and is ordered with the other items by its requirements (only E or c).
 2. Evaluate the body.
 3. Run the releases in the reverse order of initialization.
 4. The result of the body (a value, an error, a defect or an interruption) is the result of the with.
@@ -21,7 +21,7 @@ Evaluation is strict and proceeds from left to right, and the initialization on 
 - Step 3 runs however the body ends.
 - If evaluating an argument fails, no init has run yet, so nothing is released, and the with ends with that error.
 - If an init fails, only the handlers already initialized are released, in reverse order, and the body is not evaluated. The release of the handler that failed is not run (because its init returned no value). The with ends with the error of that init.
-- The effects used in the operation bodies of a handler are provided by handlers outside the with, or by handlers initialized earlier in the same with.
+- The effects used in the operation bodies of a handler are provided by handlers outside the with, or by the handlers of items without a name initialized earlier in the same with.
 - Handlers opened inside an init (8.4) are released after the release of the handler that opened them, in reverse order. A handler opened through a handler that a with inside the init provides is released at the end of that with instead (8.4).
 
 ## 14.3 Error propagation `[dyn.error]`
