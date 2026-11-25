@@ -169,6 +169,8 @@ impl<'m> Builder<'m> {
                     self.internal(format!("array without a destination in {}", cx.f.name));
                     return;
                 }
+                // A list head is a reference, so an inline element is boxed per element by
+                // `array_to_list_agg`; E2 step 3 does not inline this read.
                 let (elem_ref, elem_desc) = match &args[0] {
                     Operand::Var(v) => {
                         let ty = cx.f.vars[*v].ty;
@@ -224,6 +226,9 @@ impl<'m> Builder<'m> {
                     ));
                     return;
                 };
+                // `Option[A]` has two variants, so it has no by-value form: the `Some` cell holds
+                // its payload as one reference. Even an inline element is therefore copied into
+                // a new box before the cell is made (E2 step 3 leaves this read boxed).
                 for a in args {
                     self.operand(cx, ins, a);
                 }
@@ -705,7 +710,9 @@ impl<'m> Builder<'m> {
     }
 
     /// Copies the inline array element at `index` of `a` into the locals of the value in `dst`
-    /// (E1 step 5). `slots` is the element stride of the array descriptor.
+    /// (E1 step 5, E2 step 3). `slots` is the element stride of the array descriptor, so the
+    /// address is `a + HDR + 8 + index * slots * 8`. This is the whole read: no box is allocated
+    /// and no reference is duped, because an inline all-scalar element has no references.
     fn load_inline_element(
         &mut self,
         cx: &mut FnCtx,
@@ -769,7 +776,9 @@ impl<'m> Builder<'m> {
     }
 
     /// `Array.GetOr` with a destination held by value: the element when the index is in range,
-    /// otherwise `d`. Both are copies (E1 step 5), so no box is allocated.
+    /// otherwise `d`. Both are copies (E1 step 5), so no box is allocated: with inline array
+    /// elements the leaves come straight from the array (E2 step 3), and a boxed element is
+    /// unboxed. The bounds test is the boxed lowering's `index >= 0 && index < len`.
     fn array_get_or_value(
         &mut self,
         cx: &mut FnCtx,
@@ -808,6 +817,8 @@ impl<'m> Builder<'m> {
     }
 
     /// `Array.LoadUnchecked` with a destination held by value: copy the element (E1 step 5).
+    /// With inline array elements its leaves are loaded straight from the array and no box is
+    /// allocated (E2 step 3); the caller has already checked the bounds.
     fn array_load_value(
         &mut self,
         cx: &mut FnCtx,

@@ -87,11 +87,17 @@ pub struct WasmOptions {
     /// 8-byte slot per scalar leaf) instead of a reference to a separately allocated box.
     ///
     /// Off by default. It changes the array descriptor's element stride and the array runtime,
-    /// but not the IR: a read still returns a reference, so `Array.get`, `get_or`, the unchecked
-    /// load and `to_list` allocate one box per element read. Construction (`from_list`,
+    /// but not the IR: an element is still represented as a reference. Construction (`from_list`,
     /// `map_range`), `Array.set`, `slice`, `concat` and `copy` copy the element's slots and never
     /// allocate one box per element. Elements that contain a reference are rejected (there is no
     /// per-field drop map).
+    ///
+    /// With `values` also on, `ArrayGetOr` and `ArrayLoadUnchecked` whose destination is held by
+    /// value read the element directly: the bounds test is the same as the boxed lowering's (none
+    /// for the unchecked form), each scalar leaf is loaded from
+    /// `array + HDR + 8 + index * stride`, and no box is allocated and no reference is duped.
+    /// `Array.get` still boxes the element because its `Option` payload is one reference, and
+    /// `Array.to_list` still boxes each element because a list head is a reference.
     pub aggregate_arrays: bool,
 }
 
