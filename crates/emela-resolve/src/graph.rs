@@ -278,7 +278,7 @@ mod tests {
             .iter()
             .map(|d| {
                 let range = d.range.map_or(String::new(), |r| format!("@{r:?}"));
-                format!("{}{range}: {d}", d.file.display())
+                format!("{}{range}: {d}", crate::shown_path(&d.file))
             })
             .collect();
         (order, diagnostics)

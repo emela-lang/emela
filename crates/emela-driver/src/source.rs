@@ -86,15 +86,17 @@ impl SourceDb {
         self.base = Some(base.into());
     }
 
-    /// Relative to the base if under it; otherwise unchanged.
-    pub fn display_path<'a>(&self, path: &'a Path) -> &'a Path {
-        match &self.base {
+    /// Relative to the base if under it, with `/` between its components on every OS
+    /// ([`emela_resolve::shown_path`]); otherwise unchanged.
+    pub fn display_path(&self, path: &Path) -> String {
+        let shown = match &self.base {
             Some(base) => match path.strip_prefix(base) {
                 Ok(relative) if !relative.as_os_str().is_empty() => relative,
                 _ => path,
             },
             None => path,
-        }
+        };
+        emela_resolve::shown_path(shown)
     }
 
     pub fn file_id(&self, path: &Path) -> Option<FileId> {
@@ -317,19 +319,20 @@ mod tests {
     #[test]
     fn display_path_is_relative_to_base() {
         let mut db = SourceDb::new();
-        assert_eq!(
-            db.display_path(Path::new("/p/src/a.emel")),
-            Path::new("/p/src/a.emel")
-        );
+        assert_eq!(db.display_path(Path::new("/p/src/a.emel")), "/p/src/a.emel");
         db.set_base("/p");
-        assert_eq!(
-            db.display_path(Path::new("/p/src/a.emel")),
-            Path::new("src/a.emel")
-        );
-        assert_eq!(db.display_path(Path::new("/p")), Path::new("/p"));
-        assert_eq!(
-            db.display_path(Path::new("/q/a.emel")),
-            Path::new("/q/a.emel")
-        );
+        assert_eq!(db.display_path(Path::new("/p/src/a.emel")), "src/a.emel");
+        assert_eq!(db.display_path(Path::new("/p")), "/p");
+        assert_eq!(db.display_path(Path::new("/q/a.emel")), "/q/a.emel");
+    }
+
+    /// A path under the base is shown with `/` between its components on every OS (#812).
+    #[test]
+    fn display_path_separates_with_slash() {
+        let base = std::env::temp_dir().join("p");
+        let mut db = SourceDb::new();
+        db.set_base(&base);
+        let file = base.join("src").join("http").join("client.emel");
+        assert_eq!(db.display_path(&file), "src/http/client.emel");
     }
 }
