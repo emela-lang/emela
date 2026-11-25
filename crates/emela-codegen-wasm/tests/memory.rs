@@ -7,7 +7,7 @@
 //! not an out-of-bounds store past the memory. A reservation made from `cabi_realloc` traps
 //! without writing its line, because the host can forbid a blocking call inside the callback.
 
-mod common;
+use crate::common;
 
 use common::*;
 use wasmparser::{Operator, Parser, Payload};
@@ -681,13 +681,13 @@ fn short_lived_fibers_reuse_their_records() {
     run_limited(
         "memory-fibers",
         r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 
 fn round(i: Int) -> Int uses { Async } {
-  Fiber.scope(|| {
-    hs = List.map(List.range(0, 20), |j| Fiber.fork(|| i + j))
-    List.fold(hs, 0, |acc, h| acc + Fiber.join(h))
-  })
+  with tasks = Task.Group {
+    hs = List.map(List.range(0, 20), |j| tasks.start(|| i + j))
+    List.fold(hs, 0, |acc, h| acc + h.join())
+  }
 }
 
 fn rounds(n: Int, total: Int) -> Int uses { Async } {
@@ -710,13 +710,13 @@ fn many_short_lived_fibers_keep_the_same_bound() {
     run_limited(
         "memory-many-fibers",
         r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 
 fn round(i: Int) -> Int uses { Async } {
-  Fiber.scope(|| {
-    hs = List.map(List.range(0, 20), |j| Fiber.fork(|| i + j))
-    List.fold(hs, 0, |acc, h| acc + Fiber.join(h))
-  })
+  with tasks = Task.Group {
+    hs = List.map(List.range(0, 20), |j| tasks.start(|| i + j))
+    List.fold(hs, 0, |acc, h| acc + h.join())
+  }
 }
 
 fn rounds(n: Int, total: Int) -> Int uses { Async } {
@@ -739,21 +739,21 @@ fn suspended_children_reuse_their_records() {
     run_limited(
         "memory-suspended-fibers",
         r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Clock.{Clock, TestClock}
 import Std.Instant.{Instant}
 import Std.State.{State}
 
 fn round(i: Int) -> Int uses { Async, Clock } {
-  Fiber.scope(|| {
+  with tasks = Task.Group {
     hs = List.map(List.range(0, 20), |j| {
-      Fiber.fork(|| {
+      tasks.start(|| {
         (use Clock).sleep(1)
         i + j
       })
     })
-    List.fold(hs, 0, |acc, h| acc + Fiber.join(h))
-  })
+    List.fold(hs, 0, |acc, h| acc + h.join())
+  }
 }
 
 fn rounds(n: Int, total: Int) -> Int uses { Async, Clock } {
@@ -784,7 +784,7 @@ fn a_failed_scope_releases_the_body_input() {
     run_limited(
         "memory-scope-body-failure",
         r#"
-import Std.Fiber.{Fiber}
+import Std.Task.{Task}
 import Std.Exit.{Exit, Failure, Success}
 
 error Big(
@@ -801,11 +801,11 @@ error Big(
 )
 
 fn round(k: Int) -> () fails Big {
-  Fiber.scope(|| {
-    h = Fiber.fork(|| 1)
-    x = Fiber.await(h)
+  with tasks = Task.Group {
+    h = tasks.start(|| 1)
+    x = h.join()
     fail Big(a: "a", b: "b", c: "c", d: "d", e: "e", f: "f", g: "g", h: "h", i: "i", j: "j")
-  })
+  }
 }
 
 fn rounds(n: Int, total: Int) -> Int uses { Async } {
@@ -885,19 +885,19 @@ fn a_closing_scope_releases_its_closer_wait() {
     run_limited(
         "memory-scope-closer",
         r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Clock.{Clock, TestClock}
 import Std.Instant.{Instant}
 import Std.State.{State}
 
 fn round(i: Int) -> Int uses { Async, Clock } {
-  Fiber.scope(|| {
-    h = Fiber.fork(|| {
+  with tasks = Task.Group {
+    h = tasks.start(|| {
       (use Clock).sleep(1)
       1
     })
     0
-  })
+  }
 }
 
 fn rounds(n: Int, total: Int) -> Int uses { Async, Clock } {
@@ -921,19 +921,19 @@ fn main() -> () uses { Async } {
 
 #[test]
 fn semaphores_and_queues_free_their_values_and_lines() {
-    // Two thousand scopes, each with a Queue of capacity 2 that passes twenty Strings from a
+    // Two thousand rounds, each with a Queue of capacity 2 that passes twenty Strings from a
     // producer to the body (so offerers wait in its line), a Queue closed with Strings left in it,
     // and a Semaphore of one permit with five fibers waiting in its line. The values, the line
-    // entries and the records are freed by the end of each scope (`[fiber.semaphore]`,
-    // `[fiber.queue]`), so the run stays in six pages.
+    // entries and the records are freed by the end of each with (`[task.semaphore]`,
+    // `[task.queue]`), so the run stays in six pages.
     run_limited(
         "memory-semaphore-queue",
         r#"
-import Std.Fiber.{Fiber, Scope}
+import Std.Task.{Task}
 import Std.Queue.{Queue, QueueClosed}
 import Std.Semaphore.{Semaphore}
 
-fn drain(q: Queue[String], n: Int) -> Int uses { Async } {
+fn drain(q: use Queue[String], n: Int) -> Int uses { Async } {
   next = Some(q.take()) escape {
     QueueClosed -> None
   }
@@ -944,21 +944,22 @@ fn drain(q: Queue[String], n: Int) -> Int uses { Async } {
 }
 
 fn round(i: Int) -> Int uses { Async } {
-  Fiber.scope(|| {
-    q = Fiber.queue(2)
-    Fiber.fork(|| {
-      List.range(0, 20).each(|j| q.offer("value #{i} #{j}"))
-      q.close()
-    })
-    left = Fiber.queue(4)
-    left.offer("left behind #{i}")
-    left.offer("also left #{i}")
-    left.close()
-    s = Fiber.semaphore(1)
-    hs = List.range(0, 5).map(|j| Fiber.fork(|| s.with_permit(|| "held #{j}")))
-    held = List.fold(hs, 0, |acc, h| acc + String.length(Fiber.join(h)))
-    drain(q, 0) + held - held
-  }) escape {
+  with q = Queue(capacity: 2), s = Semaphore(permits: 1) {
+    with left = Queue(capacity: 4) {
+      left.offer("left behind #{i}")
+      left.offer("also left #{i}")
+      left.close()
+    }
+    with tasks = Task.Group {
+      tasks.start(|| {
+        List.range(0, 20).each(|j| q.offer("value #{i} #{j}"))
+        q.close()
+      })
+      hs = List.range(0, 5).map(|j| tasks.start(|| Semaphore.with_permit(s, || "held #{j}")))
+      held = List.fold(hs, 0, |acc, h| acc + String.length(h.join()))
+      drain(q, 0) + held - held
+    }
+  } escape {
     QueueClosed -> 0
   }
 }

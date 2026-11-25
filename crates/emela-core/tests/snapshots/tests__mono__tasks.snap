@@ -1,0 +1,83 @@
+---
+source: crates/emela-core/tests/mono.rs
+expression: "parts(&m, &[\"fn main(\", \"effect \"])"
+---
+effect Std.Deferred.Deferred[String] = Std.Deferred.Deferred[String] {
+  fn complete(String) -> Bool
+  suspend fn await() -> String
+  fn poll() -> Option[String]
+  fn $cell() -> Std.Deferred.Deferred[String]
+}
+
+effect Std.Task.TaskGroup[_, _] = Std.Task.TaskGroup[(), ()] {
+  fn start[A, B](fn(evidence) -> A fails suspends) -> Std.Task.Task[A]
+}
+
+export suspend fn main() -> Int {
+  with {
+    let h%0: handler Std.Deferred.Deferred[String] = {
+      let deferred%1: Std.Deferred.Deferred[String] = fiber#deferred()
+      handler Deferred: Std.Deferred.Deferred[String] {
+        complete: fn(x%2: String) -> Bool {
+          fiber#complete(deferred%1, x%2)
+        }
+        await: suspend fn(resume%3: fn(String) -> ()) -> () {
+          (resume%3)(fiber#deferred_await(deferred%1)!)
+        }
+        poll: fn() -> Option[String] {
+          fiber#poll(deferred%1)
+        }
+        $cell: fn() -> Std.Deferred.Deferred[String] {
+          deferred%1
+        }
+      }
+    }
+    let ev%4: evidence = provide(; Std.Deferred.Deferred[String] = h%0)
+  } {
+    fiber#scope(suspend fn(s%5: fiber_scope) -> Int {
+      with {
+        let h%6: handler Std.Task.TaskGroup[_, _] = handler Group: Std.Task.TaskGroup[_, _] {
+          start: fn(g%7: fn(evidence) -> any suspends) -> any {
+            fiber#fork(s%5, suspend fn() -> any {
+              (g%7)(ev%4)!
+            })
+          }
+        }
+      } {
+        let a%8: Std.Task.Task[List[Int]] = {
+          let tasks%9: handler Std.Task.TaskGroup[_, _] = h%6
+          let f%10: fn() -> List[Int] ev = {
+            let f%11: fn() -> List[Int] = fn() -> List[Int] {
+              [1]: List[Int]
+            }
+            fn(ev%12: evidence) -> List[Int] {
+              (f%11)()
+            }
+          }
+          tasks%9.Std.Task.TaskGroup[_, _]#start[List[Int], ()](fn(ev%13: evidence) -> List[Int] {
+            (f%10)(provide(ev%13; Std.Task.TaskGroup[_, _] = tasks%9))
+          })
+        }
+        let b%14: Std.Task.Task[Int] = {
+          let tasks%15: handler Std.Task.TaskGroup[_, _] = h%6
+          let f%16: fn() -> Int ev = {
+            let f%17: fn() -> Int = fn() -> Int {
+              2
+            }
+            fn(ev%18: evidence) -> Int {
+              (f%17)()
+            }
+          }
+          tasks%15.Std.Task.TaskGroup[_, _]#start[Int, ()](fn(ev%19: evidence) -> Int {
+            (f%16)(provide(ev%19; Std.Task.TaskGroup[_, _] = tasks%15))
+          })
+        }
+        let _%20: Bool = h%0.Std.Deferred.Deferred[String]#complete("x")
+        let e%21: Std.Exit.Exit[Int, {}] = fiber#attempt[Std.Exit.Exit](fn() -> Int {
+          3
+        })
+        (List.length[Int](fiber#join(a%8)!) +[Int] fiber#join(b%14)!)
+      }
+    })!
+  }
+}

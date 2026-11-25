@@ -1147,10 +1147,10 @@ fn hover_shows_types_and_errors() {
         "```emela\nn: Int\n```"
     );
     // A reference to a generic function shows the generalized type, including the invisible sets
-    // of function arguments.
+    // of function arguments. Its documentation follows.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 8, 8)),
-        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }\n  holds: xs\n```"
+        "```emela\nmap: ∀ A, B, E(f), R(f). fn(List[A], fn(A) -> B fails E(f) uses { R(f) }) -> List[B] fails E(f) uses { R(f) }\n```\n\n---\n\nApplies `f` to each element."
     );
     // A position with nothing there.
     assert_eq!(client.hover("/app/src/main.emel", 1, 0), None);
@@ -1232,7 +1232,7 @@ fn hover_shows_effects() {
     // A local variable holding a capability, provided by the caller (`[lsp.hover]`).
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 2)),
-        "```emela\nlog: use Logger\n  holds: Logger\n```"
+        "```emela\nlog: use Logger\ncapabilities: Logger\n```"
     );
     // An operation call expression shows its type and R.
     assert_eq!(
@@ -1255,8 +1255,9 @@ fn hover_shows_effects() {
     client.shutdown();
 }
 
-/// `[lsp.hover]`, `[type.fn]`: what a function or a value may hold, as a line `holds: ...`, each
-/// root with the `with` that provides it; and the capabilities in the R of a closure.
+/// `[lsp.hover]`, `[type.rules]`: the capabilities the type of a value records, as a line
+/// `capabilities: ...`: the variables of named items, the handler of an item without a name; and
+/// the capabilities in the R of a closure by the same names.
 #[test]
 fn hover_shows_what_values_hold() {
     let src = "\
@@ -1268,15 +1269,19 @@ handler PrimaryDb: Db {
   fn query(q) { 1 }
 }
 
-fn pick(primary: fn() -> Int, replica: fn() -> Int, write: Bool) -> fn() -> Int {
-  if write { primary } else { replica }
+handler ReplicaDb: Db {
+  fn query(q) { 2 }
 }
 
 fn main() {
+  with x = PrimaryDb, y = ReplicaDb {
+    dbs = [x, y]
+    f = || x.query(\"x\")
+    n = f()
+    ()
+  }
   with PrimaryDb {
     p = use Db
-    f = || p.query(\"x\")
-    n = f()
     ()
   }
 }
@@ -1287,16 +1292,22 @@ fn main() {
         Some(lsp::HoverContents::Markup(m)) => m.value,
         other => panic!("{other:?}"),
     };
-    let pick = text(client.hover("/app/src/main.emel", 8, 4));
-    assert!(pick.ends_with("\n  holds: primary, replica\n```"), "{pick}");
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 14, 4)),
+        "```emela\ndbs: List[use Db]\ncapabilities: x, y\n```"
+    );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 15, 4)),
-        "```emela\nf: fn() -> Int uses { p }\n  holds: p (with PrimaryDb, line 14)\n```"
+        "```emela\nf: fn() -> Int uses { x }\n```"
     );
-    // A value whose type cannot contain a capability holds nothing.
+    // A value whose type cannot contain a capability records none.
     assert_eq!(
         text(client.hover("/app/src/main.emel", 16, 4)),
         "```emela\nn: Int\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 20, 4)),
+        "```emela\np: use Db\ncapabilities: PrimaryDb\n```"
     );
     client.shutdown();
 }
@@ -1333,7 +1344,7 @@ fn pick(dbs: List[use Db]) -> Option[use Db] {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 4, 15)),
-        "```emela\nfrom: use Db\n  holds: from\n```"
+        "```emela\nfrom: use Db\ncapabilities: from\n```"
     );
     let pick = text(client.hover("/app/src/main.emel", 8, 4));
     assert!(
@@ -1504,11 +1515,87 @@ fn hover_shows_effect_type_args() {
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 9, 3)),
-        "```emela\ncell: use Cell[Int]\n  holds: Cell\n```"
+        "```emela\ncell: use Cell[Int]\ncapabilities: Cell\n```"
     );
     assert_eq!(
         text(client.hover("/app/src/main.emel", 10, 8)),
         "```emela\nfn() -> Int uses { Cell[Int] }\n```"
+    );
+    client.shutdown();
+}
+
+/// Handlers with type parameters (`[lsp.hover]`, `[lsp.inlay-hint]`): the declaration shows its
+/// type parameters, an item of a `with`, of a layer or the right of `by` shows them substituted
+/// with the type arguments of that item, `self` has the handler applied to its type parameters,
+/// and type arguments that are not written are shown after the handler's name.
+#[test]
+fn generic_handlers_in_hover_and_inlay_hints() {
+    let src = "effect Cell[S] {
+  fn get() -> S
+}
+
+effect Hits of Cell[Int]
+
+handler Memory[S](value: S): Cell[S] {
+  init(value: S) { Memory(value:) }
+  fn get() { self.value }
+}
+
+layer Both {
+  Memory(value: \"a\")
+}
+
+fn read() -> Int uses { Cell[Int] } {
+  c <- Cell[Int]
+  c.get()
+}
+
+fn main() {
+  with Memory(value: 1) { read() }
+  with Memory[Int](value: 2) { read() }
+  with Hits by Memory(value: 3) { () }
+}
+";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 6, 9)),
+        "```emela\nhandler Memory[S](value: S): Cell[S]\ninit(value: S)\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 8, 14)),
+        "```emela\nself: Memory[S]\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 12, 3)),
+        "```emela\nhandler Memory[String](value: String): Cell[String]\ninit(value: String)\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 21, 8)),
+        "```emela\nhandler Memory[Int](value: Int): Cell[Int]\ninit(value: Int)\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 23, 16)),
+        "```emela\nhandler Memory[Int](value: Int): Cell[Int]\ninit(value: Int)\n```"
+    );
+    let hints: Vec<_> = client
+        .inlay_hints(MAIN)
+        .unwrap()
+        .into_iter()
+        .filter(|h| h.2.starts_with('['))
+        .collect();
+    let hint = |line, col, label: &str| (line, col, label.to_owned(), false);
+    assert_eq!(
+        hints,
+        [
+            hint(12, 8, "[String]"),
+            hint(21, 13, "[Int]"),
+            hint(23, 21, "[Int]"),
+        ]
     );
     client.shutdown();
 }
@@ -2764,7 +2851,7 @@ fn impl_stubs_are_quickfixes_linked_to_published_diagnostics() {
 
 #[test]
 fn quickfixes_insert_imports_and_extend_effect_and_error_annotations() {
-    let main = "error Missing\neffect Log { fn log() -> () }\nfn io() -> () { Io.print(\"hi\") }\nfn fails() -> () uses {} { fail Missing }\nfn effects() -> () uses {} { (use Log).log() }\n";
+    let main = "error Missing\neffect Log { fn log() -> () }\nfn io() -> () { Io.print(\"hi\") }\nfn fails() -> () uses {} { fail Missing }\nfn effects() -> () uses {} {\n  log <- Log\n  log.log()\n}\n";
     let files = [
         ("/app/Pome.toml", ""),
         (MAIN, main),
@@ -2776,7 +2863,7 @@ fn quickfixes_insert_imports_and_extend_effect_and_error_annotations() {
     for (at, code, inserted) in [
         ((2, 16), "E0211", "import Io\n"),
         ((3, 27), "E0318", " fails Missing"),
-        ((4, 30), "E0402", "uses { Log }"),
+        ((6, 4), "E0402", "uses { Log }"),
     ] {
         let actions = client.quickfixes(MAIN, at, at);
         assert_eq!(actions.len(), 1, "at {at:?}: {actions:?}");
@@ -3261,7 +3348,7 @@ fn completion_in_clauses_and_types() {
     }
     // An effect set as a type argument, and the effect of a handler.
     check(
-        at("fn f(x: Fiber[Int, { $"),
+        at("fn f(x: TaskGroup[E, { $"),
         &interface,
         &effects,
         &not_effects,
@@ -3273,6 +3360,21 @@ fn completion_in_clauses_and_types() {
         &effects,
         &not_effects,
     );
+    // The effect of a handler with type parameters (`[effect.handler]`).
+    check(
+        at("handler Quiet[A]: $"),
+        &interface,
+        &effects,
+        &not_effects,
+    );
+    check(
+        at("handler Quiet[A](n: A): $"),
+        &interface,
+        &effects,
+        &not_effects,
+    );
+    // A bound of a type parameter of a handler.
+    check(at("handler Quiet[A: $"), &interface, &traits, &not_traits);
     // After `fails`, and after `|` in its error set.
     for line in [
         "fn f() -> Int fails $",
@@ -3313,6 +3415,10 @@ fn completion_in_clauses_and_types() {
         "enum Shape { Dot($",
         "const C: $",
         "  q: $",
+        // The type arguments of an item of `with` and of the right of `by` (`[effect.with]`).
+        "  with Quiet[$",
+        "  with Quiet[Int, $",
+        "  with Audit by Quiet[$",
     ] {
         check(at(line), &type_kinds, &types, &not_types);
     }
@@ -3702,5 +3808,28 @@ fn method_calls_in_navigation_and_completion() {
     );
     let items = client.complete(MAIN, 19, 18).unwrap();
     assert!(labels(&items).contains(&"length"), "{items:?}");
+    client.shutdown();
+}
+
+/// An effect alias (`[effect.use]`) is marked as a capability where it is declared and where it
+/// is the receiver of an operation, inside closures too.
+#[test]
+fn semantic_tokens_mark_effect_aliases() {
+    let src = "effect Logger {
+  fn info(msg: String) -> ()
+}
+
+fn greet() {
+  log <- Logger
+  log.info(\"a\")
+  List.each([1], |n| log.info(\"#{n}\"))
+}
+";
+    let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    assert_eq!(
+        client.semantic_tokens(MAIN, None).unwrap(),
+        [cap(5, 2, 3), cap(6, 2, 3), cap(7, 21, 3)]
+    );
     client.shutdown();
 }

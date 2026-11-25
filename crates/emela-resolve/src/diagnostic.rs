@@ -77,6 +77,22 @@ pub enum DiagnosticKind {
     /// `Self` as an expression outside a handler (E0219, `[grammar.expr]`). Inside a handler it
     /// names the handler's constructor, and outside its init that is E0418.
     SelfValueOutside,
+    /// `use E` written as an expression, which is deprecated (W0403, `[effect.use]`). `rewrite`
+    /// is the effect alias that means the same, when there is one.
+    DeprecatedUse {
+        effect: SmolStr,
+        rewrite: Option<DeprecatedRewrite>,
+    },
+    /// An effect alias written other than as the receiver of `x.op(...)` or `x.op` (E0453,
+    /// `[effect.use]`).
+    EffectAliasAsValue { name: SmolStr },
+    /// A handler member opened through an effect alias (`fs.Temporary()`, E0453,
+    /// `[effect.use]`).
+    MemberThroughEffectAlias {
+        alias: SmolStr,
+        effect: SmolStr,
+        member: SmolStr,
+    },
     /// `Self` as the target of a record update `Self(f: e, ..r)` (E0222, `[grammar.expr]`).
     SelfUpdate,
     /// An effect name in a type position (E0221). The type of a capability value cannot be
@@ -163,12 +179,24 @@ impl Expected {
     }
 }
 
+/// How a deprecated `use E` can be rewritten to an effect alias with the same meaning
+/// ([`DiagnosticKind::DeprecatedUse`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeprecatedRewrite {
+    /// `(use E).op(...)`: `alias <- E` before the statement, and `alias.op(...)` in place.
+    InPlace { alias: SmolStr, op: SmolStr },
+    /// `x = use E`, where x is only a receiver: `x <- E`.
+    Binding { alias: SmolStr },
+}
+
 impl DiagnosticKind {
     /// Errors otherwise.
     pub fn is_warning(&self) -> bool {
         matches!(
             self,
-            DiagnosticKind::ShadowedByTypeParam { .. } | DiagnosticKind::ShadowsPrelude { .. }
+            DiagnosticKind::ShadowedByTypeParam { .. }
+                | DiagnosticKind::ShadowsPrelude { .. }
+                | DiagnosticKind::DeprecatedUse { .. }
         )
     }
 }
@@ -276,6 +304,17 @@ impl fmt::Display for DiagnosticKind {
                 f.write_str("`Self` can only be used as a value in the `init` of a handler")
             }
             DiagnosticKind::SelfUpdate => f.write_str("cannot update `Self` with `..`"),
+            DiagnosticKind::DeprecatedUse { effect, .. } => {
+                write!(f, "`use {effect}` as an expression is deprecated")
+            }
+            DiagnosticKind::EffectAliasAsValue { name } => write!(
+                f,
+                "`{name}` is an effect alias, not a value: only `{name}.op(...)` and `{name}.op` can be written"
+            ),
+            DiagnosticKind::MemberThroughEffectAlias { alias, member, .. } => write!(
+                f,
+                "handler member `{member}` cannot be opened through effect alias `{alias}`"
+            ),
             DiagnosticKind::EffectAsType { name } => {
                 write!(f, "effect `{name}` cannot be used as a type")
             }

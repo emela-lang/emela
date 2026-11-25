@@ -12,7 +12,7 @@
 //! mutation pair `algebra_fused.emel` / `algebra_expanded.emel` in `emela-driver/tests/opt_diff.rs`;
 //! the tests here fix the shape the rule leaves behind.
 
-mod support;
+use crate::support;
 
 use emela_core::dump;
 use emela_core::opt::{CoreFns, Options, Rules, Stats, run_with};

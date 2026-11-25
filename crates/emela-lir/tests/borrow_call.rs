@@ -12,8 +12,7 @@
 //! `drop` in the callee of a borrowed parameter, no `dup` in the caller of a borrowed argument),
 //! and the balance check of the verifier.
 
-#[path = "../../emela-core/tests/support/mod.rs"]
-mod support;
+use crate::support;
 
 use emela_core::{FnType, Roots, TypeId, monomorphize_from, verify_monomorphic};
 use emela_lir::opt::analysis::borrow;

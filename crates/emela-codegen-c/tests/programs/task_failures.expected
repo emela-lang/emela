@@ -1,0 +1,23 @@
+exit: 0
+--- stdout
+init res
+release res
+group -1
+init res
+release res
+value 2
+Fail error: Boom
+Die defect: bad
+fetched 1
+Success
+init res
+stopping
+release res
+join Success
+raise -2
+Fail error: NotFound(id: 1)
+Die defect: first
+init res
+leaving the waiter
+release res
+--- stderr

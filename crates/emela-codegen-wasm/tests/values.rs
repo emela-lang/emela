@@ -9,7 +9,7 @@
 //! construction that used to call it is gone. Runtime bodies still call `alloc`, so the test
 //! compares per-function-index call counts instead of looking for an absent name.
 
-mod common;
+use crate::common;
 
 use common::*;
 use emela_codegen_wasm::WasmOptions;
