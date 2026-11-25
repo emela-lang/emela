@@ -1,6 +1,6 @@
 ---
 title: A background does not close
-authors: [somnicattus]
+authors: [Alliana]
 status: draft
 issue: 861
 touches: [task.background, task.interrupt, api.std.task, lib.http-service]
