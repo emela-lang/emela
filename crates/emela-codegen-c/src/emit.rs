@@ -44,6 +44,42 @@ pub(crate) enum Run {
     Tests(Vec<(String, FnId)>),
 }
 
+impl Run {
+    /// The functions the output calls first: `main`, then the exports, or the tests in order.
+    pub(crate) fn roots(&self) -> Vec<FnId> {
+        match self {
+            Run::Main(main, exports) => main
+                .iter()
+                .copied()
+                .chain(exports.iter().map(|(id, _)| *id))
+                .collect(),
+            Run::Tests(tests) => tests.iter().map(|&(_, id)| id).collect(),
+        }
+    }
+
+    /// Replaces the roots with their indices after
+    /// [`prune_functions`](emela_lir::analysis::reach::prune_functions), in the same order as
+    /// [`Run::roots`] returned them.
+    pub(crate) fn set_roots(&mut self, roots: &[FnId]) {
+        let mut roots = roots.iter().copied();
+        match self {
+            Run::Main(main, exports) => {
+                if main.is_some() {
+                    *main = roots.next();
+                }
+                for (id, _) in exports {
+                    *id = roots.next().expect("an export is a root");
+                }
+            }
+            Run::Tests(tests) => {
+                for (_, id) in tests {
+                    *id = roots.next().expect("a test is a root");
+                }
+            }
+        }
+    }
+}
+
 pub(crate) fn emit(m: &Module, entry: &Run, values: bool) -> Result<COutput, Vec<CError>> {
     assert_eq!(
         m.stage,

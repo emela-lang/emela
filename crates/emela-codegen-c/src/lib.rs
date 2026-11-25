@@ -237,7 +237,7 @@ fn compile_with_values_and_lir(
         .zip(exports)
         .map(|(&copy, (_, names))| (copy, names))
         .collect();
-    let entry = match entry {
+    let mut entry = match entry {
         Entry::Main => emit::Run::Main(copied[..mains.len()].first().copied(), exported),
         Entry::Tests(tests) => emit::Run::Tests(
             tests
@@ -260,6 +260,19 @@ fn compile_with_values_and_lir(
         && let Err(errors) = emela_lir::verify(&lir)
     {
         return Err(internal("the Heap IR verifier", errors));
+    }
+    // Reachability pruning (off by default): remove the functions no reachable code can name and
+    // replace the entry roots with their new indices.
+    if lir_options.rules.prune {
+        let roots = entry.roots();
+        let reach = emela_lir::analysis::reach::Reachability::walk(&lir, &roots);
+        let pruned = emela_lir::analysis::reach::prune_functions(&mut lir, &roots, &reach);
+        entry.set_roots(&pruned.roots);
+        if cfg!(debug_assertions)
+            && let Err(errors) = emela_lir::verify(&lir)
+        {
+            return Err(internal("the Heap IR verifier", errors));
+        }
     }
     emit::emit(&lir, &entry, values)
 }

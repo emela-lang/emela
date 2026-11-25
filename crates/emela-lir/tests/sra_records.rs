@@ -65,6 +65,7 @@ fn sra(records: bool) -> Options {
             borrow: false,
             reuse: false,
             switch: false,
+            prune: false,
         },
     }
 }

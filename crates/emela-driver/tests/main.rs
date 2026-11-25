@@ -23,6 +23,7 @@ mod incomplete_impl;
 mod library_project;
 mod navigation;
 mod opt_diff;
+mod prune;
 mod reuse;
 mod run;
 mod suspend_parity;

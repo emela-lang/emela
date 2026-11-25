@@ -188,7 +188,7 @@ pub fn compile_with_wasm_options(
     let (mono, copies) = emela_core::monomorphize_from(core, &roots);
     // The Flow IR functions are the Core functions in the same order, so a test keeps the index
     // of its copy.
-    let entry = match entry {
+    let mut entry = match entry {
         // Call the monomorphized copy itself: its name and `exported` flag can differ from the
         // input's (`main[Never]` is not exported), so looking the entry up by name is fragile.
         Entry::Main if service => emit::Run::Service(copies.iter().flatten().next().map(|copy| {
@@ -215,10 +215,11 @@ pub fn compile_with_wasm_options(
         return Err(internal("monomorphisation", errors));
     }
     let mut lir = emela_lir::from_core(mono).map_err(|errors| internal("from_core", errors))?;
-    // Reachability is computed on the Flow IR and read again by the emitter: the Heap IR passes
-    // append functions but keep the index of every existing one, so the roots' reachable
-    // external functions are the same.
-    let reach = check::reach(&lir, &entry.roots());
+    // Reachability is target-independent (emela-lir), computed on the Flow IR here for the
+    // diagnostics: the `suspend fn` check reports a construct the target cannot emit before the
+    // Heap IR passes run. The emitter walks the Heap IR again with the same analysis, so body
+    // pruning and host imports come from one set.
+    let reach = emela_lir::analysis::reach::Reachability::walk(&lir, &entry.roots());
     let errors = check::unsupported(&lir, &reach);
     if !errors.is_empty() {
         return Err(errors);
@@ -229,7 +230,20 @@ pub fn compile_with_wasm_options(
     {
         return Err(internal("the Heap IR verifier", errors));
     }
-    emit::emit(&lir, &entry, &reach, options)
+    // Reachability pruning (off by default): remove the functions no reachable code can name and
+    // replace the entry roots with their new indices. The emitter walks the pruned module.
+    if lir_options.rules.prune {
+        let roots = entry.roots();
+        let reach = emela_lir::analysis::reach::Reachability::walk(&lir, &roots);
+        let pruned = emela_lir::analysis::reach::prune_functions(&mut lir, &roots, &reach);
+        entry.set_roots(&pruned.roots);
+        if cfg!(debug_assertions)
+            && let Err(errors) = emela_lir::verify(&lir)
+        {
+            return Err(internal("the Heap IR verifier", errors));
+        }
+    }
+    emit::emit(&lir, &entry, options)
 }
 
 fn internal<E: std::fmt::Display>(stage: &str, errors: Vec<E>) -> Vec<WasmError> {

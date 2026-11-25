@@ -16,6 +16,7 @@ mod layout;
 mod memory;
 mod notes;
 mod protocol;
+mod reach;
 mod run;
 mod smoke;
 mod suspend;
