@@ -1,0 +1,12 @@
+# The hand-written expansion of `eta_fused.emel`: the function value is passed where the call
+# wrapper was, so `List.map` receives `Show.show` and `double` themselves.
+
+fn double(x: Int) -> Int {
+  x * 2
+}
+
+fn main() {
+  xs = [1, 2, 3]
+  dbg(List.map(xs, Show.show))
+  dbg(List.map(xs, double))
+}
