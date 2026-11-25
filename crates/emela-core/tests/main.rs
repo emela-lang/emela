@@ -12,6 +12,7 @@ mod fold;
 mod fusion_laws;
 mod fusion_registry;
 mod inline;
+mod iota;
 mod lower;
 mod mono;
 mod opt;
