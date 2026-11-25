@@ -6,6 +6,7 @@
 mod common;
 mod grapheme_break_test;
 
+mod arrays;
 mod bytes_stable;
 mod clock;
 mod component;
