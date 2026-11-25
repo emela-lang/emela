@@ -39,7 +39,7 @@ effect Clock {
   - Opening a handler member (`x = E.M(arguments)` in a with, or `E.M(arguments)` inside an init, 8.3, 8.4) is determined by the declaration of the handler member. If it is a `suspend handler`, it may suspend. For a with item, the end of the with, where the handler opened is released, may suspend too.
 - If the body contains no call that may suspend, its R is not restricted. The R of `fn now() { (use Clock).now() }` contains Clock, which becomes a requirement of the handler. Mixing `now` of the outer Clock and `sleep` inside an inner `with InstantClock` in the same body satisfies neither condition and is a compile error (E0417). Accepting it would require looking, for each call, at the innermost with that provides its effect, which makes the rule heavier, so this is not done. A call through a function is treated as possibly suspending even if that function calls only fn operations (`fn now() { stamp() }`, which calls `fn stamp() -> Instant uses { Clock }`, is a compile error (E0417)). That a function does not suspend is not inferred from its body. The implementations of fn operations in every handler are bound by the same rule, so a call of a fn operation does not suspend whichever handler it reaches.
 - An operation that involves waiting (waiting on an `@external suspend fn`, calling a suspend operation) MUST be declared as a suspend fn on the effect side. Otherwise its implementation is a compile error (E0417). This is because the caller can learn whether a call suspends only from the effect's declaration. Only operation declarations of effects carry a mark of whether they suspend. Function signatures (`uses { Http }`) and calls do not.
-- An effect declared in source MUST have at least one operation or handler member (E0446). The effects without operations and handler members are the host effects, which only the compiler declares (`[effect.host]`).
+- An effect declared in source MUST have at least one operation or handler member (E0446). The effects without operations and handler members are the host effects (`[effect.host]`) and External (`[effect.external]`), which only the compiler declares.
 
 ## 8.2 use `[effect.use]`
 
@@ -186,7 +186,7 @@ handler SystemClock: Clock {
 - A handler is written as `handler Name: Effect`. The colon means that the left side satisfies the right side (the same as `[A: Ord]`, `trait Ord: Eq`, and `impl User: Show` (10.2)). Writing `handler H implements E` is a compile error (E0145), and the diagnostic shows the form `handler H: E`. The diagnostic points at the `implements` token.
 - A handler is a declaration, and it implements each operation of the effects after its colon exactly once (`handler SystemTx(conn: Connection): Query + Execute`). All of them share the same `self`. Listing two effects that have an operation of the same name is a compile error (E0450). Listing the same effect twice is a compile error (E0451). The types of an operation's parameters and return value are determined by the effect's declaration, so they are not written. The number of parameters MUST be the same as in the declaration. A missing operation is a compile error (E0404, which lists all missing operations), implementing the same operation twice is a compile error (E0405), and a different number of parameters is a compile error (E0406). Implementing an operation that the effect does not have is a compile error (E0212).
 - Whether an operation has `suspend` MUST match the effect's declaration (E0415). When it does not match, the number of parameters and the body are checked according to the form of the implementation.
-- The E of an operation's body MUST be contained in the `fails` of the operation's declaration. requires(H) (9.4) is the union of the Rs of init, release, and the operation bodies.
+- The E of an operation's body MUST be contained in the `fails` of the operation's declaration. requires(H) (9.4) is the union of the Rs of init, release, and the operation bodies, after the External of the module of H is removed from each (`[effect.external]`).
 - A handler with state declares fields after its name. Fields are referenced through `self`, as in `self.conn`.
 - A handler MAY declare type parameters after its name, before its fields (`handler Memory[S](value: S): State[S]`). Type parameters are limited to ordinary types. A type parameter that appears only in the fails or uses of a function type would be a set, so it is a compile error (E0424). A type parameter MAY have bounds (`[K: Eq]`), and the functions of the bounds can be called in the handler. The type arguments are determined at each item of a with, a layer, or the right of `by` (`[effect.with]`, `[effect.layer]`, `[effect.label]`).
 - Each type parameter of a handler MUST appear in the effects after its colon, in the type of a field, or in the type of a parameter of its init (E0462). A type parameter that appears only in the bodies of init, release or the operations, or nowhere, is an error: the type of a handler cannot be written in a type position, so such a parameter would tell nothing apart.
@@ -379,3 +379,25 @@ fn main() {
 
 - `ProcessHost` and `PageHost` are Immediate (`[type.effect-bound]`).
 - Host effects do not name targets. A program whose entry type checks runs on every target that supports that entry (`[target]`).
+
+## 8.11 External `[effect.external]`
+
+```emel
+@external(js, "./write.mjs", "hostWrite")
+fn host_write(s: String) -> ()
+
+fn tagged(tag: String, msg: String) { host_write("[#{tag}] #{msg}") } # R: { External }
+
+pub handler FileLog: Log {
+  fn info(msg) { tagged("info", msg) } # External is removed here
+}
+```
+
+- Every module has one effect `External`, which stands for the host side effects of external functions. Written in a module, `External` names the External of that module; the Externals of two modules are different effects. In another module, the External of M is written `M.External`. It can be written wherever an effect can, except in the declaration of an external function.
+- The name `External` is treated as a name of the Prelude (`[module.resolution]`). A definition or an import named `External` in a module shadows it (W0202). In that module, `External` names the definition or the import, and the built-in External of that module has no name: it is not written, and is only inferred. In another module, `M.External` names that definition of M, and the built-in External of M has no name there either.
+- Every external function, except one declared with `uses {}` that is not a `suspend fn`, has in its type the External of the module that declares it (`[ext.call]`). External is not written in the declaration. A call, or a reference as a value, adds that External, in the module that declares the function and in any other module that refers to it (an `@external` fn MAY be pub, `[ext.decl]`). A function value that refers to such an external function, or calls one, has that External in the uses of its type. The functions that such an external function returns have that External, and the host effects in its uses clause, in their uses: the return type when it is a function type, and the return types of those function types in turn. The parameters of those function types are callbacks, and follow `[ext.boundary]`.
+- The External of a module M is removed from the R of the init, the release and the operation bodies of the handlers declared in M, inner handlers included (`[effect.handler]`). It is not removed from the types of the anonymous functions and local fns written inside those bodies. No other place removes it: a with does not, and an entry does not.
+- As a result, a value that calls an external function can be carried wherever its type allows, other modules included, and Emela code calls it only inside the handlers of its module. Outside them, only the host calls it, as a callback passed to one of the external functions of the module: by a handler of the module or, for one declared with `uses {}` that is not a `suspend fn`, wherever that function is called (`[ext.call]`). Which handler of the module, and which instance, calls it is not restricted; the state of an instance is reached through `self` (`[effect.handler]`).
+- A handler for External is a compile error (E0413), `use External` is a compile error (E0414), and External cannot be listed in a with or a layer.
+- External has no operations, and is Immediate (`[type.effect-bound]`).
+- A function value MAY be passed to an external function as a callback with the External of the module of the external function in its R. The host may call it after the operation that passed it has ended (`[ext.boundary]`). The External of another module in its R is a compile error (E0454).
