@@ -13,8 +13,7 @@
 
 use crate::common;
 
-#[allow(clippy::duplicate_mod)] // `common` includes the same Core test support.
-use crate::support;
+use crate::common::support;
 
 use common::*;
 use emela_codegen_wasm::{Entry, WasmOptions, compile_with_wasm_options};
