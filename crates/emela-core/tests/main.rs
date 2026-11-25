@@ -9,6 +9,7 @@ mod algebra;
 mod analysis_effect;
 mod analysis_properties;
 mod analysis_ranges;
+mod array_fusion;
 mod beta;
 mod bounds;
 mod cse;

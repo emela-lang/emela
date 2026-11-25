@@ -575,6 +575,11 @@ fn increment(i: Local) -> Expr {
 }
 
 // ---- The pipeline laws: map∘map, fold∘map and filter∘map (D3/PR-030) ----
+//
+// The map∘map and fold∘map shapes are shared with the array laws (D4/PR-031): the two collection
+// types have the same call shape (four type arguments and three or four arguments, the collection
+// first and the evidence table last), so [`compose_map_over`] and [`compose_fold_over`] take the
+// [`CoreFn`] identities as arguments. The array module is the only other caller.
 
 /// The most nodes a composed lambda may add over the two function expressions it composes.
 ///
@@ -687,7 +692,7 @@ pub(super) fn filter_map(m: &mut Module, core_fns: &CoreFns) -> LawRun {
 }
 
 /// What a law did at one site.
-enum Outcome {
+pub(super) enum Outcome {
     /// The fused expression that replaces the site.
     Rewritten(Expr),
     /// The site is the law's shape, but a precondition or the budget refused it.
@@ -696,13 +701,13 @@ enum Outcome {
 
 /// The sites one law rewrote and declined in one body or in the whole module.
 #[derive(Default, Clone, Copy)]
-struct Tally {
-    applied: u32,
-    deopt: u32,
+pub(super) struct Tally {
+    pub(super) applied: u32,
+    pub(super) deopt: u32,
 }
 
 /// The body of a pipeline law: the per-site transform.
-type FuseFn = fn(&mut Module, &Expr, &CoreFns, &EffectSummaries) -> Option<Outcome>;
+pub(super) type FuseFn = fn(&mut Module, &Expr, &CoreFns, &EffectSummaries) -> Option<Outcome>;
 
 /// Runs one pipeline law over every function body, with the effect summaries of the module.
 ///
@@ -713,7 +718,7 @@ type FuseFn = fn(&mut Module, &Expr, &CoreFns, &EffectSummaries) -> Option<Outco
 ///
 /// The budget is [`MAX_COMPOSED_PER_BODY`] compositions per function body: [`each_body`] calls the
 /// closure once per body, so the count starts again at each.
-fn compose_all(m: &mut Module, core_fns: &CoreFns, fuse: FuseFn) -> Tally {
+pub(super) fn compose_all(m: &mut Module, core_fns: &CoreFns, fuse: FuseFn) -> Tally {
     let summaries = effect::of_module(m);
     let mut total = Tally::default();
     each_body(m, &mut |m, e| {
@@ -934,8 +939,24 @@ fn fuse_map_map(
     core_fns: &CoreFns,
     summaries: &EffectSummaries,
 ) -> Option<Outcome> {
-    let outer = core_call(e, core_fns, CoreFn::ListMap, 4, 3)?;
-    let inner = core_call(&outer.args[0], core_fns, CoreFn::ListMap, 4, 3)?;
+    compose_map_over(m, e, core_fns, summaries, CoreFn::ListMap)
+}
+
+/// The map∘map shape of [`fuse_map_map`], for the bundled map function `kind`.
+///
+/// [`CoreFn::ListMap`] and [`CoreFn::ArrayMap`] have the same shape: four type arguments (the
+/// element type, the result type and the two set parameters), and three arguments (the collection,
+/// the function and the evidence table). The composed call is a call of the same function, so the
+/// law does not need to know which collection it is.
+pub(super) fn compose_map_over(
+    m: &mut Module,
+    e: &Expr,
+    core_fns: &CoreFns,
+    summaries: &EffectSummaries,
+    kind: CoreFn,
+) -> Option<Outcome> {
+    let outer = core_call(e, core_fns, kind, 4, 3)?;
+    let inner = core_call(&outer.args[0], core_fns, kind, 4, 3)?;
     // From here on the site is this law's shape: a refusal is a deopt, not a miss.
     if outer.fails || outer.suspends || inner.fails || inner.suspends || !is_value(&inner.args[2]) {
         return Some(Outcome::Declined);
@@ -1001,8 +1022,26 @@ fn fuse_fold_map(
     core_fns: &CoreFns,
     summaries: &EffectSummaries,
 ) -> Option<Outcome> {
-    let outer = core_call(e, core_fns, CoreFn::ListFold, 4, 4)?;
-    let inner = core_call(&outer.args[0], core_fns, CoreFn::ListMap, 4, 3)?;
+    compose_fold_over(m, e, core_fns, summaries, CoreFn::ListMap, CoreFn::ListFold)
+}
+
+/// The fold∘map shape of [`fuse_fold_map`]: a fold `fold` whose collection argument is a direct
+/// call of the bundled map function `map`.
+///
+/// `List` and `Array` have the same shape here too: both map functions take four type arguments
+/// and three arguments, and both folds take four type arguments and four arguments (the
+/// collection, the initial accumulator, the step and the evidence table), with the element type
+/// first and the accumulator type second.
+pub(super) fn compose_fold_over(
+    m: &mut Module,
+    e: &Expr,
+    core_fns: &CoreFns,
+    summaries: &EffectSummaries,
+    map: CoreFn,
+    fold: CoreFn,
+) -> Option<Outcome> {
+    let outer = core_call(e, core_fns, fold, 4, 4)?;
+    let inner = core_call(&outer.args[0], core_fns, map, 4, 3)?;
     if outer.fails || outer.suspends || inner.fails || inner.suspends || !is_value(&inner.args[2]) {
         return Some(Outcome::Declined);
     }
