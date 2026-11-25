@@ -200,6 +200,10 @@ pub(crate) struct BodyInfer<'a> {
     /// The handler whose init is being inferred. A handler value's constructor can only be used
     /// in its own init (E0418).
     in_init: Option<DefId>,
+    /// The value each local variable bound by `x = value` was bound to: a capability in a field
+    /// of a handler stays one through such a binding (`p = self.pool`,
+    /// [`Self::field_capability`]).
+    let_values: FxHashMap<LocalId, ExprId>,
     /// References from other definitions in the group to `pending` definitions with written type
     /// parameters. Checked against the definitions' final types once the group is inferred
     /// ([`Self::finish`]).
@@ -397,6 +401,7 @@ impl<'a> BodyInfer<'a> {
             handler_bodies: Vec::new(),
             handler_parts: Vec::new(),
             in_init: None,
+            let_values: FxHashMap::default(),
             deferred: Vec::new(),
             instance_sets: Vec::new(),
             locals: SparseMap::new(),
@@ -2050,6 +2055,9 @@ impl<'a> BodyInfer<'a> {
                         }
                         None => self.infer_expr(*value),
                     };
+                    if let PatKind::Bind(local) = self.program.pats[*pat].kind {
+                        self.let_values.insert(local, *value);
+                    }
                     self.bind_pat(*pat, &bound_ty);
                     self.coverage.push(CoverageSite::Binding {
                         pat: *pat,
@@ -2979,16 +2987,21 @@ impl<'a> BodyInfer<'a> {
         // `[effect.handler]`). It is not a requirement of the handler: its element is the
         // handler's `self`, which the end of the body removes. It still counts as its effect for
         // whether the body may suspend (E0417). In release, a suspend fn called that way makes
-        // Async a requirement, so that leaving the `with` shows that it may suspend.
-        let uses = match (self.self_field(base), self.current) {
-            (Some((self_local, field)), Some(handler)) => {
+        // Async a requirement, so that leaving the `with` shows that it may suspend. The field
+        // may have been bound to a local variable first (`p = self.pool`): its set is still the
+        // field's (#866).
+        let uses = match (self.field_capability(base), self.current) {
+            (Some(field), Some(handler)) => {
                 let in_release = match program.item(handler) {
-                    Some(Item::Handler(h)) => h.release.map(|(l, _)| l),
-                    _ => None,
-                } == Some(self_local);
+                    Some(Item::Handler(h)) => h.release.is_some_and(|(_, body)| {
+                        let (body, at) = (program.exprs[body].span, program.exprs[expr].span);
+                        body.module == at.module && body.range.contains_range(at.range)
+                    }),
+                    _ => false,
+                };
                 let mut row = Row::from_elems([RowElem::Cap(CapElem {
                     id: CapId::SelfOf(handler),
-                    name: SmolStr::new(format!("self.{field}")),
+                    name: SmolStr::new(field),
                     tag: tag.clone(),
                 })]);
                 let suspend = matches!(program.item(op), Some(Item::Op(o)) if o.sig.is_suspend);
@@ -3006,7 +3019,9 @@ impl<'a> BodyInfer<'a> {
             _ => self.receiver_uses(base, tag),
         };
         match ty {
-            // The capabilities passed to the operation's capability parameters are in R too.
+            // The capabilities passed to the operation's capability parameters are in R too. A
+            // set of a field of the handler among them (`self.pool.read(self.id)`) is removed at
+            // the end of the body, as the field's capability is (`end_self`, #866).
             Some(Ty::Fn(f)) => {
                 let mut uses = uses;
                 uses.extend(&f.uses);
@@ -3025,18 +3040,42 @@ impl<'a> BodyInfer<'a> {
             .unwrap_or_default()
     }
 
-    /// For a field of the implicit `self` of a handler (`self.inner`), `self` and the field.
-    fn self_field(&self, expr: ExprId) -> Option<(LocalId, SmolStr)> {
+    /// Whether `expr` is a capability held in a field of the handler, and its name: a field of
+    /// the implicit `self` (`self.inner`), or a local variable bound to one (`p` after
+    /// `p = self.inner`). The type of such a local variable has a set variable whose solution is
+    /// not known yet, so the binding is followed instead.
+    fn field_capability(&self, expr: ExprId) -> Option<SmolStr> {
         let program = self.program;
-        let ExprKind::Field { base, name } = &program.exprs[expr].kind else {
-            return None;
-        };
-        match program.exprs[*base].kind {
-            ExprKind::Path(Res::Local(l)) if program.locals[l].kind == LocalKind::SelfParam => {
-                Some((l, name.name.clone()))
-            }
+        match &program.exprs[expr].kind {
+            ExprKind::Field { base, name } => match program.exprs[*base].kind {
+                ExprKind::Path(Res::Local(l)) if program.locals[l].kind == LocalKind::SelfParam => {
+                    Some(SmolStr::new(format!("self.{}", name.name)))
+                }
+                _ => None,
+            },
+            ExprKind::Path(Res::Local(l)) => self
+                .let_values
+                .get(l)
+                .and_then(|&value| self.field_capability(value)),
             _ => None,
         }
+    }
+
+    /// The sets of the fields of `handler` as they are in its operation bodies and release: the
+    /// hidden set type parameters of the handler's type, `Bound(i)` after the written type
+    /// parameters (`[effect.handler]`). They are decided at each item of a with that runs the
+    /// init. The written set type parameters of a built-in handler (`Background[E, R]`) are not.
+    pub(super) fn field_sets(&self, handler: DefId) -> Vec<RowElem> {
+        let Some(caps) = self.ty_table.decl_caps(handler) else {
+            return Vec::new();
+        };
+        let n = self.ty_table.self_ty(handler).map_or(0, |ty| match ty {
+            Ty::Named(_, args) => args.len(),
+            _ => 0,
+        });
+        (caps.visible..n)
+            .map(|i| RowElem::Bound(i as u32))
+            .collect()
     }
 
     /// Opening a handler member is written only as an item of `with` and, as a call, inside an

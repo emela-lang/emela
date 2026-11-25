@@ -500,3 +500,110 @@ fn into_outer() {
 }
 "#));
 }
+
+/// A capability held in a field of a handler belongs to a with around the handler's
+/// (`[effect.handler]`). Passing it, or a value that records it, to a capability parameter of an
+/// operation called through the field does not make it a requirement of the handler either:
+/// whether the value comes from an operation of the field or from a field, whether the field is
+/// bound to a local variable first, in release, with the handler opened by an unnamed item, and
+/// for a value of type `use E` (#866). Each fn is `uses {}`.
+#[test]
+fn field_capabilities_passed_to_operations() {
+    insta::assert_snapshot!(run(r#"
+type Id(n: Int) uses Pool
+
+effect Pool {
+  fn make() -> Id
+  fn read(id: Id) -> Int
+}
+
+handler Ints: Pool {
+  fn make() { Id(1) }
+  fn read(id) { id.n }
+}
+
+effect Probe {
+  fn get() -> Int
+}
+
+handler Made(pool: use Pool): Probe {
+  init(pool: use Pool) { Self(pool:) }
+  fn get() { self.pool.read(self.pool.make()) }
+}
+
+handler Held(pool: use Pool, id: Id): Probe {
+  init(pool: use Pool, id: Id) { Self(pool:, id:) }
+  fn get() { self.pool.read(self.id) }
+}
+
+handler Bound(pool: use Pool): Probe {
+  init(pool: use Pool) { Self(pool:) }
+  fn get() {
+    p = self.pool
+    p.read(p.make())
+  }
+}
+
+handler Released(pool: use Pool): Probe {
+  init(pool: use Pool) { Self(pool:) }
+  release { _ = self.pool.read(self.pool.make()) }
+  fn get() { 0 }
+}
+
+effect Store {
+  fn keep(l: use Logger) -> ()
+}
+
+handler Keeper: Store {
+  fn keep(l) { () }
+}
+
+handler Passes(store: use Store, log: use Logger): Probe {
+  init(store: use Store, log: use Logger) { Self(store:, log:) }
+  fn get() {
+    self.store.keep(self.log)
+    0
+  }
+}
+
+fn made() -> Int {
+  with pool = Ints {
+    with probe = Made(pool:) { probe.get() }
+  }
+}
+
+fn held() -> Int {
+  with pool = Ints {
+    id = pool.make()
+    with probe = Held(pool:, id:) { probe.get() }
+  }
+}
+
+fn bound() -> Int {
+  with pool = Ints {
+    with probe = Bound(pool:) { probe.get() }
+  }
+}
+
+fn released() {
+  with pool = Ints {
+    with Released(pool:) { () }
+  }
+}
+
+fn unnamed() -> Int {
+  with pool = Ints {
+    with Made(pool:) {
+      p <- Probe
+      p.get()
+    }
+  }
+}
+
+fn passes() -> Int {
+  with s = Keeper, l = Quiet {
+    with probe = Passes(store: s, log: l) { probe.get() }
+  }
+}
+"#));
+}
