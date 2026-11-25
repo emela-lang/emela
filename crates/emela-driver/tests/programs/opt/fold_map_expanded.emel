@@ -1,0 +1,27 @@
+# The hand-written expansion of `fold_map_fused.emel`: the fold of the composed step as a self tail
+# call, which lowering turns into a loop, with no mapped list in between.
+
+fn inc(x: Int) -> Int {
+  x + 1
+}
+
+fn add(a: Int, b: Int) -> Int {
+  a + b
+}
+
+fn total(xs: List[Int]) -> Int {
+  go(xs, 0)
+}
+
+fn go(xs: List[Int], acc: Int) -> Int {
+  xs match {
+    [] -> acc
+    [x, ..rest] -> go(rest, add(acc, inc(x)))
+  }
+}
+
+fn main() {
+  dbg(total([1, 2, 3]))
+  dbg(total([]))
+  ()
+}

@@ -116,7 +116,10 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
         | Builtin::ArraySet
         // Target c splits by grapheme clusters only ASCII text so far, and an empty separator
         // that turns up at run time on other text is a defect there.
-        | Builtin::StringSplit => true,
+        | Builtin::StringSplit
+        // Calls the user's function once per element. A defect is not part of the function's
+        // type, so a pure `f` can still raise one (spec 16), as it can through a closure call.
+        | Builtin::ArrayMapRange => true,
         Builtin::StringLength
         | Builtin::StringByteSize
         | Builtin::StringAppend
@@ -128,10 +131,16 @@ pub fn builtin_may_defect(op: Builtin) -> bool {
         | Builtin::StringTrim
         | Builtin::StringCodePoints
         | Builtin::StringFromCodePoint
+        // Only ASCII letters change case, so there is no case to reject. Allocation failure
+        // aborts in the C runtime rather than being a defect (`[dyn.memory]`).
+        | Builtin::StringAsciiLower
+        | Builtin::StringAsciiUpper
         | Builtin::ArrayFromList
         | Builtin::ArrayToList
         | Builtin::ArraySize
         | Builtin::ArrayGet
+        | Builtin::ArrayGetOr
+        | Builtin::ArrayLoadUnchecked
         | Builtin::ArraySlice
         | Builtin::ArrayConcat
         | Builtin::BytesFromList
@@ -576,7 +585,7 @@ impl<'a> Explicit<'a> {
                 let cases = cases
                     .iter()
                     .map(|c| crate::ir::Case {
-                        key: c.key.clone(),
+                        keys: c.keys.clone(),
                         body: self.seq(c.body, false),
                     })
                     .collect();

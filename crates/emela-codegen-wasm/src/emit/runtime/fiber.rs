@@ -643,6 +643,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
             true, false, false, false, false, true, false, false, false, true, false, false, false,
             false, false, false, false, false, false, false, false, false, false,
         ],
+        stride: 0,
     });
     let scope_desc = b.desc(DescKey {
         kind: 0,
@@ -651,6 +652,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "Scope".to_owned(),
         show: None,
         refs: vec![false, false, false, true, false, false, false],
+        stride: 0,
     });
     let deferred_desc = b.desc(DescKey {
         kind: 0,
@@ -659,6 +661,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "Deferred".to_owned(),
         show: None,
         refs: vec![false, false, false, true, false, false],
+        stride: 0,
     });
     let waiter_desc = b.desc(DescKey {
         kind: 0,
@@ -670,6 +673,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
             true, true, false, false, false, false, false, false, false, true, false, false, false,
             false, false, false, false, false, true, true,
         ],
+        stride: 0,
     });
     let node_desc = b.desc(DescKey {
         kind: 0,
@@ -678,6 +682,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "interruption".to_owned(),
         show: None,
         refs: vec![false, true],
+        stride: 0,
     });
     let job_desc = b.desc(DescKey {
         kind: 0,
@@ -686,6 +691,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "job".to_owned(),
         show: None,
         refs: vec![false, false, true, true, true, false, false, false],
+        stride: 0,
     });
     let cause_desc = b.desc(DescKey {
         kind: 0,
@@ -694,6 +700,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "Cause".to_owned(),
         show: None,
         refs: vec![true],
+        stride: 0,
     });
     let note_desc = b.desc(DescKey {
         kind: 0,
@@ -702,6 +709,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "note".to_owned(),
         show: None,
         refs: vec![true, true, false],
+        stride: 0,
     });
     let scope_body_desc = b.desc(DescKey {
         kind: 0,
@@ -710,6 +718,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "Task.Group".to_owned(),
         show: None,
         refs: vec![false, false, true, true, false],
+        stride: 0,
     });
     let scope_close_desc = b.desc(DescKey {
         kind: 0,
@@ -721,6 +730,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         // `WORD` in slot 5, and only one of the two is live (the body's representation chooses).
         // Slot 7 is the i32 `MODE`, not a reference.
         refs: vec![false, false, true, true, false, false, true, false],
+        stride: 0,
     });
     let mut call_index = 0;
     for name in [

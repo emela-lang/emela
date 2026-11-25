@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use emela_core::{LowerError, LowerInput, Module, Roots, lower};
+use emela_core::{LowerError, LowerInput, Module, Roots, lower_with};
 use emela_resolve::hir::Program;
 use emela_resolve::{
     MemoryFs, ModuleId, ModuleMap, ModuleName, NoBuiltins, build_import_graph, collect_modules,
@@ -66,13 +66,29 @@ pub fn resolve_files<'s>(
     (program, modules, entry, texts)
 }
 
+/// Lowers from the exported roots with the Core IR optimisations off.
+///
+/// This is the shape lowering produces, which the snapshots pin: an optimisation must not be
+/// baked into them (plan §4.4). Tests of the passes use [`lower_files_with`] with
+/// `optimize = true`.
 pub fn lower_files(files: &[(&str, &str)]) -> Module {
-    try_lower(files, Roots::Exported).unwrap_or_else(|e| panic!("{e:?}"))
+    try_lower_off(files, Roots::Exported).unwrap_or_else(|e| panic!("{e:?}"))
 }
 
-/// Lowers after type checking. Errors are formatted as `` `source text` what ``.
+/// Lowers after type checking with the Core IR optimisations on (the build's default path).
+/// Errors are formatted as `` `source text` what ``.
 pub fn try_lower(files: &[(&str, &str)], roots: Roots) -> Result<Module, Vec<String>> {
     try_lower_with(
+        files,
+        roots,
+        emela_core::core_sources(),
+        emela_core::bundled_files(),
+    )
+}
+
+/// [`try_lower`] with the Core IR optimisations off: the shape of lowering, for its snapshots.
+pub fn try_lower_off(files: &[(&str, &str)], roots: Roots) -> Result<Module, Vec<String>> {
+    try_lower_with_off(
         files,
         roots,
         emela_core::core_sources(),
@@ -87,6 +103,131 @@ pub fn try_lower_with(
     core: &[(&str, &str)],
     bundled_files: &[(&str, &str)],
 ) -> Result<Module, Vec<String>> {
+    try_lower_rooted(files, roots, core, bundled_files, true)
+}
+
+/// [`try_lower_with`] with the Core IR optimisations off.
+pub fn try_lower_with_off(
+    files: &[(&str, &str)],
+    roots: Roots,
+    core: &[(&str, &str)],
+    bundled_files: &[(&str, &str)],
+) -> Result<Module, Vec<String>> {
+    try_lower_rooted(files, roots, core, bundled_files, false)
+}
+
+/// [`try_lower_with`] with the Core IR optimisations turned on or off.
+pub fn try_lower_with_opt(
+    files: &[(&str, &str)],
+    roots: Roots,
+    core: &[(&str, &str)],
+    bundled_files: &[(&str, &str)],
+    optimize: bool,
+) -> Result<Module, Vec<String>> {
+    try_lower_rooted(files, roots, core, bundled_files, optimize)
+}
+
+/// Lowers from the exported roots, with the Core IR optimisations turned on or off.
+pub fn lower_files_with(files: &[(&str, &str)], optimize: bool) -> Module {
+    try_lower_with_opt(
+        files,
+        Roots::Exported,
+        emela_core::core_sources(),
+        emela_core::bundled_files(),
+        optimize,
+    )
+    .unwrap_or_else(|e| panic!("{e:?}"))
+}
+
+/// [`lower_files_with`], also returning what the Core IR passes changed.
+pub fn lower_files_with_stats(
+    files: &[(&str, &str)],
+    optimize: bool,
+) -> (Module, emela_core::opt::Stats) {
+    let lowered = try_lower_rooted_lowered(
+        files,
+        Roots::Exported,
+        emela_core::core_sources(),
+        emela_core::bundled_files(),
+        optimize,
+    )
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    (lowered.module, lowered.stats)
+}
+
+/// Lowers from the exported roots with a target language, so the result is monomorphised as a
+/// build's lowering is, and returns what the Core IR passes and the post-monomorphisation δ stage
+/// changed.
+pub fn lower_files_mono_with_stats(
+    files: &[(&str, &str)],
+    language: &str,
+    optimize: bool,
+) -> (Module, emela_core::opt::Stats) {
+    let lowered = try_lower_rooted_lowered_lang(
+        files,
+        Roots::Exported,
+        emela_core::core_sources(),
+        emela_core::bundled_files(),
+        optimize,
+        Some(language),
+    )
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    (lowered.module, lowered.stats)
+}
+
+/// Lowers with the Core IR passes off, then runs the reduction pipeline with `rules`.
+///
+/// This is how a rule's tests isolate it: the module arrives at the pipeline as lowering made it,
+/// and only the requested reduction rules are on. The loop unswitch has no flag and still runs,
+/// and the fusion laws use their own defaults. `core_fns` is empty, so a fusion that matches a bundled
+/// `List` function does not fire; a rule test does not depend on one.
+pub fn lower_files_with_rules(
+    files: &[(&str, &str)],
+    rules: emela_core::opt::Rules,
+) -> (Module, emela_core::opt::Stats) {
+    let mut module = lower_files(files);
+    let core_fns = emela_core::opt::CoreFns::default();
+    let stats = emela_core::opt::run_with(
+        &mut module,
+        &core_fns,
+        emela_core::opt::Options {
+            rules,
+            ..emela_core::opt::Options::default()
+        },
+    );
+    (module, stats)
+}
+
+fn try_lower_rooted(
+    files: &[(&str, &str)],
+    roots: Roots,
+    core: &[(&str, &str)],
+    bundled_files: &[(&str, &str)],
+    optimize: bool,
+) -> Result<Module, Vec<String>> {
+    try_lower_rooted_lowered(files, roots, core, bundled_files, optimize).map(|l| l.module)
+}
+
+fn try_lower_rooted_lowered(
+    files: &[(&str, &str)],
+    roots: Roots,
+    core: &[(&str, &str)],
+    bundled_files: &[(&str, &str)],
+    optimize: bool,
+) -> Result<emela_core::Lowered, Vec<String>> {
+    try_lower_rooted_lowered_lang(files, roots, core, bundled_files, optimize, None)
+}
+
+/// [`try_lower_rooted_lowered`] with a target language. `Some` selects the build's path: the
+/// result is monomorphised, and lowering runs the δ stage after monomorphisation.
+fn try_lower_rooted_lowered_lang(
+    files: &[(&str, &str)],
+    roots: Roots,
+    core: &[(&str, &str)],
+    bundled_files: &[(&str, &str)],
+    optimize: bool,
+    language: Option<&str>,
+) -> Result<emela_core::Lowered, Vec<String>> {
     let (program, modules, entry, texts) = resolve_files(files, core);
     let types = check_program(&program);
     // A program that tests how a type parameter that no call determines is instantiated gets
@@ -113,11 +254,17 @@ pub fn try_lower_with(
         paths: Default::default(),
         shown_paths,
         bundled_files,
-        language: None,
+        language,
     };
-    let lowered = lower(&input, roots).map(|l| l.module);
-    if let Ok(m) = &lowered {
-        assert_well_typed(m);
+    let lowered = lower_with(&input, roots, optimize);
+    if let Ok(l) = &lowered {
+        assert_well_typed(&l.module);
+        if language.is_some()
+            && let Err(errors) = emela_core::verify_monomorphic(&l.module)
+        {
+            let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+            panic!("not monomorphic:\n{}", lines.join("\n"));
+        }
     }
     lowered.map_err(|errors| {
         errors

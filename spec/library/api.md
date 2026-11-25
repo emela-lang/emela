@@ -257,7 +257,7 @@ A point in time. An opaque type whose contents are an Int64 of milliseconds sinc
   date      = year , "-" , digit2 , "-" , digit2 ;
   year      = digit4 | sign , digit6 , { digit } ;
   time      = digit2 , ":" , digit2 , [ ":" , digit2 , [ "." , digit , { digit } ] ] ;
-  offset    = "Z" | "z" | [ " " ] , sign , digit2 , [ [ ":" ] , digit2 ] ;
+  offset    = "Z" | "z" | [ " " ] , sign , digit2 , [ ( ":" , digit2 , [ ":" , digit2 ] ) | ( digit2 , [ digit2 ] ) ] ;
   sign      = "+" | "-" ;
   digit6    = digit2 , digit2 , digit2 ;
   digit4    = digit2 , digit2 ;
@@ -265,7 +265,7 @@ A point in time. An opaque type whose contents are an Int64 of milliseconds sinc
   digit     = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
   ```
 
-- The fields are read as the date and the time of day at the given offset, in the proleptic Gregorian calendar. The month is 01 to 12, the day is 01 to the number of days of that month in that year, the hour is 00 to 23, the minute is 00 to 59, and the second is 00 to 59; an omitted second is 00. The hour of the offset is 00 to 23 and its minute is 00 to 59; an offset written with the hour only (`+09`) has the minute 00. `Z`, `z`, and an offset whose hour and minute are both 00 (`+00:00`, `-0000`, `+00`) are the offset 0. `-00:00`, which RFC 3339 uses for an unknown local offset, is also the offset 0.
+- The fields are read as the date and the time of day at the given offset, in the proleptic Gregorian calendar. The month is 01 to 12, the day is 01 to the number of days of that month in that year, the hour is 00 to 23, the minute is 00 to 59, and the second is 00 to 59; an omitted second is 00. The hour of the offset is 00 to 23, its minute is 00 to 59, and its second is 00 to 59. An offset written with the hour only (`+09`) has the minute 00 and the second 00, and an offset written with the hour and the minute (`+09:00`, `+0900`) has the second 00. `Z`, `z`, and a numeric offset whose hour, minute and second are all 00 (`+00:00`, `-0000`, `+00`, `+00:00:00`, `-000000`) are the offset 0. `-00:00`, which RFC 3339 uses for an unknown local offset, is also the offset 0.
 - If `s` has more than 256 code points, `parse` fails without reading it.
 - The separator between the date and the time, and the space before the offset, are one space (U+0020). No other whitespace is allowed.
 - A year written with a sign is that many years after (`+`) or before (`-`) the year 0. The sign `-` with the value 0 (`-000000`) is not read. A year of 4 digits is 0000 to 9999.
@@ -657,7 +657,7 @@ Concurrency (`[task]`). Used with `import Std.Task.{Task}`.
 | `TaskGroup` | `@intrinsic effect TaskGroup[E, R] { fn start[A](f: fn() -> A fails E uses { R }) -> Task[A] }` | built-in | The capability to start tasks whose results are awaited. Only `Group` provides it |
 | `Spawn` | `@intrinsic effect Spawn[E, R] { fn start(f: fn() -> () fails E uses { R }) -> () }` | built-in | The capability to start tasks whose results are not awaited. Only `Background` provides it |
 | `Group` | `@intrinsic handler Group[E, R]: TaskGroup[E, R]` | intrinsic | When the body ends, interrupts the tasks left and waits until they have unwound. A failure of a task interrupts its siblings and fails the with |
-| `Background` | `@intrinsic handler Background[E, R]: Spawn[E, R]`, `init(on_failure: fn(Cause[E]) -> () uses { R })` | intrinsic | When the body ends, waits until the tasks have ended. A failure of a task goes to `on_failure` (`[task.background]`) |
+| `Background` | `@intrinsic handler Background[E, R]: Spawn[E, R]`, `init(on_failure: fn(Cause[E]) -> () uses { R })` | intrinsic | When the body ends, waits until the tasks have ended, including the ones they start while it waits. It does not close, so a start on it is never a defect. A failure of a task goes to `on_failure` (`[task.background]`) |
 | `join` | `join[A](task: Task[A]) -> A uses { Async }` | intrinsic | Waits for the task to finish and returns its value |
 | `all` | `all[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> List[A] fails E uses { Async, R }` | Emela | Runs all of them concurrently and collects the results in the original order |
 | `race` | `race[A, E, R](fs: List[fn() -> A fails E uses { R }]) -> A fails E uses { Async, R }` | Emela | Takes the first one to finish and interrupts the rest |

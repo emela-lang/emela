@@ -104,17 +104,29 @@ For the language `c`, the types map to C types by the following table.
 | Bool | `bool` (C99 `_Bool`) | `bool` |
 | String | `const char *` (NUL-terminated UTF-8) | `char *` (NUL-terminated, allocated with `malloc`) |
 | `()` | Not a parameter | `void` |
+| Bytes | `const uint8_t *data, size_t len` (two parameters) | `em_bytes` |
 | `@external type` | `void *` | `void *` |
 | Function type | None (E0427) | None (E0427) |
 
 - A host function MUST be defined with external linkage. The emitted C declares host functions with the prototypes this table determines. Parameters are in the order of the declaration, and a function with no parameters takes `(void)` (`void host(void)`).
 - The emitted C includes only the runtime header, so a host function whose name is the same as a declaration in a standard C header does not cause conflicting declarations.
-- A String is passed to C as a pointer to its NUL-terminated UTF-8 bytes. The memory is owned by the runtime: the host MUST NOT modify or free it, and the pointer is valid only until the host function returns, even for an external function declared as `suspend fn` (not until the completion of the task, 12.6). If the C side uses the string later, it copies the string. Whether the runtime passes its own bytes or a copy is implementation-defined.
+- A String is passed to C as a pointer to its NUL-terminated UTF-8 bytes. The memory is owned by the runtime: the host MUST NOT modify or free it, and the pointer is valid until the host function returns, and for an external function declared as `suspend fn`, until the task completes (12.6). A task that is canceled still completes, so the pointer is valid until that completion. If the C side uses the string after that, it copies the string. Whether the runtime passes its own bytes or a copy is implementation-defined.
 - When the string contains U+0000, it is a defect before the call (a C string cannot represent it). In this case the host function is not called, and the message is `a string passed to C contains U+0000`.
 - A String received from C is copied into an Emela string, and freed with `free` right after the copy. Sequences that are not valid UTF-8 are replaced with the replacement character (U+FFFD) (the same idea as the normalization in 12.5). The replacement is one replacement character per maximal subpart of an invalid sequence. A returned NULL is a defect. The message is ``external function `f` returned NULL`` (`X` is the name of the external function).
-- A C type not in the table, such as `size_t` or `int`, is converted to a type in the table by a small function written on the C side. The compiler does not guess the width of integers.
+- A Bytes parameter takes two C parameters in its position: a pointer to its first byte and the number of bytes. For the empty Bytes, `len` is 0 and `data` MAY be NULL. The bytes are owned by the runtime: the host MUST NOT modify or free them. They are valid for as long as the pointer of a String parameter is (above). Whether the runtime passes its own bytes or a copy is implementation-defined.
+- A Bytes is returned as `em_bytes`, a struct declared in `emela.h` (12.6), which a `.c` file whose host function returns Bytes includes:
+
+  ```c
+  typedef struct em_bytes {
+    uint8_t *data;
+    size_t len;
+  } em_bytes;
+  ```
+
+- A returned `em_bytes` is copied into a Bytes, and `data` is freed with `free` right after the copy. `data` is allocated with `malloc`, or is NULL when `len` is 0. A NULL `data` with a `len` greater than 0 is a defect, with the message ``external function `f` returned NULL``. A `len` greater than 2^31 - 1, the largest size of a Bytes, is a defect, with the message ``external function `f` returned more bytes than a Bytes can hold``; the runtime frees `data` in this case too.
+- A C type not in the table, such as `int` or `uint64_t`, is converted to a type in the table by a small function written on the C side. The compiler does not guess the width of integers.
 - The native target does not support parameters and return values of function types. When the build target is `native` and an external function reachable from the entry point takes or returns a callback, it is a compile error (E0427). The form of callbacks (a pair of a function pointer and a context) and how long the C side can keep them are decided in 18.1 #38.
-- The native target does not support Bytes and Array at the boundary yet. When the build target is `native` and an external function reachable from the entry, or an exported fn, takes or returns a type that contains Bytes or an Array, it is a compile error (E0443). The C form (a pointer and a length) is decided together with callbacks (18.1 #38).
+- The native target does not support Array at the boundary yet. When the build target is `native` and an external function reachable from the entry, or an exported fn, takes or returns a type that contains an Array (`Array[Bytes]` included), it is a compile error (E0443). The C form of an Array is decided together with callbacks (18.1 #38).
 
 ## 12.5 Exceptions and failures `[ext.exception]`
 
@@ -146,8 +158,8 @@ void host_sleep(int32_t ms, em_task *task) {
 
 - The C function of an external function declared as `suspend fn` takes `em_task *task` after the parameters from the table in 12.4, and returns `void`. `task` represents the fiber waiting for completion.
 - `em_task` is an incomplete type, and the host handles only `em_task *`. `em_callback` is the type of a function that the runtime calls back, `void (*)(em_task *task, void *ctx)`.
-- Completion is reported with the function that matches the return type: `em_complete_int`, `em_complete_int64`, `em_complete_float`, `em_complete_bool`, `em_complete_string` (takes NUL-terminated UTF-8 allocated with `malloc`; the runtime copies it and then calls `free`), `em_complete_unit` and `em_complete_handle` (`@external type`).
-- Invalid sequences and NULL in the value passed to `em_complete_string` are treated the same as the return value of an external function that returns String (12.4).
+- Completion is reported with the function that matches the return type: `em_complete_int`, `em_complete_int64`, `em_complete_float`, `em_complete_bool`, `em_complete_string` (takes NUL-terminated UTF-8 allocated with `malloc`; the runtime copies it and then calls `free`), `em_complete_bytes` (takes `uint8_t *data, size_t len`, with `data` allocated with `malloc` or NULL when `len` is 0; the runtime copies the bytes and then calls `free`), `em_complete_unit` and `em_complete_handle` (`@external type`).
+- Invalid sequences and NULL in the value passed to `em_complete_string` are treated the same as the return value of an external function that returns String (12.4). NULL and the length passed to `em_complete_bytes` are treated the same as the return value of an external function that returns Bytes (12.4).
 - When a task is completed with a completion function that does not match the return type (completing a function that returns String with `em_complete_int`, for example), the waiting fiber receives a defect (``external function `f` was completed with `em_complete_int`, which does not match its return type``). The function that matches a function returning `()` is `em_complete_unit`.
 - A mistake on the host side is reported with `em_complete_defect(task, message)`. It is a defect in the waiting fiber (12.5). A result to be treated as a failure is returned as a value and turned into a fail inside a handler.
 - The `message` of `em_complete_defect` is copied and used as the defect message as it is, with no prefix. A NULL `message` gives an empty message.

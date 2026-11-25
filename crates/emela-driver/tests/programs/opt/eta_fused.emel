@@ -1,0 +1,17 @@
+# A mutation pair: this is the form η reduction takes as its input (T35). `|x| Show.show(x)` and
+# `|x| double(x)` are call wrappers: each passes exactly its parameter, in order, to the function
+# it names. `eta_expanded.emel` is the same program with the function value passed where the
+# wrapper was. Both must print the same, with and without the optimisation, on every target.
+#
+# The reduction is off by default until A10 turns the rule flags on; once it is on, the two forms
+# have the same output and the input loses one closure per wrapper.
+
+fn double(x: Int) -> Int {
+  x * 2
+}
+
+fn main() {
+  xs = [1, 2, 3]
+  dbg(List.map(xs, |x| Show.show(x)))
+  dbg(List.map(xs, |x| double(x)))
+}

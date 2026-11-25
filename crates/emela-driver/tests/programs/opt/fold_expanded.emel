@@ -1,0 +1,22 @@
+# The hand-written expansion of `fold_fused.emel`: every operation on literals is replaced by the
+# value it evaluates to. Integer addition wraps, so `2147483647 + 1` is the minimum Int, which is
+# written as `-2147483647 - 1` because a source literal cannot be the minimum (spec 2.4). The same
+# for the minimum Int64. Division truncates toward zero and the remainder keeps the sign of the
+# dividend, as the target's operations do.
+
+fn main() {
+  dbg(7)
+  dbg(-2147483647 - 1)
+  dbg(3)
+  dbg(-1)
+  dbg(-2147483647 - 1)
+  dbg(False)
+  dbg(True)
+  dbg(True)
+  dbg(True)
+  big: Int64 = -9223372036854775807 - 1
+  small: Int64 = 3
+  dbg(big)
+  dbg(small)
+  dbg(1.5)
+}

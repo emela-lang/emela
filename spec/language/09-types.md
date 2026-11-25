@@ -99,7 +99,7 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 | `fail e` | Never | { the tag of e } | {} |
 | `e escape { Ti -> ei }` | The common type of the type of e and the types of the arms (Never disappears in the join) | (Ee ∖ {Ti}) ∪ Eei (Ti are the tags whose arm accepts every value. They are not removed from set variables. When there is an arm `_`, the E is Eei alone. 7.3) | Re ∪ Rei |
 | `use X` | `use X`, a capability of the name X (0.29 only, 8.2) | {} | { X } |
-| `with H { e }` | The type of e | Ee ∪ (E of init) ∪ (E of the arguments of init) | (Re ∖ provides(H) ∖ the capabilities of the items) ∪ requires(H) ∪ (R of the arguments of init) |
+| `with H { e }` | The type of e | Ee ∪ (E of init) ∪ (E of the arguments of init) | (Re ∖ provides(H) ∖ the capabilities of the items) ∪ requires(H) ∪ (R of the arguments of init), where provides(H) is the effects of the items without a name (a named item provides nothing by name, 8.3) |
 | `with x = E.M(a) { e }` | The type of e | Ee ∪ Ea ∪ (E of the init of M) | Re ∪ { E } ∪ Ra |
 | `with x = c.M(a) { e }` | The type of e | Ee ∪ Ea ∪ (E of the init of M) | Re ∪ { c } ∪ Ra |
 | `E.M(a)`, `c.M(a)` inside an init | `use F` (F is the effect of M) | Ea ∪ (E of the init of M) | { E } or { c }, ∪ Ra |

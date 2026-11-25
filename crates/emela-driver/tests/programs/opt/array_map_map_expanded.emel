@@ -1,0 +1,33 @@
+# The hand-written expansion of `array_map_map_fused.emel`: one pass that writes `twice(inc(x))`
+# into a fresh array, with no intermediate array between the two maps.
+import Std.Array.{Array}
+
+fn inc(x: Int) -> Int {
+  x + 1
+}
+
+fn twice(x: Int) -> Int {
+  x * 2
+}
+
+fn pipeline(a: Array[Int]) -> Array[Int] {
+  fill(Array.repeat(0, Array.size(a)), a, 0)
+}
+
+fn fill(out: Array[Int], a: Array[Int], i: Int) -> Array[Int] {
+  if i >= Array.size(a) {
+    out
+  } else {
+    x = Array.get(a, i) match {
+      Some(v) -> v
+      None    -> 0
+    }
+    fill(Array.set(out, i, twice(inc(x))), a, i + 1)
+  }
+}
+
+fn main() {
+  dbg(pipeline(Array.from_list([1, 2, 3])))
+  dbg(pipeline(Array.from_list([])))
+  ()
+}

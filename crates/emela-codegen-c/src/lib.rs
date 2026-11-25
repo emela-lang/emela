@@ -16,6 +16,7 @@
 
 mod check;
 mod emit;
+mod layout;
 mod names;
 mod writer;
 
@@ -114,6 +115,67 @@ impl std::fmt::Display for CError {
 
 /// Compiles lowered Core IR (self tail calls loopified, as `emela_core::lower` leaves it) to C.
 pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<CError>> {
+    compile_with(core, entry, true)
+}
+
+/// [`compile`] with the LIR optimisation passes (`emela_lir::to_heap_with`) switched on or off.
+///
+/// Optimisation never changes what the program prints, its exit status or the order of effects,
+/// failures and releases; a build uses this to compile the same program both ways.
+pub fn compile_with(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+) -> Result<COutput, Vec<CError>> {
+    compile_with_lir(core, entry, optimize, emela_lir::opt::Options::default())
+}
+
+/// [`compile_with`] with the LIR pass flags chosen by `lir_options`.
+///
+/// This is the entry point a test uses to compile a program with the LIR passes it chooses, rather
+/// than the defaults. The by-value layout stays on as in [`compile_with`].
+/// Optimisation never changes what the program prints, its exit status or the order of effects,
+/// failures and releases, whichever LIR passes run.
+pub fn compile_with_lir(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+    lir_options: emela_lir::opt::Options,
+) -> Result<COutput, Vec<CError>> {
+    compile_with_values_and_lir(core, entry, optimize, true, lir_options)
+}
+
+/// [`compile_with`] with the by-value layout of records and tuples (`layout`, private) switched
+/// on or off.
+///
+/// `values` is not an optimisation of the program: it chooses the memory representation of a
+/// value that the specification leaves implementation-defined (`[target.unspecified]`), so the
+/// two builds agree on everything observable except the number of allocations and when one runs
+/// out of memory. A test builds a program both ways to compare them.
+///
+/// The LIR pass flags are [`emela_lir::opt::Options::default`] (the M3 memory passes on).
+pub fn compile_with_values(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+    values: bool,
+) -> Result<COutput, Vec<CError>> {
+    compile_with_values_and_lir(
+        core,
+        entry,
+        optimize,
+        values,
+        emela_lir::opt::Options::default(),
+    )
+}
+
+fn compile_with_values_and_lir(
+    core: &emela_core::Module,
+    entry: &Entry,
+    optimize: bool,
+    values: bool,
+    lir_options: emela_lir::opt::Options,
+) -> Result<COutput, Vec<CError>> {
     // With `Entry::Main`, main (if any) comes first, then the exported fns (`[target.native.export]`).
     let mains: Vec<FnId> = match entry {
         Entry::Main => core
@@ -175,7 +237,7 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<
         .zip(exports)
         .map(|(&copy, (_, names))| (copy, names))
         .collect();
-    let entry = match entry {
+    let mut entry = match entry {
         Entry::Main => emit::Run::Main(copied[..mains.len()].first().copied(), exported),
         Entry::Tests(tests) => emit::Run::Tests(
             tests
@@ -193,13 +255,26 @@ pub fn compile(core: &emela_core::Module, entry: &Entry) -> Result<COutput, Vec<
     if !errors.is_empty() {
         return Err(errors);
     }
-    emela_lir::to_heap(&mut lir);
+    emela_lir::to_heap_with_options(&mut lir, optimize, lir_options);
     if cfg!(debug_assertions)
         && let Err(errors) = emela_lir::verify(&lir)
     {
         return Err(internal("the Heap IR verifier", errors));
     }
-    emit::emit(&lir, &entry)
+    // Reachability pruning (off by default): remove the functions no reachable code can name and
+    // replace the entry roots with their new indices.
+    if lir_options.rules.prune {
+        let roots = entry.roots();
+        let reach = emela_lir::analysis::reach::Reachability::walk(&lir, &roots);
+        let pruned = emela_lir::analysis::reach::prune_functions(&mut lir, &roots, &reach);
+        entry.set_roots(&pruned.roots);
+        if cfg!(debug_assertions)
+            && let Err(errors) = emela_lir::verify(&lir)
+        {
+            return Err(internal("the Heap IR verifier", errors));
+        }
+    }
+    emit::emit(&lir, &entry, values)
 }
 
 fn internal<E: std::fmt::Display>(stage: &str, errors: Vec<E>) -> Vec<CError> {

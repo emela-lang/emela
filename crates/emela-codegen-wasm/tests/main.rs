@@ -6,6 +6,8 @@
 mod common;
 mod grapheme_break_test;
 
+mod array_reads;
+mod arrays;
 mod bytes_stable;
 mod clock;
 mod component;
@@ -16,11 +18,17 @@ mod layout;
 mod memory;
 mod notes;
 mod protocol;
+mod reach;
 mod run;
 mod smoke;
 mod suspend;
 mod task;
 mod unicode;
+mod values;
+mod values_abi;
+mod values_boxes;
+mod values_indirect;
+mod values_suspend;
 
 /// Every `.rs` file in this directory that is not a test binary of its own is declared
 /// above. Without the declaration Cargo would not build it, and its tests would not run.

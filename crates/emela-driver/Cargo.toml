@@ -12,6 +12,7 @@ emela-fmt.workspace = true
 emela-resolve.workspace = true
 emela-types.workspace = true
 emela-core.workspace = true
+emela-lir.workspace = true
 emela-codegen-js.workspace = true
 emela-codegen-c.workspace = true
 emela-codegen-wasm.workspace = true
@@ -30,6 +31,9 @@ pulldown-cmark.workspace = true
 insta.workspace = true
 tempfile.workspace = true
 libtest-mimic.workspace = true
+# The differential harness builds an `Input`, which wants a `Fetcher`; `Http` is behind `net`,
+# which the workspace dependency leaves off for the targets without sockets.
+emela-pome = { workspace = true, features = ["net"] }
 
 [[test]]
 name = "parity"

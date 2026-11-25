@@ -112,6 +112,7 @@ fn cause_desc(b: &mut Builder) -> u32 {
         name: "Cause".to_owned(),
         show: None,
         refs: vec![true],
+        stride: 0,
     })
 }
 
@@ -124,6 +125,7 @@ fn failure_desc(b: &mut Builder) -> u32 {
         name: "Failure".to_owned(),
         show: None,
         refs: vec![true],
+        stride: 0,
     })
 }
 
@@ -136,6 +138,7 @@ pub(crate) fn success_desc(b: &mut Builder, repr: Repr) -> u32 {
         name: "Success".to_owned(),
         show: None,
         refs: vec![repr == Repr::Ref],
+        stride: 0,
     })
 }
 
@@ -149,6 +152,7 @@ pub(crate) fn frame_desc(b: &mut Builder) -> u32 {
         name: "attempt".to_owned(),
         show: None,
         refs: vec![false, false, true],
+        stride: 0,
     })
 }
 

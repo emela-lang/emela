@@ -1581,6 +1581,16 @@ export function $strfromcodepoint(n) {
   return { $tag: 0, $0: String.fromCodePoint(n) };
 }
 
+// String.to_ascii_lowercase changes only ASCII A to Z, and to_ascii_uppercase only a to z: every
+// other character, including non-ASCII letters, is copied unchanged.
+export function $strAsciiLower(s) {
+  return s.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
+}
+
+export function $strAsciiUpper(s) {
+  return s.replace(/[a-z]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 32));
+}
+
 // ---- Bytes (`[api.std.bytes]`) ----
 //
 // A Bytes is a `Uint8Array` that nothing changes after it is made (`[target.js.value]`). The
@@ -1669,6 +1679,17 @@ export function $arrayFromList(xs) {
   return out;
 }
 
+// The Core IR fusion of `Array.from_list(List.map(List.range(lo, hi), f))`: the array of `f(i)`
+// for each `i` from `lo` up to `hi`, making neither the range nor the mapped list. A defect from
+// `f` is thrown out of the loop like any other defect; the unfinished array is left to the
+// collector.
+export function $arrayMapRange(lo, hi, f) {
+  const n = hi > lo ? hi - lo : 0;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) out[i] = f(lo + i);
+  return out;
+}
+
 export function $arrayToList(a) {
   return $list(a);
 }
@@ -1679,6 +1700,16 @@ export function $arraySize(a) {
 
 export function $arrayGet(a, i) {
   return i >= 0 && i < a.length ? { $tag: 0, $0: a[i] } : $None;
+}
+
+// The Core IR fusion of `Option.or(Array.get(a, i), d)`: `d` has already been evaluated.
+export function $arrayGetOr(a, i, d) {
+  return i >= 0 && i < a.length ? a[i] : d;
+}
+
+// The Core IR fusion of `match Array.get(a, i)`: the caller's bounds test picked the element.
+export function $arrayLoadUnchecked(a, i) {
+  return a[i];
 }
 
 export function $arraySet(a, i, value) {

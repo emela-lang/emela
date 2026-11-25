@@ -1,0 +1,26 @@
+# A defect from the mapped function of a fused range map, at the first element, at the last and
+# out of the range, each caught by `Exit.attempt`: the array that the attempt's defect path
+# releases must hold exactly the elements already written (the leak check and the sanitizers see a
+# slot that was released without being written, or one that was written and not released).
+import Std.Array.{Array}
+import Std.Cause
+import Std.Exit.{Exit, Success, Failure}
+
+fn mapped(i: Int, at: Int) -> String {
+  if i == at { panic("boom") } else { Int.to_string(i) }
+}
+
+fn run(lo: Int, hi: Int, at: Int) -> String {
+  e = Exit.attempt(|| Array.from_list(List.map(List.range(lo, hi), |i| mapped(i, at))))
+  e match {
+    Success(xs) -> "made #{Array.size(xs)}"
+    Failure(c) -> Cause.to_string(c)
+  }
+}
+
+fn main() {
+  dbg(run(0, 5, 0))
+  dbg(run(0, 5, 4))
+  dbg(run(0, 5, 9))
+  dbg(run(0, 0, 0))
+}

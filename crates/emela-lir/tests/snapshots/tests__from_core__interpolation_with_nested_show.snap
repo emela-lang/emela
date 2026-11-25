@@ -13,16 +13,10 @@ export fn main() -> ref (String) {
   s%7: ref (String) = call show$(Bool, Float, String)(t%4)
   s%8: ref (String) = call show$List[()](t%5)
   s%9: ref (String) = builtin Int.to_string(3)
-  s%10: ref (String) = builtin String.append(": top ", s%9)
-  s%11: ref (String) = builtin String.append(s%8, s%10)
-  s%12: ref (String) = builtin String.append(" and ", s%11)
-  s%13: ref (String) = builtin String.append(s%7, s%12)
-  s%14: ref (String) = builtin String.append(" and ", s%13)
-  s%15: ref (String) = builtin String.append(s%6, s%14)
-  s%16: ref (String) = builtin String.append("shape ", s%15)
-  s%17: ref (String) = runtime show_string(s%16)
-  runtime debug_print(s%17)
-  return s%16
+  s%10: ref (String) = runtime concat("shape ", s%6, " and ", s%7, " and ", s%8, ": top ", s%9)
+  s%11: ref (String) = runtime show_string(s%10)
+  runtime debug_print(s%11)
+  return s%10
 }
 
 fn show$Shape(x%0: ref (Shape)) -> ref (String) {
@@ -30,20 +24,16 @@ fn show$Shape(x%0: ref (Shape)) -> ref (String) {
     case Shape.Circle {
       f%1: f64 (Float) = field x%0 Shape.Circle.radius#0
       s%2: ref (String) = builtin Float.to_string(f%1)
-      s%3: ref (String) = builtin String.append(s%2, ")")
-      s%4: ref (String) = builtin String.append("Circle(radius: ", s%3)
-      return s%4
+      s%3: ref (String) = runtime concat("Circle(radius: ", s%2, ")")
+      return s%3
     }
     case Shape.Named {
-      f%5: ref (String) = field x%0 Shape.Named#0
-      s%6: ref (String) = runtime show_string(f%5)
-      f%7: ref (List[Option[Int]]) = field x%0 Shape.Named#1
-      s%8: ref (String) = call show$List[Option[Int]](f%7)
-      s%9: ref (String) = builtin String.append(s%8, ")")
-      s%10: ref (String) = builtin String.append(", ", s%9)
-      s%11: ref (String) = builtin String.append(s%6, s%10)
-      s%12: ref (String) = builtin String.append("Named(", s%11)
-      return s%12
+      f%4: ref (String) = field x%0 Shape.Named#0
+      s%5: ref (String) = runtime show_string(f%4)
+      f%6: ref (List[Option[Int]]) = field x%0 Shape.Named#1
+      s%7: ref (String) = call show$List[Option[Int]](f%6)
+      s%8: ref (String) = runtime concat("Named(", s%5, ", ", s%7, ")")
+      return s%8
     }
     case Shape.Empty {
       return "Empty"
@@ -63,13 +53,8 @@ fn show$(Bool, Float, String)(x%0: ref ((Bool, Float, String))) -> ref (String) 
   s%4: ref (String) = builtin Float.to_string(e%3)
   e%5: ref (String) = tuple_get x%0#2
   s%6: ref (String) = runtime show_string(e%5)
-  s%7: ref (String) = builtin String.append(s%6, ")")
-  s%8: ref (String) = builtin String.append(", ", s%7)
-  s%9: ref (String) = builtin String.append(s%4, s%8)
-  s%10: ref (String) = builtin String.append(", ", s%9)
-  s%11: ref (String) = builtin String.append(s%2, s%10)
-  s%12: ref (String) = builtin String.append("(", s%11)
-  return s%12
+  s%7: ref (String) = runtime concat("(", s%2, ", ", s%4, ", ", s%6, ")")
+  return s%7
 }
 
 fn show$List[()](x%0: ref (List[()])) -> ref (String) {
@@ -77,15 +62,13 @@ fn show$List[()](x%0: ref (List[()])) -> ref (String) {
     empty%5: i32 (Bool) = list_is_empty p%1
     if empty%5 {} else {
       t%6: ref (List[()]) = list_tail p%1
-      s%7: ref (String) = builtin String.append(sep%3, "()")
-      s%8: ref (String) = builtin String.append(acc%2, s%7)
-      recur(t%6, s%8, ", ")
+      s%7: ref (String) = runtime concat(acc%2, sep%3, "()")
+      recur(t%6, s%7, ", ")
     }
     yield acc%2
   }
-  s%9: ref (String) = builtin String.append(joined%4, "]")
-  s%10: ref (String) = builtin String.append("[", s%9)
-  return s%10
+  s%8: ref (String) = runtime concat("[", joined%4, "]")
+  return s%8
 }
 
 fn show$List[Option[Int]](x%0: ref (List[Option[Int]])) -> ref (String) {
@@ -95,15 +78,13 @@ fn show$List[Option[Int]](x%0: ref (List[Option[Int]])) -> ref (String) {
       h%6: ref (Option[Int]) = list_head p%1
       t%7: ref (List[Option[Int]]) = list_tail p%1
       s%8: ref (String) = call show$Option[Int](h%6)
-      s%9: ref (String) = builtin String.append(sep%3, s%8)
-      s%10: ref (String) = builtin String.append(acc%2, s%9)
-      recur(t%7, s%10, ", ")
+      s%9: ref (String) = runtime concat(acc%2, sep%3, s%8)
+      recur(t%7, s%9, ", ")
     }
     yield acc%2
   }
-  s%11: ref (String) = builtin String.append(joined%4, "]")
-  s%12: ref (String) = builtin String.append("[", s%11)
-  return s%12
+  s%10: ref (String) = runtime concat("[", joined%4, "]")
+  return s%10
 }
 
 fn show$Option[Int](x%0: ref (Option[Int])) -> ref (String) {
@@ -111,9 +92,8 @@ fn show$Option[Int](x%0: ref (Option[Int])) -> ref (String) {
     case Option.Some {
       f%1: i32 (Int) = field x%0 Option.Some#0
       s%2: ref (String) = builtin Int.to_string(f%1)
-      s%3: ref (String) = builtin String.append(s%2, ")")
-      s%4: ref (String) = builtin String.append("Some(", s%3)
-      return s%4
+      s%3: ref (String) = runtime concat("Some(", s%2, ")")
+      return s%3
     }
     case Option.None {
       return "None"

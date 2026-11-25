@@ -1,0 +1,12 @@
+# The hand-written expansion of `concat_fused.emel`: the same pieces as one interpolation, which
+# lowering turns into one `concat`. Both forms must print the same.
+#
+# The `dbg` calls are between the pieces, in the same order as the append chain.
+
+fn build(a: String, b: String, c: String) -> String {
+  "#{dbg(a)}#{dbg(b)}#{dbg(c)}"
+}
+
+fn main() {
+  dbg(build("a", "b", "c"))
+}

@@ -1,0 +1,14 @@
+# A mutation pair: this is the form a range fusion takes as its input,
+# `List.fold(List.range(0, n), ...)` (T12). `range_expanded.emel` is the same
+# program with a self tail call written by hand (which lowers to a loop). Both
+# must print the same.
+
+fn sum_squares(n: Int) -> Int {
+  List.fold(List.range(0, n), 0, |acc, i| acc + i * i)
+}
+
+fn main() {
+  dbg(sum_squares(0))
+  dbg(sum_squares(1))
+  dbg(sum_squares(5))
+}

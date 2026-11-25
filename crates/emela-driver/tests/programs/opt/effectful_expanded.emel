@@ -1,0 +1,35 @@
+# The hand-written expansion of `effectful_fused.emel`: the same effectful body
+# as a self tail call, which lowers to a loop.
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler ConsoleLog: Log {
+  fn log(msg) {
+    dbg(msg)
+    ()
+  }
+}
+
+fn each_range(n: Int) -> () uses { Log } {
+  go(0, n)
+}
+
+fn go(i: Int, n: Int) -> () uses { Log } {
+  if i >= n {
+    ()
+  } else {
+    (use Log).log("at #{i}")
+    go(i + 1, n)
+  }
+}
+
+fn main() {
+  with ConsoleLog {
+    each_range(3)
+    each_range(0)
+    each_range(5)
+  }
+  ()
+}

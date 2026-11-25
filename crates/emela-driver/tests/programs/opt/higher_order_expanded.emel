@@ -1,0 +1,9 @@
+# The hand-written expansion of `higher_order_fused.emel`: the body of `apply` at its call site.
+# The δ stage after monomorphisation does this rewrite; the two forms must print the same, on every
+# target.
+
+fn main() {
+  fs = List.map([1, 2, 3], |k| { |x| x + k })
+  total = List.fold(fs, from: 0, f: |acc, f| acc + f(10))
+  dbg(total)
+}

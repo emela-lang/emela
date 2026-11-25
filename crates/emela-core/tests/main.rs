@@ -5,9 +5,30 @@
 
 mod support;
 
+mod algebra;
+mod analysis_effect;
+mod analysis_properties;
+mod analysis_ranges;
+mod array_fusion;
+mod beta;
+mod bounds;
+mod cse;
+mod delta;
 mod dump;
+mod eta;
+mod fold;
+mod fusion_laws;
+mod fusion_registry;
+mod inline;
+mod iota;
 mod lower;
+mod map_fusion;
 mod mono;
+mod opt;
+mod post_mono_delta;
+mod reduce_skeleton;
+mod string_builder;
+mod zeta;
 
 /// Every `.rs` file in this directory that is not a test binary of its own is declared
 /// above. Without the declaration Cargo would not build it, and its tests would not run.

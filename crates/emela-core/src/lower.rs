@@ -34,6 +34,7 @@ use crate::ir::{
 };
 use crate::mono::Monomorphized;
 use crate::named;
+use crate::opt::{CoreFn, CoreFns};
 
 mod builtin_handler;
 mod builtin_impls;
@@ -99,6 +100,12 @@ pub struct Lowered {
     /// The IR function for each test function in `LowerInput::tests`, in the same order. Filled
     /// only with `Roots::Tests`.
     pub tests: Vec<FnId>,
+    /// What the Core IR optimisation passes changed (`opt::run`), and what the δ-only stage after
+    /// monomorphisation changed (`opt::delta_after_monomorphization`). The two stages share
+    /// [`crate::opt::Stats::delta`]; [`crate::opt::Stats::passes`] counts only the sweeps of
+    /// `opt::run`. No change counter fires with `lower_with(_, _, false)`, or while no pass has
+    /// fired.
+    pub stats: crate::opt::Stats,
 }
 
 pub struct LowerInput<'a> {
@@ -139,7 +146,25 @@ pub struct LowerInput<'a> {
 
 /// Collects every place that cannot be lowered and returns them all in `Err`. Self tail calls
 /// come out as `Expr::Loop` / `Expr::Recur` (`tail::loopify`).
+///
+/// The Core IR optimisation passes run, `optimize` permitting, after self tail call loopification
+/// and before the IR is checked and monomorphized (`opt::run`); all targets get them. After
+/// monomorphisation one δ-only stage runs on the monomorphic module
+/// (`opt::delta_after_monomorphization`), because a callee that is effect-polymorphic before
+/// monomorphisation (such as a higher-order wrapper) is concrete afterwards; see
+/// `opt::reduce::delta`. Both stages share `opt::Stats::delta`.
 pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerError>> {
+    lower_with(input, roots, true)
+}
+
+/// [`lower`] with the Core IR optimisation passes switched on or off. Lowering itself is the same
+/// either way: `optimize` only reaches `opt::run`, so a build with `--no-opt` differs from the
+/// default only by what the passes change.
+pub fn lower_with(
+    input: &LowerInput<'_>,
+    roots: Roots,
+    optimize: bool,
+) -> Result<Lowered, Vec<LowerError>> {
     let hir = input.hir;
     let mut cx = Lowerer {
         hir,
@@ -179,6 +204,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         local_fns: ArenaMap::default(),
         fn_name: String::new(),
         derive_std: derive_std::Lookups::default(),
+        core_fns: FxHashMap::default(),
     };
     if roots == Roots::Exported {
         cx.collect_host_exports(input.language);
@@ -243,11 +269,16 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     }
     // Target-neutral, so done once here: every backend gets self tail calls as loops (16.3).
     crate::tail::loopify(&mut cx.module);
+    // The Core IR optimisations also run for every target, before the IR is verified and
+    // monomorphized. They preserve evaluation order, effects, failures, `with` releases and drop
+    // points.
+    let mut stats = crate::opt::run(&mut cx.module, &cx.core_fns, optimize);
     let (Some(target), Roots::Exported | Roots::Public | Roots::Tests) = (input.language, roots)
     else {
         return Ok(Lowered {
             module: cx.module,
             tests,
+            stats,
         });
     };
     // Ill-typed IR is a lowering bug, not an error in the program. Checked before
@@ -264,7 +295,7 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
         Roots::Tests => tests.clone(),
         _ => crate::mono::exported(&cx.module),
     };
-    let mono = crate::mono::monomorphize_traced(&cx.module, &mono_roots);
+    let mut mono = crate::mono::monomorphize_traced(&cx.module, &mono_roots);
     // Until derive generates impls, the type checker counts a `derive` as an impl
     // (`emela_types::Traits::satisfies`), so a call can reach a type without one.
     for (f, ty) in &mono.missing_impls {
@@ -279,6 +310,17 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     if !cx.errors.is_empty() {
         return Err(cx.errors);
     }
+    // The stage after monomorphisation: δ only, on the monomorphic module, with the identity map
+    // rebuilt through `origins`. This is where an effect-polymorphic wrapper (`fn apply(f, x) {
+    // f(x) }`) becomes a candidate; δ left it alone before monomorphisation because of its set
+    // type parameters. The rule keeps its budget and counter; see `opt::reduce::delta`.
+    if optimize {
+        let core_fns = post_mono_core_fns(&mono.origins, &cx.core_fns);
+        stats.merge(crate::opt::delta_after_monomorphization(
+            &mut mono.module,
+            &core_fns,
+        ));
+    }
     let tests = match roots {
         Roots::Tests => mono.roots,
         _ => Vec::new(),
@@ -286,7 +328,21 @@ pub fn lower(input: &LowerInput<'_>, roots: Roots) -> Result<Lowered, Vec<LowerE
     Ok(Lowered {
         module: mono.module,
         tests,
+        stats,
     })
+}
+
+/// The [`CoreFns`] map of the monomorphic module: every output function whose input lowering
+/// recorded as a bundled function. Monomorphisation gives each function a new id, so the identity
+/// is followed through [`Monomorphized::origins`] (output function → the input function it copies)
+/// and lowering's map (input function → [`CoreFn`]). Without the rebuild, δ would treat a
+/// monomorphised `List.fold` or `List.reverse` as an ordinary function and copy it into every
+/// caller.
+fn post_mono_core_fns(origins: &ArenaMap<FnId, FnId>, core_fns: &CoreFns) -> CoreFns {
+    origins
+        .iter()
+        .filter_map(|(new, &old)| core_fns.get(&old).map(|&kind| (new, kind)))
+        .collect()
 }
 
 struct Lowerer<'a> {
@@ -369,6 +425,10 @@ struct Lowerer<'a> {
     fn_name: String,
     /// What the derived impls of std traits look up, once (`derive_std.rs`).
     derive_std: derive_std::Lookups,
+    /// The bundled core functions a Core IR pass recognises by identity (`opt::CoreFn`), by IR
+    /// function. [`Lowerer::fn_id`] records every copy, `$suspend` ones too. Passed to
+    /// [`crate::opt::run`]; not stored in the module, which monomorphization rebuilds.
+    core_fns: FxHashMap<FnId, CoreFn>,
 }
 
 /// An evidence table key: the effect and its type arguments as a string (empty for effects without
@@ -900,6 +960,9 @@ impl<'a> Lowerer<'a> {
         let id = self
             .module
             .declare(&name, spec == 0 && self.is_exported(def));
+        if let Some(kind) = self.core_fn(def) {
+            self.core_fns.insert(id, kind);
+        }
         self.module.functions[id].suspends = self.fn_suspends(def, spec);
         if spec == 0
             && let Some(exposed) = self.host_exports.iter().find(|e| e.def == def)
@@ -4128,6 +4191,39 @@ impl<'a> Lowerer<'a> {
             error: false,
             external: false,
         })
+    }
+
+    /// The bundled function `def` is, if a Core IR pass matches it by identity ([`CoreFn`]).
+    ///
+    /// Only a definition in a bundled module counts (`ModuleMap::is_core` is true for the std
+    /// sources too), so a user's `Option.or` never matches. Every IR copy (the `$suspend` ones)
+    /// gets the same answer; [`Lowerer::fn_id`] records each.
+    fn core_fn(&self, def: DefId) -> Option<CoreFn> {
+        let DefModule::Source(module) = self.hir.defs[def].module else {
+            return None;
+        };
+        if !self.modules.is_core(module) {
+            return None;
+        }
+        let module = self.modules[module].name.to_string();
+        let name = self.hir.defs[def].name.as_str();
+        match (module.as_str(), name) {
+            ("Option", "or") => Some(CoreFn::OptionOr),
+            ("List", "fold") => Some(CoreFn::ListFold),
+            ("List", "map") => Some(CoreFn::ListMap),
+            ("List", "filter") => Some(CoreFn::ListFilter),
+            ("List", "range") => Some(CoreFn::ListRange),
+            ("List", "reverse") => Some(CoreFn::ListReverse),
+            // The other collection functions of the core `List` module.
+            ("List", _) => Some(CoreFn::Collection),
+            // The bundled std functions the array pipeline laws match (D4/PR-031). The std modules
+            // are bundled (`is_core` is true for them too: `add_core` adds both the core and the
+            // std sources), and their names are reserved, so this is the bundled function and not
+            // a user's.
+            ("Std.Array", "map") => Some(CoreFn::ArrayMap),
+            ("Std.Array", "fold") => Some(CoreFn::ArrayFold),
+            _ => None,
+        }
     }
 
     /// The name in the IR: definitions of the entry module keep their names; others get the

@@ -5,11 +5,7 @@ expression: "parts(&m, &[\"count\", \"sum\"])"
 fn count(s%0: ref (Shape)) -> i32 (Int) {
   t%3: i32 (Int) = block 'match%0 {
     switch tag(s%0) {
-      case Shape.Circle {
-        drop s%0
-        break 'match%0(1)
-      }
-      case Shape.Rect {
+      case Shape.Circle, Shape.Rect {
         drop s%0
         break 'match%0(1)
       }

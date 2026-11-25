@@ -1,0 +1,24 @@
+# A mutation pair: this is the form constant folding takes as its input. Every `dbg` below is an
+# operation on literals that the rule evaluates at compile time. `fold_expanded.emel` is the same
+# program with the values written out, so the two must print the same with the passes on and off.
+#
+# Integer arithmetic wraps (spec `[target.number]`), so the two additions overflow to the minimum
+# and are written as `-2147483647 - 1` in the expansion, where a literal cannot. Float arithmetic
+# is deliberately not folded; only the sign flip of `-(-1.5)` is.
+
+fn main() {
+  dbg(1 + 2 * 3)
+  dbg(2147483647 + 1)
+  dbg(10 / 3)
+  dbg(-7 % 3)
+  dbg((-2147483647 - 1) / -1)
+  dbg(!True)
+  dbg(1 < 2)
+  dbg(3 >= 3)
+  dbg(True != False)
+  big: Int64 = 9223372036854775807 + 1
+  small: Int64 = 10 / 3
+  dbg(big)
+  dbg(small)
+  dbg(-(-1.5))
+}

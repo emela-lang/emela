@@ -113,6 +113,34 @@ fn help_is_english() {
     }
 }
 
+/// `--no-opt` is hidden from `--help` on build, run and test, and builds and runs the same
+/// program as the default while the optimisation passes are empty (T01).
+#[test]
+fn no_opt_is_hidden_and_keeps_behaviour() {
+    let project = Project::new(
+        "no-opt",
+        &[
+            ("Pome.toml", ""),
+            ("src/main.emel", "fn main() {\n  dbg(1 + 1)\n}\n"),
+        ],
+    );
+    for command in ["build", "run", "test"] {
+        let help = project.emela(&[command, "--help"]);
+        assert_eq!(help.code, Some(0), "{command}: {help:?}");
+        assert!(
+            !help.stdout.contains("--no-opt"),
+            "{command}: {}",
+            help.stdout
+        );
+        let run = project.emela(&[command, "--no-opt"]);
+        assert_eq!(run.code, Some(0), "{command} --no-opt: {run:?}");
+    }
+    let default = project.emela(&["run"]);
+    let no_opt = project.emela(&["run", "--no-opt"]);
+    assert_eq!(no_opt.stdout, default.stdout);
+    assert_eq!(no_opt.stderr, default.stderr);
+}
+
 /// A new application passes check, run, test and fmt as created.
 #[test]
 fn new_application_runs() {

@@ -15,6 +15,15 @@
 //! chunk exists, so a transition records its position and the assembler writes the branch after
 //! the whole body is built.
 //!
+//! The state machine follows the layouts of the emitter's by-value records (E1 step 4): the body
+//! takes the function's parameters (`emit::Builder::signature`, so a by-value parameter is its
+//! scalar leaves) then the frame pointer, and returns the wrapper's results. A variable held by
+//! value that the edge saves occupies one frame slot per scalar leaf, in field order; the frame's
+//! descriptor marks every leaf inert, and the restore path reads them back in the same order. A
+//! suspending function's result is one word (or the boxed reference): the trampoline reports it
+//! through the runtime's `out_word` resume channel, and the emitter keeps a result of more than
+//! one leaf boxed (see `emit::values`).
+//!
 //! The frames and the scheduler live in `runtime::sched`; this module only reads the Heap IR.
 
 use super::*;
@@ -130,16 +139,16 @@ pub(crate) fn reserve(b: &mut Builder<'_>) {
             .filter(|(_, f)| is_machine(f))
             .map(|(id, _)| id)
             .collect();
+    // A state-machine body takes the function's parameters (flattened like the wrapper's, so a
+    // by-value parameter is its scalar leaves) then the frame pointer, and returns the same
+    // results as the wrapper. Its trampoline takes only the frame.
     let mut machines = Vec::with_capacity(ids.len());
     for id in ids {
-        let (params, ret) = {
+        let (mut machine_params, results) = {
             let f = &b.m.functions[id];
-            let params: Vec<ValType> = f.params.iter().map(|&p| val(f.vars[p].repr)).collect();
-            (params, b.repr(f.ret))
+            b.signature(f)
         };
-        let mut machine_params = params;
         machine_params.push(ValType::I32);
-        let results: Vec<ValType> = repr_val(ret).into_iter().collect();
         let ty = b.ty(machine_params, results);
         let body = b.imports.len() as u32 + b.defs.len() as u32;
         b.defs.push(ty);
@@ -202,6 +211,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         refs: vec![
             false, false, true, false, false, true, false, false, true, false,
         ],
+        stride: 0,
     });
     let resume_desc = b.desc(DescKey {
         kind: 0,
@@ -210,6 +220,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "resume".to_owned(),
         show: None,
         refs: vec![false, true],
+        stride: 0,
     });
     let interrupted_desc = b.desc(DescKey {
         kind: 0,
@@ -218,6 +229,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "interrupted".to_owned(),
         show: None,
         refs: vec![true],
+        stride: 0,
     });
     let interrupted = b.nullary(interrupted_desc);
     let twice_prefix = b.string_literal(b"resume called twice in ");
@@ -392,7 +404,9 @@ pub(crate) fn emit_machines(b: &mut Builder<'_>) {
 
 fn emit_machine(b: &mut Builder<'_>, mp: MachinePlan) -> (WasmFunction, WasmFunction) {
     let f = b.m.functions[mp.id].clone();
-    let nparams = f.params.len() as u32;
+    // A by-value parameter is several wasm parameters, one per scalar leaf; the frame pointer comes
+    // after all of them.
+    let nparams = b.signature(&f).0.len() as u32;
     let mut cx = FnCtx::with_extra_params(&f, b, 1);
     let declared: u32 = cx.decls.iter().map(|&(n, _)| n).sum();
     let state = nparams + 1 + declared;
@@ -543,27 +557,49 @@ fn emit_restore(mcx: &mut Mcx<'_, '_>, ins: &mut InstructionSink, resumes: &[Res
 /// Restores the variables a frame saved at one resume point into their locals.
 fn emit_restore_vars(mcx: &mut Mcx<'_, '_>, ins: &mut InstructionSink, r: &ResumePoint) {
     let fr = mcx.fr;
-    for (i, &v) in r.saved.iter().enumerate() {
-        let off = HDR + (3 + i as u32) * 8;
-        let repr = mcx.f.vars[v].repr;
-        // A variable without representation is never live, so it is never saved.
-        debug_assert_ne!(repr, Repr::Void, "a saved variable without representation");
-        if repr == Repr::Void {
-            continue;
-        }
-        ins.local_get(fr);
-        match repr {
-            Repr::I32 | Repr::Ref => ins.i32_load(mem(off, 4)),
-            Repr::I64 => ins.i64_load(mem(off, 8)),
-            Repr::F64 => ins.f64_load(mem(off, 8)),
-            Repr::Void => continue,
-        };
-        ins.local_set(mcx.local(v));
-        if repr == Repr::Ref {
-            // The reference moved from the frame into the local.
-            ins.local_get(fr);
-            ins.i32_const(0);
-            ins.i32_store(mem(off, 4));
+    let mut slot = 0u32;
+    for &v in &r.saved {
+        match mcx.cx.aggregate(v) {
+            Some(n) => {
+                // A value held by value was saved as its scalar leaves in consecutive slots.
+                for i in 0..n {
+                    let off = HDR + (3 + slot) * 8;
+                    let repr = mcx.cx.leaf_repr(v, i);
+                    ins.local_get(fr);
+                    match repr {
+                        Repr::I32 | Repr::Ref => ins.i32_load(mem(off, 4)),
+                        Repr::I64 => ins.i64_load(mem(off, 8)),
+                        Repr::F64 => ins.f64_load(mem(off, 8)),
+                        Repr::Void => continue,
+                    };
+                    ins.local_set(mcx.cx.leaf(v, i));
+                    slot += 1;
+                }
+            }
+            None => {
+                let off = HDR + (3 + slot) * 8;
+                let repr = mcx.f.vars[v].repr;
+                // A variable without representation is never live, so it is never saved.
+                debug_assert_ne!(repr, Repr::Void, "a saved variable without representation");
+                if repr == Repr::Void {
+                    continue;
+                }
+                ins.local_get(fr);
+                match repr {
+                    Repr::I32 | Repr::Ref => ins.i32_load(mem(off, 4)),
+                    Repr::I64 => ins.i64_load(mem(off, 8)),
+                    Repr::F64 => ins.f64_load(mem(off, 8)),
+                    Repr::Void => continue,
+                };
+                ins.local_set(mcx.local(v));
+                if repr == Repr::Ref {
+                    // The reference moved from the frame into the local.
+                    ins.local_get(fr);
+                    ins.i32_const(0);
+                    ins.i32_store(mem(off, 4));
+                }
+                slot += 1;
+            }
         }
     }
 }
@@ -584,41 +620,60 @@ fn append_chunk(func: &mut WasmFunction, chunk: &Chunk, n: u32, k: u32) {
 }
 
 fn emit_trampoline(b: &mut Builder<'_>, f: &Function, mp: MachinePlan) -> WasmFunction {
+    let (params, _) = b.signature(f);
+    // A flattened result is the same single word a scalar result is: `excluded` keeps a result of
+    // more than one leaf boxed, because the runtime's resume channel carries one word. The
+    // trampoline, whose table signature is `(frame) -> ()`, reads the body's result and writes it
+    // into `out_word` for the next frame, as it does for a scalar representation.
+    let leaves = b.leaves(f.ret).map(|l| l.to_vec());
     let ret = b.repr(f.ret);
+    debug_assert!(
+        leaves.as_ref().is_none_or(|l| l.len() <= 1),
+        "a suspending result crosses the one-word resume channel"
+    );
     let (out_mode, out_word) = match &b.sus {
         Some(plan) => (plan.out_mode, plan.out_word),
         None => (0, 0),
     };
     let mut locals = Vec::<(u32, ValType)>::new();
-    if ret != Repr::Void {
-        locals.push((1, val(ret)));
+    match &leaves {
+        Some(leaves) if !leaves.is_empty() => locals.push((1, val(leaves[0]))),
+        Some(_) => {}
+        None if ret != Repr::Void => locals.push((1, val(ret))),
+        None => {}
     }
     let mut func = WasmFunction::new(locals);
     {
         let mut ins = func.instructions();
         // The zero arguments only fill the signature: the resume point restores every parameter
         // the edge saved from the frame (the ones it did not save are not live after it).
-        for &p in &f.params {
-            match f.vars[p].repr {
-                Repr::I32 | Repr::Ref => {
+        for &p in &params {
+            match p {
+                ValType::I32 => {
                     ins.i32_const(0);
                 }
-                Repr::I64 => {
+                ValType::I64 => {
                     ins.i64_const(0);
                 }
-                Repr::F64 => {
+                ValType::F64 => {
                     ins.f64_const(0.0.into());
                 }
-                Repr::Void => {}
+                _ => {}
             }
         }
         ins.local_get(0);
         ins.call(mp.body);
-        if ret != Repr::Void {
+        let result = match &leaves {
+            Some(leaves) if !leaves.is_empty() => Some(leaves[0]),
+            Some(_) => None,
+            None if ret != Repr::Void => Some(ret),
+            None => None,
+        };
+        if let Some(result) = result {
             ins.local_set(1);
             ins.i32_const(out_word as i32);
             ins.local_get(1);
-            match ret {
+            match result {
                 Repr::I32 | Repr::Ref => {
                     ins.i32_store(mem(0, 4));
                 }
@@ -628,7 +683,7 @@ fn emit_trampoline(b: &mut Builder<'_>, f: &Function, mp: MachinePlan) -> WasmFu
                 Repr::F64 => {
                     ins.f64_store(mem(0, 8));
                 }
-                Repr::Void => unreachable!(),
+                Repr::Void => {}
             }
         }
         // A suspension leaves the captured frames to the driver; otherwise the result (or the
@@ -709,7 +764,8 @@ fn compile_term(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, term: &Term, y: YieldTo)
                 if let (Some(d), Some(v)) = (dst, v) {
                     let mut ins = InstructionSink::new(&mut buf.bytes);
                     mcx.operand(&mut ins, v);
-                    ins.local_set(mcx.local(d));
+                    mcx.b
+                        .assign(&mut mcx.cx, &mut ins, Some(d), mcx.f.vars[d].repr);
                 }
                 goto(mcx, buf, state);
             }
@@ -740,7 +796,8 @@ fn compile_term(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, term: &Term, y: YieldTo)
             let mut ins = InstructionSink::new(&mut buf.bytes);
             mcx.operand(&mut ins, v);
             ins.global_set(G_FAILURE);
-            dummy_return(&mut ins, mcx.cx.ret);
+            let leaves = mcx.cx.ret_leaves.clone();
+            dummy_return_values(&mut ins, &leaves);
             terminate(mcx, buf);
         }
         Term::Break { label, value } => {
@@ -753,7 +810,8 @@ fn compile_term(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, term: &Term, y: YieldTo)
                 let mut ins = InstructionSink::new(&mut buf.bytes);
                 if let (Some(d), Some(v)) = (dst, value) {
                     mcx.operand(&mut ins, v);
-                    ins.local_set(mcx.local(d));
+                    mcx.b
+                        .assign(&mut mcx.cx, &mut ins, Some(d), mcx.f.vars[d].repr);
                 }
             }
             goto(mcx, buf, join);
@@ -765,23 +823,48 @@ fn compile_term(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, term: &Term, y: YieldTo)
                 return;
             };
             {
+                // Parallel assignment through scratch locals. A value held by value contributes
+                // one scratch slot per leaf, in field order; `recur_slots` made room for the
+                // widest `recur`.
                 let mut ins = InstructionSink::new(&mut buf.bytes);
-                for (i, (o, &v)) in args.iter().zip(&vars).enumerate() {
+                let mut slot = 0u32;
+                for (o, &v) in args.iter().zip(&vars) {
                     mcx.operand(&mut ins, o);
-                    let r = mcx.f.vars[v].repr;
-                    ins.local_set(mcx.cx.scratch(r, i));
+                    if let Some(n) = mcx.cx.aggregate(v) {
+                        for i in (0..n).rev() {
+                            let r = mcx.cx.leaf_repr(v, i);
+                            ins.local_set(mcx.cx.scratch(r, (slot + i) as usize));
+                        }
+                        slot += n;
+                    } else {
+                        let r = mcx.f.vars[v].repr;
+                        ins.local_set(mcx.cx.scratch(r, slot as usize));
+                        slot += 1;
+                    }
                 }
-                for (i, &v) in vars.iter().enumerate() {
-                    let r = mcx.f.vars[v].repr;
-                    ins.local_get(mcx.cx.scratch(r, i));
-                    ins.local_set(mcx.local(v));
+                let mut slot = 0u32;
+                for &v in &vars {
+                    if let Some(n) = mcx.cx.aggregate(v) {
+                        for i in 0..n {
+                            let r = mcx.cx.leaf_repr(v, i);
+                            ins.local_get(mcx.cx.scratch(r, (slot + i) as usize));
+                            ins.local_set(mcx.cx.leaf(v, i));
+                        }
+                        slot += n;
+                    } else {
+                        let r = mcx.f.vars[v].repr;
+                        ins.local_get(mcx.cx.scratch(r, slot as usize));
+                        ins.local_set(mcx.local(v));
+                        slot += 1;
+                    }
                 }
             }
             goto(mcx, buf, body);
         }
         Term::Unwind => {
             let mut ins = InstructionSink::new(&mut buf.bytes);
-            dummy_return(&mut ins, mcx.cx.ret);
+            let leaves = mcx.cx.ret_leaves.clone();
+            dummy_return_values(&mut ins, &leaves);
             terminate(mcx, buf);
         }
         Term::Unreachable => {
@@ -865,7 +948,8 @@ fn compile_stmt(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, id: StmtId) {
             }
             if let Some(edge) = on_suspend {
                 let repr = value_repr(mcx.b, &mcx.cx, &value);
-                compile_edge(mcx, buf, dst, repr, &edge);
+                let leaves = value_leaves(mcx.b, &mcx.cx, &value);
+                compile_edge(mcx, buf, dst, repr, leaves.as_deref(), &edge);
             }
             compile_landings(mcx, buf, on_defect, fail);
         }
@@ -940,7 +1024,8 @@ fn compile_stmt(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, id: StmtId) {
                 let mut ins = InstructionSink::new(&mut buf.bytes);
                 for (&v, init) in vars.iter().zip(&inits) {
                     mcx.operand(&mut ins, init);
-                    ins.local_set(mcx.local(v));
+                    mcx.b
+                        .assign(&mut mcx.cx, &mut ins, Some(v), mcx.f.vars[v].repr);
                 }
             }
             let body_state = reserve_state(mcx);
@@ -969,12 +1054,20 @@ fn compile_stmt(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, id: StmtId) {
             mcx.b.internal(format!("protect left in {}", mcx.f.name));
         }
         Stmt::Dup(v) => {
+            // A value held by value owns no reference: nothing to count.
+            if mcx.cx.aggregate(v).is_some() {
+                return;
+            }
             let mut ins = InstructionSink::new(&mut buf.bytes);
             ins.local_get(mcx.local(v));
             let dup = mcx.b.rt("dup");
             ins.call(dup);
         }
         Stmt::Drop(v) => {
+            // A value held by value owns no reference: nothing to release.
+            if mcx.cx.aggregate(v).is_some() {
+                return;
+            }
             let mut ins = InstructionSink::new(&mut buf.bytes);
             ins.local_get(mcx.local(v));
             let drop = mcx.b.rt("drop");
@@ -993,37 +1086,50 @@ fn emit_switch(
     default: Option<u32>,
 ) {
     for (case, state) in cases.iter().zip(states) {
-        match on {
-            SwitchOn::Tag(v) => {
-                if cx.f.vars[v].repr == Repr::Ref {
-                    ins.local_get(cx.local(v));
-                    let tag = b.rt("tag");
-                    ins.call(tag);
-                } else {
-                    ins.local_get(cx.local(v));
-                }
-                match &case.key {
-                    CaseKey::Variant(k) => {
-                        ins.i32_const(*k as i32);
+        // Each key of a case compares against the scrutinee; the comparisons are combined, so a
+        // case whose keys the LIR pass joined runs one body.
+        for (i, key) in case.keys.iter().enumerate() {
+            match on {
+                SwitchOn::Tag(v) => {
+                    if cx.aggregate(v).is_some() {
+                        // A value held by value has exactly one constructor, so its tag is 0.
+                        ins.i32_const(0);
+                    } else if cx.f.vars[v].repr == Repr::Ref {
+                        ins.local_get(cx.local(v));
+                        let tag = b.rt("tag");
+                        ins.call(tag);
+                    } else {
+                        ins.local_get(cx.local(v));
                     }
-                    CaseKey::Lit(c) => b.const_val(ins, c),
-                }
-                ins.i32_eq();
-            }
-            SwitchOn::Lit(v) => {
-                ins.local_get(cx.local(v));
-                match &case.key {
-                    CaseKey::Lit(c) => b.const_val(ins, c),
-                    CaseKey::Variant(k) => {
-                        ins.i32_const(*k as i32);
+                    match key {
+                        CaseKey::Variant(k) => {
+                            ins.i32_const(*k as i32);
+                        }
+                        CaseKey::Lit(c) => b.const_val(ins, c),
                     }
-                }
-                if cx.f.vars[v].repr == Repr::I64 {
-                    ins.i64_eq();
-                } else {
                     ins.i32_eq();
                 }
+                SwitchOn::Lit(v) => {
+                    ins.local_get(cx.local(v));
+                    match key {
+                        CaseKey::Lit(c) => b.const_val(ins, c),
+                        CaseKey::Variant(k) => {
+                            ins.i32_const(*k as i32);
+                        }
+                    }
+                    if cx.f.vars[v].repr == Repr::I64 {
+                        ins.i64_eq();
+                    } else {
+                        ins.i32_eq();
+                    }
+                }
             }
+            if i > 0 {
+                ins.i32_or();
+            }
+        }
+        if case.keys.is_empty() {
+            ins.i32_const(0);
         }
         ins.if_(BlockType::Result(ValType::I32));
         ins.i32_const(*state as i32);
@@ -1042,20 +1148,41 @@ fn emit_switch(
     }
 }
 
+/// The frame slots a variable occupies when it is saved, and the representation of each: one per
+/// scalar leaf of a value held by value (in field order), one for any other variable. A saved value
+/// owns no reference, so all of its leaves are inert slots in the frame.
+fn saved_slots(cx: &FnCtx<'_>, f: &Function, saved: &[VarId]) -> Vec<Repr> {
+    let mut out = Vec::new();
+    for &v in saved {
+        match cx.aggregate(v) {
+            Some(n) => {
+                for i in 0..n {
+                    out.push(cx.leaf_repr(v, i));
+                }
+            }
+            // A variable without representation is never live, so it is never saved.
+            None => out.push(f.vars[v].repr),
+        }
+    }
+    out
+}
+
 /// A suspension point: when the value came back suspended, push a frame and return; the resume
-/// point runs the input into `dst` and then the landings. `repr` is the value's representation,
-/// which is needed when the value is unused (`dst` is `None`) and the resumed reference must be
-/// released.
+/// point runs the input into `dst` and then the landings. `repr` is the value's representation and
+/// `leaves` its layout when it is held by value; they are needed when the value is unused (`dst` is
+/// `None`) and the resumed reference must be released.
 fn compile_edge(
     mcx: &mut Mcx<'_, '_>,
     buf: &mut Chunk,
     dst: Option<VarId>,
     repr: Repr,
+    leaves: Option<&[Repr]>,
     edge: &Suspend,
 ) {
     let resume = reserve_state(mcx);
+    let slots = saved_slots(&mcx.cx, mcx.f, &edge.saved);
     let mut refs = vec![false, false, true];
-    refs.extend(edge.saved.iter().map(|&v| mcx.f.vars[v].repr == Repr::Ref));
+    refs.extend(slots.iter().map(|&r| r == Repr::Ref));
     let desc = mcx.b.desc(DescKey {
         kind: 0,
         tag: 0,
@@ -1063,6 +1190,7 @@ fn compile_edge(
         name: check::display_name(&mcx.f.name).to_owned(),
         show: None,
         refs,
+        stride: 0,
     });
     let table = mcx
         .b
@@ -1079,34 +1207,40 @@ fn compile_edge(
         ins.i32_const(table as i32);
         // The frame stores the dispatch chunk, which is what the restore switches on.
         ins.i32_const(resume as i32);
-        ins.i32_const(edge.saved.len() as i32);
+        ins.i32_const(slots.len() as i32);
         let f = mcx.b.rt("frame_new");
         ins.call(f);
         ins.local_set(mcx.cx.scratch(Repr::Ref, 0));
-        for (i, &v) in edge.saved.iter().enumerate() {
-            let off = HDR + (3 + i as u32) * 8;
-            let repr = mcx.f.vars[v].repr;
-            // A variable without representation is never live, so it is never saved.
-            debug_assert_ne!(repr, Repr::Void, "a saved variable without representation");
-            ins.local_get(mcx.cx.scratch(Repr::Ref, 0));
-            ins.local_get(mcx.local(v));
-            match repr {
-                Repr::I32 | Repr::Ref => {
-                    ins.i32_store(mem(off, 4));
+        let mut slot = 0u32;
+        for &v in &edge.saved {
+            match mcx.cx.aggregate(v) {
+                Some(n) => {
+                    for i in 0..n {
+                        let off = HDR + (3 + slot) * 8;
+                        let r = mcx.cx.leaf_repr(v, i);
+                        ins.local_get(mcx.cx.scratch(Repr::Ref, 0));
+                        ins.local_get(mcx.cx.leaf(v, i));
+                        Builder::store_mem(&mut ins, off, r);
+                        slot += 1;
+                    }
                 }
-                Repr::I64 => {
-                    ins.i64_store(mem(off, 8));
+                None => {
+                    let off = HDR + (3 + slot) * 8;
+                    let r = mcx.f.vars[v].repr;
+                    // A variable without representation is never live, so it is never saved.
+                    debug_assert_ne!(r, Repr::Void, "a saved variable without representation");
+                    ins.local_get(mcx.cx.scratch(Repr::Ref, 0));
+                    ins.local_get(mcx.local(v));
+                    Builder::store_mem(&mut ins, off, r);
+                    slot += 1;
                 }
-                Repr::F64 => {
-                    ins.f64_store(mem(off, 8));
-                }
-                Repr::Void => {}
             }
         }
         let push = mcx.b.rt("frame_push");
         ins.local_get(mcx.cx.scratch(Repr::Ref, 0));
         ins.call(push);
-        dummy_return(&mut ins, mcx.cx.ret);
+        let ret_leaves = mcx.cx.ret_leaves.clone();
+        dummy_return_values(&mut ins, &ret_leaves);
         ins.end();
     }
     goto(mcx, buf, resume);
@@ -1138,22 +1272,51 @@ fn compile_edge(
         ins.global_set(G_FAILURE);
         ins.else_();
         match dst {
-            Some(d) => {
-                ins.i32_const(in_word as i32);
-                match mcx.f.vars[d].repr {
-                    Repr::I32 | Repr::Ref => {
-                        ins.i32_load(mem(0, 4));
+            Some(d) => match leaves {
+                // A one-leaf result is the same single word a scalar result is; the trampoline
+                // wrote it through `out_word`. `excluded` keeps a multi-leaf result boxed.
+                Some([leaf]) if mcx.cx.aggregate(d) == Some(1) => {
+                    ins.i32_const(in_word as i32);
+                    match leaf {
+                        Repr::I32 | Repr::Ref => {
+                            ins.i32_load(mem(0, 4));
+                        }
+                        Repr::I64 => {
+                            ins.i64_load(mem(0, 8));
+                        }
+                        Repr::F64 => {
+                            ins.f64_load(mem(0, 8));
+                        }
+                        Repr::Void => {}
                     }
-                    Repr::I64 => {
-                        ins.i64_load(mem(0, 8));
-                    }
-                    Repr::F64 => {
-                        ins.f64_load(mem(0, 8));
-                    }
-                    Repr::Void => {}
+                    ins.local_set(mcx.cx.leaf(d, 0));
                 }
-                ins.local_set(mcx.local(d));
-            }
+                Some(more) => {
+                    let argc = more.len();
+                    let name = mcx.f.name.clone();
+                    mcx.b.internal(format!(
+                        "a resumed value of {argc} leaves has no one-word channel in {name}"
+                    ));
+                }
+                None => {
+                    ins.i32_const(in_word as i32);
+                    match mcx.f.vars[d].repr {
+                        Repr::I32 | Repr::Ref => {
+                            ins.i32_load(mem(0, 4));
+                        }
+                        Repr::I64 => {
+                            ins.i64_load(mem(0, 8));
+                        }
+                        Repr::F64 => {
+                            ins.f64_load(mem(0, 8));
+                        }
+                        Repr::Void => {}
+                    }
+                    ins.local_set(mcx.local(d));
+                }
+            },
+            // A value held by value owns no reference, so an unused one needs no release.
+            None if leaves.is_some() => {}
             None if repr == Repr::Ref => {
                 // The value is unused: the resumed reference is released, like the fast path
                 // (`assign` with no destination) does.
@@ -1224,12 +1387,18 @@ fn compile_landing_inline(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, seq: SeqId) {
                 mcx.b.value(&mut mcx.cx, &mut ins, dst, &value);
             }
             Stmt::Dup(v) => {
+                if mcx.cx.aggregate(v).is_some() {
+                    continue;
+                }
                 let mut ins = InstructionSink::new(&mut buf.bytes);
                 ins.local_get(mcx.local(v));
                 let dup = mcx.b.rt("dup");
                 ins.call(dup);
             }
             Stmt::Drop(v) => {
+                if mcx.cx.aggregate(v).is_some() {
+                    continue;
+                }
                 let mut ins = InstructionSink::new(&mut buf.bytes);
                 ins.local_get(mcx.local(v));
                 let drop = mcx.b.rt("drop");
@@ -1249,7 +1418,10 @@ fn compile_landing_inline(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, seq: SeqId) {
     match term {
         // A block that simply ends: the statements after it run next.
         Term::Yield(None) => {}
-        Term::Unwind => dummy_return(&mut ins, mcx.cx.ret),
+        Term::Unwind => {
+            let leaves = mcx.cx.ret_leaves.clone();
+            dummy_return_values(&mut ins, &leaves);
+        }
         Term::Unreachable => {
             ins.unreachable();
         }
@@ -1262,7 +1434,8 @@ fn compile_landing_inline(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, seq: SeqId) {
         Term::Fail(v) => {
             mcx.operand(&mut ins, &v);
             ins.global_set(G_FAILURE);
-            dummy_return(&mut ins, mcx.cx.ret);
+            let leaves = mcx.cx.ret_leaves.clone();
+            dummy_return_values(&mut ins, &leaves);
         }
         _ => mcx.b.internal("a landing that does not return"),
     }

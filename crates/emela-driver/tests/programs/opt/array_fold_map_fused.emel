@@ -1,0 +1,24 @@
+# A mutation pair for the array fold∘map law (D4/PR-031): `Array.fold(Array.map(a, f), init, g)` is
+# the law's input, and `array_fold_map_expanded.emel` is the same program as one hand-written fold
+# of the composed step, which builds no mapped array. The law is off in the default pipeline
+# because it is new, so this pair checks that the two hand-written programs give the same output on
+# every target; when the law is turned on, it becomes a direct check of the law's output too.
+import Std.Array.{Array}
+
+fn inc(x: Int) -> Int {
+  x + 1
+}
+
+fn add(a: Int, b: Int) -> Int {
+  a + b
+}
+
+fn total(a: Array[Int]) -> Int {
+  Array.fold(Array.map(a, inc), 0, add)
+}
+
+fn main() {
+  dbg(total(Array.from_list([1, 2, 3])))
+  dbg(total(Array.from_list([])))
+  ()
+}

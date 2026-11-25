@@ -13,8 +13,13 @@ impl<'m> Builder<'m> {
         op: RuntimeOp,
         args: &[Operand],
     ) {
+        if op == RuntimeOp::Concat {
+            self.concat(cx, ins, dst, args);
+            return;
+        }
         let name = match op {
             RuntimeOp::ShowString => "show_string",
+            RuntimeOp::Concat => unreachable!("concat is emitted above"),
             RuntimeOp::DebugPrint => "debug_print",
             RuntimeOp::Retire => "retire",
             RuntimeOp::Defect => "raise",
@@ -60,5 +65,52 @@ impl<'m> Builder<'m> {
             _ => Repr::Void,
         };
         self.assign(cx, ins, dst, ret);
+    }
+
+    /// `concat(parts…)`: the byte lengths are read once to make one String, then each part is
+    /// copied into it. The destination local holds the new String while the parts are copied;
+    /// the offset of each part is the sum of the lengths before it, which is read again there
+    /// (a few loads, and the alternative would be another local).
+    fn concat(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        args: &[Operand],
+    ) {
+        // A pure value whose result is unused allocates nothing.
+        let Some(dst) = dst else { return };
+        debug_assert!(args.len() > 1, "a concat of fewer than two parts");
+        for (i, a) in args.iter().enumerate() {
+            self.operand(cx, ins, a);
+            ins.i32_load(mem(HDR, 4));
+            if i > 0 {
+                ins.i32_add();
+            }
+        }
+        let new = self.rt("str_new");
+        ins.call(new);
+        ins.local_set(cx.local(dst));
+        let copy = self.rt("copy_range");
+        for (i, a) in args.iter().enumerate() {
+            // `(dst, dst offset, src, src offset, length)`; the offsets are in bytes from the
+            // start of the string, and `copy_range` skips the header of each side.
+            ins.local_get(cx.local(dst));
+            if i == 0 {
+                ins.i32_const(0);
+            }
+            for (j, b) in args.iter().take(i).enumerate() {
+                self.operand(cx, ins, b);
+                ins.i32_load(mem(HDR, 4));
+                if j > 0 {
+                    ins.i32_add();
+                }
+            }
+            self.operand(cx, ins, a);
+            ins.i32_const(0);
+            self.operand(cx, ins, a);
+            ins.i32_load(mem(HDR, 4));
+            ins.call(copy);
+        }
     }
 }

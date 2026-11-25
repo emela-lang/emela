@@ -1,0 +1,52 @@
+# A mutation pair for ζ: this is the form copy propagation and dead-let removal take as their
+# input. `x`, `y` and `z` are copies of one value, `unused` is a record nothing reads, and the
+# `with` release and the `escape` must keep their order around the failure. `zeta_expanded.emel`
+# is the same program with the copies substituted and the dead record dropped, so the two must
+# print the same with the passes on and off.
+
+error Stop(at: Int)
+
+effect Log {
+  fn log(msg: String) -> ()
+}
+
+handler Session: Log {
+  release {
+    dbg("close")
+    ()
+  }
+  fn log(msg) {
+    dbg(msg)
+    ()
+  }
+}
+
+type Point(x: Int, y: Int)
+
+fn visit(n: Int, stop: Int) -> () fails Stop uses { Log } {
+  (use Log).log("visit #{n}")
+  if n == stop {
+    fail Stop(at: n)
+  }
+  ()
+}
+
+fn main() {
+  x = 1
+  y = x
+  z = y
+  unused = Point(x: z, y: 2)
+  dbg("z #{z}")
+  with Session {
+    n = z + 1
+    (use Log).log("inside #{n}")
+    dbg(visit(n, 2))
+  } escape {
+    Stop(at:) -> {
+      dbg("caught at #{at}")
+      ()
+    }
+  }
+  dbg("after")
+  ()
+}

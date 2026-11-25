@@ -28,11 +28,12 @@ pub mod layout;
 mod runtime;
 mod runtimeop;
 mod suspend;
+mod values;
 
 use emela_core::{Builtin, EnumId, FiberOp, OPTION_NONE, OPTION_SOME, Type, TypeId};
 use emela_lir::{
     Callee, CaseKey, Const, FnId, Function, LabelId, Module, OnFail, Operand, PrimOp, PrimTy, Repr,
-    SeqId, Stage, Stmt, StmtId, SwitchOn, Term, Value, VarId, enum_repr, repr_of,
+    SeqId, Stage, Stmt, StmtId, SwitchOn, Term, Value, VarId, enum_repr, repr_of, repr_of_subst,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use wasm_encoder::{
@@ -44,7 +45,7 @@ use wasm_encoder::{
 
 use crate::check;
 use crate::std_host::StdHost;
-use crate::{WasmError, WasmErrorKind, WasmOutput};
+use crate::{WasmError, WasmErrorKind, WasmOptions, WasmOutput};
 
 /// What the generated `wasi:cli/run@0.3.0` export runs.
 #[allow(dead_code)]
@@ -67,6 +68,24 @@ impl Run {
             Run::Tests(tests) => tests.iter().map(|&(_, id)| id).collect(),
         }
     }
+
+    /// Replaces the roots with their indices after [`prune_functions`](emela_lir::analysis::reach::prune_functions),
+    /// in the same order as [`Run::roots`] returned them.
+    pub(crate) fn set_roots(&mut self, roots: &[FnId]) {
+        let mut roots = roots.iter().copied();
+        match self {
+            Run::Main(main) | Run::Service(main) => {
+                if main.is_some() {
+                    *main = roots.next();
+                }
+            }
+            Run::Tests(tests) => {
+                for (_, id) in tests {
+                    *id = roots.next().expect("a test is a root");
+                }
+            }
+        }
+    }
 }
 
 /// The WASI 0.3 imports shared by the two output interfaces.
@@ -83,15 +102,15 @@ pub(crate) struct OutputImports {
 pub(crate) fn emit(
     m: &Module,
     entry: &Run,
-    reach: &check::Reach,
+    options: WasmOptions,
 ) -> Result<WasmOutput, Vec<WasmError>> {
     assert_eq!(
         m.stage,
         Stage::RefCounted,
         "the WASM emitter reads the Heap IR"
     );
-    let mut b = Builder::new(m);
-    b.build(entry, reach);
+    let mut b = Builder::new(m, options, &entry.roots());
+    b.build(entry);
     if !b.errors.is_empty() {
         return Err(b.errors);
     }
@@ -128,6 +147,10 @@ pub(crate) struct DescKey {
     pub name: String,
     pub show: Option<u32>,
     pub refs: Vec<bool>,
+    /// The element stride in 8-byte slots. Only an array descriptor (kind 2) keeps it, at
+    /// [`DESC_STRIDE`]; every other kind writes 0 and stays [`DESC_SIZE`] bytes. Scalar elements
+    /// keep a stride of 1, so their arrays are unchanged.
+    pub stride: u32,
 }
 
 /// The wasm value type of a representation.
@@ -209,9 +232,16 @@ const DESC_SHOW: u32 = 20;
 const DESC_NAME: u32 = 24;
 const DESC_NAMELEN: u32 = 28;
 const DESC_SIZE: u32 = 32;
+/// The element stride of an array in 8-byte slots, after [`DESC_SIZE`]. Only an array descriptor
+/// has it (E2); a descriptor of any other kind keeps [`DESC_SIZE`] bytes, so no other output moves.
+const DESC_STRIDE: u32 = 32;
 
 pub(crate) struct Builder<'m> {
     pub(crate) m: &'m Module,
+    /// The representation options (see [`WasmOptions`]).
+    options: WasmOptions,
+    /// The records and tuples held by value in locals (E1). Empty unless `options.values`.
+    values: values::Values<'m>,
     types: Vec<(Vec<ValType>, Vec<ValType>)>,
     type_map: FxHashMap<(Vec<ValType>, Vec<ValType>), u32>,
     pub(crate) imports: Vec<(String, String, u32)>,
@@ -224,7 +254,8 @@ pub(crate) struct Builder<'m> {
     /// The runtime functions the IR bodies call. A runtime module's `setup` reads it to leave
     /// out static data the program never reaches.
     pub(crate) rt_used: FxHashSet<&'static str>,
-    /// The IR functions the entry reaches (`check::Reach`). The runtime gates read it so that a
+    /// The IR functions whose body the entry can run, from
+    /// `emela_lir::analysis::reach::Reachability` on the Heap IR. The runtime gates read it so that a
     /// feature only reachable code uses is emitted.
     pub(crate) reachable: FxHashSet<FnId>,
     /// The runtime functions the runtime body being emitted calls. `runtime::emit` reads it to
@@ -273,9 +304,15 @@ pub(crate) struct Builder<'m> {
 }
 
 impl<'m> Builder<'m> {
-    fn new(m: &'m Module) -> Self {
+    fn new(m: &'m Module, options: WasmOptions, roots: &[FnId]) -> Self {
         let mut b = Builder {
             m,
+            options,
+            values: if options.values {
+                values::Values::new(m, roots)
+            } else {
+                values::Values::none(m)
+            },
             types: Vec::new(),
             type_map: FxHashMap::default(),
             imports: Vec::new(),
@@ -326,6 +363,23 @@ impl<'m> Builder<'m> {
 
     pub(crate) fn repr(&self, ty: TypeId) -> Repr {
         repr_of(self.core(), ty)
+    }
+
+    /// The layout of `ty` if the local-only slice holds it by value, or `None` if the boxed
+    /// representation stays.
+    pub(crate) fn layout(&self, ty: TypeId) -> Option<usize> {
+        self.values.index(ty)
+    }
+
+    /// The scalar leaves of `ty` if it is held by value.
+    pub(crate) fn leaves(&self, ty: TypeId) -> Option<&[Repr]> {
+        Some(&self.values.get(self.layout(ty)?).leaves)
+    }
+
+    /// Whether any type of the module is held by value. A function whose module has none needs no
+    /// scratch local for a box (E1 step 5).
+    fn has_values(&self) -> bool {
+        self.values.any()
     }
 
     pub(crate) fn internal(&mut self, message: impl Into<String>) {
@@ -564,9 +618,30 @@ impl<'m> Builder<'m> {
         }
     }
 
+    /// The wasm parameters and results of `f`. A parameter held by value is its leaves, and a
+    /// result held by value is one wasm result per leaf (multi-value). The layout predicate keeps
+    /// a function whose signature another calling convention sees (the entry, an external host, a
+    /// fiber thunk, the table, an exporting thunk) boxed, so the flattened form is used by every
+    /// call of a function type that agrees on it: a direct `call`, `call_indirect`, a lifted
+    /// closure, an operation implementation, and a suspending function's wrapper, body and
+    /// trampoline.
+    fn signature(&self, f: &Function) -> (Vec<ValType>, Vec<ValType>) {
+        let mut params = Vec::new();
+        for &p in &f.params {
+            match self.leaves(f.vars[p].ty) {
+                Some(leaves) => params.extend(leaves.iter().map(|&r| val(r))),
+                None => params.push(val(f.vars[p].repr)),
+            }
+        }
+        let results = match self.leaves(f.ret) {
+            Some(leaves) => leaves.iter().map(|&r| val(r)).collect(),
+            None => repr_val(self.repr(f.ret)).into_iter().collect(),
+        };
+        (params, results)
+    }
+
     fn fn_ty(&mut self, f: &Function) -> u32 {
-        let params: Vec<ValType> = f.params.iter().map(|&p| val(f.vars[p].repr)).collect();
-        let results: Vec<ValType> = repr_val(self.repr(f.ret)).into_iter().collect();
+        let (params, results) = self.signature(f);
         self.ty(params, results)
     }
 
@@ -627,28 +702,18 @@ impl<'m> Builder<'m> {
             || self.m.error_shows.iter().any(|&(_, show)| show == id)
     }
 
-    fn build(&mut self, entry: &Run, reach: &check::Reach) {
-        // The runtime gates read which functions the entry reaches. The Flow IR walk the
-        // diagnostics use does not see the functions the Heap IR passes append (a lifted closure
-        // body is its own function there), so the set is walked again on the Heap IR. A const is
-        // evaluated eagerly when the module starts and an error's `show` runs when the error is
-        // shown, so neither is called from the entry: both are roots too, and the builtins they
-        // use keep their runtime.
-        let mut roots = entry.roots();
-        roots.extend(self.m.error_shows.iter().map(|&(_, show)| show));
-        roots.extend(
-            self.m
-                .functions
-                .iter()
-                .filter(|(_, f)| f.constant)
-                .map(|(id, _)| id),
-        );
-        let heap_reach = check::reach(self.m, &roots);
+    fn build(&mut self, entry: &Run) {
+        // The runtime gates read which functions the entry reaches. The analysis is the LIR's
+        // (emela-lir), walked here on the Heap IR: a closure body is its own function at this
+        // stage and a handler operation's body is deferred until it is performed. The same set
+        // decides which host imports are emitted, so a body pruned here never needs an import the
+        // analysis did not count.
+        let reach = emela_lir::analysis::reach::Reachability::walk(self.m, &entry.roots());
         self.reachable = self
             .m
             .functions
             .iter()
-            .filter(|(id, _)| heap_reach.contains(*id))
+            .filter(|(id, _)| reach.is_called(*id))
             .map(|(id, _)| id)
             .collect();
         self.service = matches!(entry, Run::Service(_));
@@ -662,13 +727,13 @@ impl<'m> Builder<'m> {
                 && let Some(binding) = ext.binding("wasm")
             {
                 match crate::std_host::classify(f) {
-                    Some(host) if reach.contains(id) => self.std_hosts.push((id, host)),
+                    Some(host) if reach.is_called(id) => self.std_hosts.push((id, host)),
                     // A host the entry cannot reach is in the module because a handler it builds
                     // bundles the external (`Process` of `Std.Process` bundles several system handlers). It is
                     // never called, so neither its runtime wrapper nor its import is emitted
-                    // (spec `[target.wasm.output]`). The handler constructors still put calls to
-                    // it in their operation bodies, which are emitted whether the operation runs
-                    // or not, so it gets a trapping stub with its signature.
+                    // (spec `[target.wasm.output]`). Its trapping stub is reserved for a call in
+                    // an emitted body; an operation body that is only referenced, not called, is
+                    // a stub too, so it cannot call the host.
                     Some(_) => unreachable_hosts.push(id),
                     None => self.external_import(id, f, binding),
                 }
@@ -871,6 +936,7 @@ impl<'m> Builder<'m> {
             name: "String".to_owned(),
             show: None,
             refs: Vec::new(),
+            stride: 0,
         })
     }
 
@@ -883,6 +949,7 @@ impl<'m> Builder<'m> {
             name: "list".to_owned(),
             show: None,
             refs: vec![head_ref, true],
+            stride: 0,
         })
     }
 
@@ -900,7 +967,11 @@ impl<'m> Builder<'m> {
         if let Some(&o) = self.descs.get(&key) {
             return o;
         }
-        let o = self.alloc_static(DESC_SIZE);
+        let o = self.alloc_static(if key.kind == runtime::array::KIND {
+            DESC_SIZE + 4
+        } else {
+            DESC_SIZE
+        });
         let refs = if key.refs.is_empty() {
             0
         } else {
@@ -926,6 +997,9 @@ impl<'m> Builder<'m> {
         self.write_u32(o + DESC_SHOW, key.show.unwrap_or(u32::MAX));
         self.write_u32(o + DESC_NAME, name_ptr);
         self.write_u32(o + DESC_NAMELEN, name_len);
+        if key.kind == runtime::array::KIND {
+            self.write_u32(o + DESC_STRIDE, key.stride);
+        }
         self.descs.insert(key, o);
         o
     }
@@ -955,6 +1029,7 @@ impl<'m> Builder<'m> {
             name: "Some".to_owned(),
             show: None,
             refs: vec![field_ref],
+            stride: 0,
         });
         let none_desc = self.desc(DescKey {
             kind: 0,
@@ -963,6 +1038,7 @@ impl<'m> Builder<'m> {
             name: "None".to_owned(),
             show: None,
             refs: Vec::new(),
+            stride: 0,
         });
         let none = self.nullary(none_desc);
         (some, none)
@@ -976,10 +1052,48 @@ impl<'m> Builder<'m> {
         }
     }
 
+    /// The layout of the element of the array type `ty` when it is an all-scalar record or tuple
+    /// stored inline (E2), or `None` when the elements stay one-word values or references.
+    ///
+    /// This ignores the local-only exclusions of [`values::Values`]: an array element can be
+    /// stored inline even when the same type is a function parameter, a result or a list head.
+    pub(crate) fn inline_array_elem(&self, ty: TypeId) -> Option<values::Layout> {
+        if !self.options.aggregate_arrays {
+            return None;
+        }
+        match self.core().ty(ty) {
+            Type::Array(elem) => values::all_scalar(self.core(), *elem),
+            _ => None,
+        }
+    }
+
+    /// The descriptor of the box made when an inline array element is read as a reference (E2).
+    /// Its slots are the element's scalar leaves and it has no references, exactly what
+    /// `Value::Make` gives a boxed all-scalar record or tuple.
+    pub(crate) fn inline_array_elem_desc(&mut self, ty: TypeId) -> Option<u32> {
+        let layout = self.inline_array_elem(ty)?;
+        let slots = layout.slots();
+        Some(self.desc(DescKey {
+            kind: 0,
+            tag: 0,
+            enum_id: -1,
+            name: layout.name.clone(),
+            show: None,
+            refs: vec![false; slots],
+            stride: 0,
+        }))
+    }
+
     /// The descriptor of an array of type `ty` (`runtime/array.rs`): kind 2, with `refs[0]`
-    /// telling whether the elements are references.
+    /// telling whether the elements are references and the element stride in slots.
+    ///
+    /// A scalar array keeps a stride of 1 (one 8-byte word). An array of an all-scalar record or
+    /// tuple stores the element inline, one slot per scalar leaf, so `refs[0]` is false whatever
+    /// the IR representation of the element is.
     pub(crate) fn array_desc(&mut self, ty: TypeId) -> u32 {
-        let elem_ref = self.array_elem_repr(ty) == Repr::Ref;
+        let inline = self.inline_array_elem(ty);
+        let stride = inline.as_ref().map_or(1, |layout| layout.slots() as u32);
+        let elem_ref = inline.is_none() && self.array_elem_repr(ty) == Repr::Ref;
         self.desc(DescKey {
             kind: runtime::array::KIND,
             tag: 0,
@@ -987,6 +1101,7 @@ impl<'m> Builder<'m> {
             name: "Array".to_owned(),
             show: None,
             refs: vec![elem_ref],
+            stride,
         })
     }
 
@@ -1013,6 +1128,7 @@ impl<'m> Builder<'m> {
             name: check::display_name(&self.m.functions[function].name).to_owned(),
             show: None,
             refs: vec![false],
+            stride: 0,
         });
         let o = self.alloc_static(HDR + 8);
         self.write_u32(o + 8, desc);
@@ -1031,6 +1147,85 @@ impl<'m> Builder<'m> {
         let params: Vec<ValType> = params.iter().map(|&r| val(r)).collect();
         let results: Vec<ValType> = repr_val(ret).into_iter().collect();
         self.ty(params, results)
+    }
+
+    /// The wasm value types the operands push, in order: one per scalar leaf of a value held by
+    /// value, one for any other value, and none for `()`.
+    ///
+    /// The operands are the authority, not the declared function type: a lifted closure can take
+    /// the evidence table as an ordinary last parameter (spec 8.4), and a `()` parameter has no
+    /// representation.
+    fn operand_val_types(&self, cx: &FnCtx, args: &[Operand]) -> Vec<ValType> {
+        let mut out = Vec::new();
+        for arg in args {
+            match arg {
+                Operand::Var(v) => match cx.aggregate(*v) {
+                    Some(n) => {
+                        for i in 0..n {
+                            out.push(val(cx.leaf_repr(*v, i)));
+                        }
+                    }
+                    None => out.push(val(cx.f.vars[*v].repr)),
+                },
+                Operand::Const(c) => {
+                    if c.repr() != Repr::Void {
+                        out.push(val(c.repr()));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The wasm result types of a call returning `ty`, and the leaves to store when the result is
+    /// held by value.
+    fn result_val_types(&self, ty: TypeId) -> (Vec<ValType>, Option<Vec<Repr>>) {
+        match self.leaves(ty) {
+            Some(leaves) => (
+                leaves.iter().map(|&r| val(r)).collect(),
+                Some(leaves.to_vec()),
+            ),
+            None => (repr_val(self.repr(ty)).into_iter().collect(), None),
+        }
+    }
+
+    /// Stores a call's result: one wasm local per leaf of a value held by value, or the single
+    /// representation of any other result.
+    fn assign_result(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        ret: Repr,
+        leaves: Option<Vec<Repr>>,
+    ) {
+        let Some(leaves) = leaves else {
+            self.assign(cx, ins, dst, ret);
+            return;
+        };
+        match dst {
+            Some(d) => {
+                if cx.aggregate(d) != Some(leaves.len() as u32) {
+                    self.internal(format!(
+                        "a result of {} has no destination in {}",
+                        leaves.len(),
+                        cx.f.name
+                    ));
+                    return;
+                }
+                // The leaves are on the stack in field order; store them in reverse.
+                for i in (0..leaves.len() as u32).rev() {
+                    ins.local_set(cx.leaf(d, i));
+                }
+            }
+            // An unused result is given up like any other value: the leaves own no reference, so
+            // each is dropped from the operand stack.
+            None => {
+                for _ in &leaves {
+                    ins.drop();
+                }
+            }
+        }
     }
 
     // ---- assembly ----
@@ -1278,10 +1473,14 @@ impl<'m> Builder<'m> {
             self.internal(format!("no state machine for {}", f.name));
             return WasmFunction::new(Vec::<(u32, ValType)>::new());
         };
+        // The wrapper has the function's ordinary (flattened) signature and forwards every wasm
+        // parameter to the body, which takes the same parameters then the frame pointer. A by-value
+        // parameter is several wasm parameters, in field order.
+        let params = self.signature(f).0;
         let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
         {
             let mut ins = func.instructions();
-            for i in 0..f.params.len() as u32 {
+            for i in 0..params.len() as u32 {
                 ins.local_get(i);
             }
             ins.i32_const(0);
@@ -1329,8 +1528,8 @@ impl<'m> Builder<'m> {
             let mut ins = func.instructions();
             self.seq(&mut cx, &mut ins, body, None);
             // A body that falls off its end must still return the right type.
-            let ret = cx.ret;
-            dummy_return(&mut ins, ret);
+            let leaves = cx.ret_leaves.clone();
+            dummy_return_values(&mut ins, &leaves);
             ins.end();
         }
         let _ = id;
@@ -1483,7 +1682,12 @@ impl<'m> Builder<'m> {
     ) {
         match dst {
             Some(d) => {
-                if repr != Repr::Void {
+                if let Some(n) = cx.aggregate(d) {
+                    // The value's leaves are on the stack in field order; store them in reverse.
+                    for i in (0..n).rev() {
+                        ins.local_set(cx.leaf(d, i));
+                    }
+                } else if repr != Repr::Void {
                     ins.local_set(cx.local(d));
                 }
             }
@@ -1498,7 +1702,13 @@ impl<'m> Builder<'m> {
     fn operand(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, o: &Operand) {
         match o {
             Operand::Var(v) => {
-                ins.local_get(cx.local(*v));
+                if let Some(n) = cx.aggregate(*v) {
+                    for i in 0..n {
+                        ins.local_get(cx.leaf(*v, i));
+                    }
+                } else {
+                    ins.local_get(cx.local(*v));
+                }
             }
             Operand::Const(c) => self.const_val(ins, c),
         }
@@ -1533,8 +1743,140 @@ impl<'m> Builder<'m> {
         }
     }
 
+    /// The number of wasm values [`Builder::operand`] pushes: one per scalar leaf of a value held
+    /// by value, one for any other value, and none for a `()` constant.
+    fn operand_width(cx: &FnCtx, o: &Operand) -> usize {
+        match o {
+            Operand::Var(v) => cx.aggregate(*v).map_or(1, |n| n as usize),
+            Operand::Const(c) => usize::from(c.repr() != Repr::Void),
+        }
+    }
+
+    /// The descriptor of a box of `ty`, a value held by value: one slot per scalar leaf, no
+    /// references, tag 0, the value name. It is the same object the C backend's `layout_desc` and
+    /// `em_box_value` make, so a box can be unboxed by loading its slots.
+    fn box_desc(&mut self, ty: TypeId) -> Option<u32> {
+        let i = self.layout(ty)?;
+        let (name, slots) = {
+            let layout = self.values.get(i);
+            (layout.name.clone(), layout.slots())
+        };
+        Some(self.desc(DescKey {
+            kind: 0,
+            tag: 0,
+            enum_id: -1,
+            name,
+            show: None,
+            refs: vec![false; slots],
+            stride: 0,
+        }))
+    }
+
+    /// Stores the top of the stack as `repr` at `off` of the object below it.
+    fn store_mem(ins: &mut InstructionSink, off: u32, repr: Repr) {
+        match repr {
+            Repr::I32 | Repr::Ref => {
+                ins.i32_store(mem(off, 4));
+            }
+            Repr::I64 => {
+                ins.i64_store(mem(off, 8));
+            }
+            Repr::F64 => {
+                ins.f64_store(mem(off, 8));
+            }
+            Repr::Void => {}
+        }
+    }
+
+    /// Loads `repr` at `off` of the object on top of the stack.
+    fn load_mem(ins: &mut InstructionSink, off: u32, repr: Repr) {
+        match repr {
+            Repr::I32 | Repr::Ref => {
+                ins.i32_load(mem(off, 4));
+            }
+            Repr::I64 => {
+                ins.i64_load(mem(off, 8));
+            }
+            Repr::F64 => {
+                ins.f64_load(mem(off, 8));
+            }
+            Repr::Void => {}
+        }
+    }
+
+    /// Allocates a box of the value in local `v` (held by value, E1 step 5), stores its leaves,
+    /// and leaves the box reference on the stack. The local copy owns nothing, so it is not
+    /// consumed.
+    fn box_value(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, v: VarId) {
+        let ty = cx.f.vars[v].ty;
+        let Some(i) = self.layout(ty) else {
+            let name = cx.f.name.clone();
+            self.internal(format!("a value with no layout is boxed in {name}"));
+            ins.i32_const(0);
+            return;
+        };
+        let leaves = self.values.get(i).leaves.clone();
+        let Some(desc) = self.box_desc(ty) else {
+            ins.i32_const(0);
+            return;
+        };
+        let Some(box_ref) = cx.box_ref else {
+            let name = cx.f.name.clone();
+            self.internal(format!("no box local in {name}"));
+            ins.i32_const(0);
+            return;
+        };
+        ins.i32_const(leaves.len() as i32);
+        ins.i32_const(desc as i32);
+        let alloc = self.rt("alloc");
+        ins.call(alloc);
+        ins.local_set(box_ref);
+        for (k, &r) in leaves.iter().enumerate() {
+            ins.local_get(box_ref);
+            ins.local_get(cx.leaf(v, k as u32));
+            Self::store_mem(ins, HDR + k as u32 * 8, r);
+        }
+        ins.local_get(box_ref);
+    }
+
+    /// Copies the leaves of the box on top of the stack into the locals of the value in `dst`.
+    /// The box reference is borrowed; it is left in the box local and not dropped here.
+    fn unbox_top(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, dst: VarId) {
+        let Some(box_ref) = cx.box_ref else {
+            let name = cx.f.name.clone();
+            self.internal(format!("no box local in {name}"));
+            return;
+        };
+        ins.local_set(box_ref);
+        self.unbox_from(cx, ins, dst, box_ref);
+    }
+
+    /// Copies the leaves of the box in local `box_ref` into the locals of the value in `dst`.
+    fn unbox_from(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, dst: VarId, box_ref: u32) {
+        let ty = cx.f.vars[dst].ty;
+        let Some(i) = self.layout(ty) else {
+            let name = cx.f.name.clone();
+            self.internal(format!("a value with no layout is unboxed in {name}"));
+            return;
+        };
+        let leaves = self.values.get(i).leaves.clone();
+        if cx.aggregate(dst) != Some(leaves.len() as u32) {
+            let name = cx.f.name.clone();
+            self.internal(format!(
+                "a box of {} values has no destination in {name}",
+                leaves.len()
+            ));
+            return;
+        }
+        for (k, &r) in leaves.iter().enumerate() {
+            ins.local_get(box_ref);
+            Self::load_mem(ins, HDR + k as u32 * 8, r);
+            ins.local_set(cx.leaf(dst, k as u32));
+        }
+    }
+
     /// Stores the operand into slot `index` of the object in local `base` (a word: any word for a
-    /// value without a representation).
+    /// value without a representation). An operand held by value is boxed first (E1 step 5).
     fn store_slot(
         &mut self,
         cx: &mut FnCtx,
@@ -1543,6 +1885,18 @@ impl<'m> Builder<'m> {
         index: usize,
         o: &Operand,
     ) {
+        // A value held in locals has no single reference to store in a box: write a box of its
+        // leaves and store that reference. The box owns no reference itself, so the containing
+        // object's descriptor marks the slot a reference and releases the box with the object.
+        if let Operand::Var(v) = o
+            && cx.aggregate(*v).is_some()
+        {
+            let off = HDR + index as u32 * 8;
+            ins.local_get(cx.local(base));
+            self.box_value(cx, ins, *v);
+            ins.i32_store(mem(off, 4));
+            return;
+        }
         let off = HDR + index as u32 * 8;
         let r = Self::operand_repr(cx.f, o);
         ins.local_get(cx.local(base));
@@ -1607,12 +1961,24 @@ impl<'m> Builder<'m> {
             Term::Yield(v) => {
                 if let (Some(d), Some(v)) = (yield_dst, v) {
                     self.operand(cx, ins, v);
-                    ins.local_set(cx.local(d));
+                    let repr = Self::operand_repr(cx.f, v);
+                    self.assign(cx, ins, Some(d), repr);
                 } else if let (None, Some(_)) = (yield_dst, v) {
                     self.internal(format!("yield without a target in {}", cx.f.name));
                 }
             }
             Term::Return(v) => {
+                // A flattened function's result is one wasm result per leaf, so the operand must
+                // push exactly as many values as the signature declares.
+                let width = v.as_ref().map_or(0, |o| Self::operand_width(cx, o));
+                if width != cx.ret_leaves.len() {
+                    self.internal(format!(
+                        "return of {width} values from {} with {} results",
+                        cx.f.name,
+                        cx.ret_leaves.len()
+                    ));
+                    return;
+                }
                 if let Some(v) = v {
                     self.operand(cx, ins, v);
                 }
@@ -1621,7 +1987,7 @@ impl<'m> Builder<'m> {
             Term::Fail(v) => {
                 self.operand(cx, ins, v);
                 ins.global_set(G_FAILURE);
-                dummy_return(ins, cx.ret);
+                dummy_return_values(ins, &cx.ret_leaves);
             }
             Term::Break { label, value } => {
                 let Some((depth, dst)) = cx.find_block(*label) else {
@@ -1630,7 +1996,8 @@ impl<'m> Builder<'m> {
                 };
                 if let (Some(d), Some(v)) = (dst, value) {
                     self.operand(cx, ins, v);
-                    ins.local_set(cx.local(d));
+                    let repr = Self::operand_repr(cx.f, v);
+                    self.assign(cx, ins, Some(d), repr);
                 }
                 ins.br(depth);
             }
@@ -1639,20 +2006,43 @@ impl<'m> Builder<'m> {
                     self.internal(format!("recur outside a loop in {}", cx.f.name));
                     return;
                 };
-                // Parallel assignment through scratch locals.
-                for (i, (o, &v)) in args.iter().zip(&vars).enumerate() {
+                // Parallel assignment through scratch locals. A value held by value contributes
+                // one scratch slot per leaf, in field order; `recur_slots` made room for the
+                // widest `recur`.
+                let mut slot = 0u32;
+                for (o, &v) in args.iter().zip(&vars) {
                     self.operand(cx, ins, o);
-                    let r = cx.f.vars[v].repr;
-                    ins.local_set(cx.scratch(r, i));
+                    if let Some(n) = cx.aggregate(v) {
+                        for i in (0..n).rev() {
+                            let r = cx.leaf_repr(v, i);
+                            ins.local_set(cx.scratch(r, (slot + i) as usize));
+                        }
+                        slot += n;
+                    } else {
+                        let r = cx.f.vars[v].repr;
+                        ins.local_set(cx.scratch(r, slot as usize));
+                        slot += 1;
+                    }
                 }
-                for (i, &v) in vars.iter().enumerate() {
-                    let r = cx.f.vars[v].repr;
-                    ins.local_get(cx.scratch(r, i));
-                    ins.local_set(cx.local(v));
+                let mut slot = 0u32;
+                for &v in &vars {
+                    if let Some(n) = cx.aggregate(v) {
+                        for i in 0..n {
+                            let r = cx.leaf_repr(v, i);
+                            ins.local_get(cx.scratch(r, (slot + i) as usize));
+                            ins.local_set(cx.leaf(v, i));
+                        }
+                        slot += n;
+                    } else {
+                        let r = cx.f.vars[v].repr;
+                        ins.local_get(cx.scratch(r, slot as usize));
+                        ins.local_set(cx.local(v));
+                        slot += 1;
+                    }
                 }
                 ins.br(depth);
             }
-            Term::Unwind => dummy_return(ins, cx.ret),
+            Term::Unwind => dummy_return_values(ins, &cx.ret_leaves),
             Term::Unreachable => {
                 ins.unreachable();
             }
@@ -1679,7 +2069,12 @@ impl<'m> Builder<'m> {
                 if sync {
                     ins.call(self.rt("sync_enter"));
                 }
-                self.value(cx, ins, dst, &value);
+                match cx.f.reuse.get(&id).copied() {
+                    // Perceus reuse (C4/PR-042): write the new fields into the old block instead
+                    // of allocating a new one.
+                    Some(old) => self.reuse_make(cx, ins, dst, old, &value),
+                    None => self.value(cx, ins, dst, &value),
+                }
                 if sync {
                     ins.call(self.rt("sync_leave"));
                 }
@@ -1732,7 +2127,11 @@ impl<'m> Builder<'m> {
             } => {
                 let scrutinee = match on {
                     SwitchOn::Tag(v) => {
-                        if cx.f.vars[v].repr == Repr::Ref {
+                        if cx.aggregate(v).is_some() {
+                            // A value held by value has exactly one constructor, so its tag is 0
+                            // (as the C backend does).
+                            Scrutinee::TagZero
+                        } else if cx.f.vars[v].repr == Repr::Ref {
                             Scrutinee::Tag(v)
                         } else {
                             Scrutinee::Variant(v)
@@ -1750,7 +2149,8 @@ impl<'m> Builder<'m> {
             } => {
                 for (&v, init) in vars.iter().zip(&inits) {
                     self.operand(cx, ins, init);
-                    ins.local_set(cx.local(v));
+                    let repr = Self::operand_repr(cx.f, init);
+                    self.assign(cx, ins, Some(v), repr);
                 }
                 ins.loop_(BlockType::Empty);
                 cx.push(Lbl::Loop(vars.clone()));
@@ -1767,6 +2167,11 @@ impl<'m> Builder<'m> {
             }
             Stmt::Protect { .. } => self.internal(format!("protect left in {}", cx.f.name)),
             Stmt::Dup(v) => {
+                // A value held by value owns no reference: nothing to count (the C backend's
+                // `count` does the same).
+                if cx.aggregate(v).is_some() {
+                    return;
+                }
                 ins.local_get(cx.local(v));
                 // `dup`: count the object unless it is null or static (rc == 0).
                 let obj = cx.scratch(Repr::I32, 0);
@@ -1792,8 +2197,18 @@ impl<'m> Builder<'m> {
                 ins.end();
             }
             Stmt::Drop(v) => {
+                // A value held by value owns no reference: nothing to release.
+                if cx.aggregate(v).is_some() {
+                    return;
+                }
                 ins.local_get(cx.local(v));
-                let drop = self.rt("drop");
+                // Drop specialisation (C3/PR-027): a value whose payload holds no reference and
+                // whose type has no finalizer gives its block back without walking it.
+                let name = match cx.f.drop_kinds.get(&id) {
+                    Some(emela_lir::opt::drop_spec::DropKind::Block) => "drop_block",
+                    _ => "drop",
+                };
+                let drop = self.rt(name);
                 ins.call(drop);
             }
         }
@@ -1803,6 +2218,12 @@ impl<'m> Builder<'m> {
     /// everything else (a sparse table, a switch on a literal, too few cases) stays the chain of
     /// comparing `if`s. A literal switch cannot use a table: its keys are arbitrary `i32`s, and
     /// an `i64` one is not the `i32` a `br_table` indexes with.
+    ///
+    /// The keys and their span come from the LIR ([`emela_lir::opt::switch::variant_keys`],
+    /// [`emela_lir::opt::switch::variant_span`]); when the normalisation pass ran they are already
+    /// sorted, the keys of a shared body are joined and duplicates are gone, and the emitter only
+    /// decides whether a table is worth its bytes. The helpers also accept the un-normalised form
+    /// of a `--no-opt` build.
     fn switch(
         &mut self,
         cx: &mut FnCtx,
@@ -1816,27 +2237,21 @@ impl<'m> Builder<'m> {
             return self.switch_chain(cx, ins, cases, 0, default, dst, scrutinee);
         }
         // The verifier gives a tag switch only variant keys, in range of the enum, each once.
-        let mut keys = Vec::with_capacity(cases.len());
-        for case in cases {
-            match &case.key {
-                CaseKey::Variant(k) => keys.push(*k),
-                CaseKey::Lit(_) => {
-                    self.internal(format!("a literal case in a tag switch in {}", cx.f.name));
-                    return;
-                }
-            }
-        }
-        let Some(max) = keys.iter().copied().max() else {
+        let Some(keys) = emela_lir::opt::switch::variant_keys(cases) else {
+            self.internal(format!("a literal case in a tag switch in {}", cx.f.name));
+            return;
+        };
+        let Some(width) = emela_lir::opt::switch::variant_span(cases) else {
             return self.switch_chain(cx, ins, cases, 0, default, dst, scrutinee);
         };
         // A table entry costs a byte; a case of the chain costs a comparison and its `if`, which
         // is more. A table wider than that is not worth it, nor is one for a couple of cases,
-        // where the dispatch is one more label than the comparison it replaces.
-        let width = max.saturating_add(1);
-        if cases.len() < SWITCH_TABLE_MIN_CASES || width > SWITCH_TABLE_WIDTH_SCALE * cases.len() {
+        // where the dispatch is one more label than the comparison it replaces. The count is of
+        // keys, not of bodies: a chain compares every key, a table has one block per body.
+        if keys.len() < SWITCH_TABLE_MIN_CASES || width > SWITCH_TABLE_WIDTH_SCALE * keys.len() {
             return self.switch_chain(cx, ins, cases, 0, default, dst, scrutinee);
         }
-        self.switch_table(cx, ins, cases, &keys, default, dst, scrutinee, width);
+        self.switch_table(cx, ins, cases, default, dst, scrutinee, width);
     }
 
     /// A switch as one nested block per case, dispatched by `br_table`, with a block around them
@@ -1855,7 +2270,6 @@ impl<'m> Builder<'m> {
         cx: &mut FnCtx,
         ins: &mut InstructionSink,
         cases: &[emela_lir::Case],
-        keys: &[usize],
         default: &Option<SeqId>,
         dst: Option<VarId>,
         scrutinee: Scrutinee,
@@ -1876,8 +2290,16 @@ impl<'m> Builder<'m> {
         // From the innermost case block, the `n` case blocks are at depths `0..n`, the default
         // block at `n` and the switch's end at `n + 1`.
         let mut targets = vec![n as u32; width];
-        for (i, &k) in keys.iter().enumerate() {
-            targets[k] = i as u32;
+        for (i, case) in cases.iter().enumerate() {
+            for key in &case.keys {
+                match key {
+                    CaseKey::Variant(k) => targets[*k] = i as u32,
+                    CaseKey::Lit(_) => {
+                        self.internal(format!("a literal case in a tag switch in {}", cx.f.name));
+                        return;
+                    }
+                }
+            }
         }
         ins.br_table(targets, n as u32);
         for (i, case) in cases.iter().enumerate() {
@@ -1926,22 +2348,7 @@ impl<'m> Builder<'m> {
             return;
         }
         let case = &cases[i];
-        self.push_scrutinee(cx, ins, scrutinee);
-        match &case.key {
-            CaseKey::Variant(k) => {
-                ins.i32_const(*k as i32);
-            }
-            CaseKey::Lit(c) => {
-                self.const_val(ins, c);
-            }
-        }
-        match scrutinee {
-            Scrutinee::Tag(_) | Scrutinee::Variant(_) => ins.i32_eq(),
-            Scrutinee::Lit(v) => match cx.f.vars[v].repr {
-                Repr::I64 => ins.i64_eq(),
-                _ => ins.i32_eq(),
-            },
-        };
+        self.push_case_match(cx, ins, case, scrutinee);
         ins.if_(BlockType::Empty);
         cx.push(Lbl::Other);
         let body = case.body;
@@ -1952,11 +2359,52 @@ impl<'m> Builder<'m> {
         ins.end();
     }
 
+    /// Pushes whether the scrutinee matches one of the case's keys: the comparison of each key,
+    /// combined with `i32_or`. A case has one key unless the LIR pass joined cases whose bodies
+    /// are the same sequence.
+    fn push_case_match(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        case: &emela_lir::Case,
+        scrutinee: Scrutinee,
+    ) {
+        let literal = matches!(scrutinee, Scrutinee::Lit(_));
+        for (i, key) in case.keys.iter().enumerate() {
+            self.push_scrutinee(cx, ins, scrutinee);
+            match key {
+                CaseKey::Variant(k) => {
+                    ins.i32_const(*k as i32);
+                }
+                CaseKey::Lit(c) => {
+                    self.const_val(ins, c);
+                }
+            }
+            if literal {
+                match scrutinee {
+                    Scrutinee::Lit(v) if cx.f.vars[v].repr == Repr::I64 => ins.i64_eq(),
+                    _ => ins.i32_eq(),
+                };
+            } else {
+                ins.i32_eq();
+            }
+            if i > 0 {
+                ins.i32_or();
+            }
+        }
+        if case.keys.is_empty() {
+            ins.i32_const(0);
+        }
+    }
+
     fn push_scrutinee(&mut self, cx: &mut FnCtx, ins: &mut InstructionSink, s: Scrutinee) {
         match s {
             Scrutinee::Tag(v) => self.tag_value(cx, ins, v),
             Scrutinee::Variant(v) | Scrutinee::Lit(v) => {
                 ins.local_get(cx.local(v));
+            }
+            Scrutinee::TagZero => {
+                ins.i32_const(0);
             }
         }
     }
@@ -2000,6 +2448,16 @@ impl<'m> Builder<'m> {
                     }
                     return;
                 }
+                // A record held by value is a span of leaves, without an allocation.
+                if let Some(d) = dst
+                    && self.layout(cx.f.vars[d].ty).is_some()
+                {
+                    for a in args {
+                        self.operand(cx, ins, a);
+                    }
+                    self.assign(cx, ins, Some(d), Repr::Ref);
+                    return;
+                }
                 let refs: Vec<bool> = args
                     .iter()
                     .map(|a| Self::operand_repr(cx.f, a) == Repr::Ref)
@@ -2019,6 +2477,7 @@ impl<'m> Builder<'m> {
                         None
                     },
                     refs,
+                    stride: 0,
                 };
                 let desc = self.desc(key);
                 if args.is_empty() {
@@ -2033,6 +2492,23 @@ impl<'m> Builder<'m> {
             }
             Value::Field { base, index, .. } | Value::TupleGet { base, index } => {
                 if let Some(d) = dst {
+                    if let Some(i) = self.layout(cx.f.vars[*base].ty) {
+                        // A record or tuple held by value: its field is a span of leaves, no
+                        // pointer.
+                        let span = self.values.get(i).field(*index);
+                        for k in 0..span.len {
+                            ins.local_get(cx.leaf(*base, (span.start + k) as u32));
+                        }
+                        self.assign(cx, ins, Some(d), Repr::Ref);
+                        return;
+                    }
+                    if cx.aggregate(d).is_some() {
+                        // A field of a boxed enum is a box of the value (E1 step 5); unbox it.
+                        let base = *base;
+                        self.load_field(cx, ins, base, *index, Repr::Ref);
+                        self.unbox_top(cx, ins, d);
+                        return;
+                    }
                     let base = *base;
                     let repr = cx.f.vars[d].repr;
                     self.load_field(cx, ins, base, *index, repr);
@@ -2040,7 +2516,10 @@ impl<'m> Builder<'m> {
                 }
             }
             Value::Tag(v) => {
-                if cx.f.vars[*v].repr == Repr::Ref {
+                if cx.aggregate(*v).is_some() {
+                    // A record has one constructor.
+                    ins.i32_const(0);
+                } else if cx.f.vars[*v].repr == Repr::Ref {
                     self.tag_value(cx, ins, *v);
                 } else {
                     ins.local_get(cx.local(*v));
@@ -2048,6 +2527,15 @@ impl<'m> Builder<'m> {
                 self.assign(cx, ins, dst, Repr::I32);
             }
             Value::Tuple(elems) => {
+                if let Some(d) = dst
+                    && self.layout(cx.f.vars[d].ty).is_some()
+                {
+                    for a in elems {
+                        self.operand(cx, ins, a);
+                    }
+                    self.assign(cx, ins, Some(d), Repr::Ref);
+                    return;
+                }
                 let refs: Vec<bool> = elems
                     .iter()
                     .map(|a| Self::operand_repr(cx.f, a) == Repr::Ref)
@@ -2059,6 +2547,7 @@ impl<'m> Builder<'m> {
                     name: "tuple".to_owned(),
                     show: None,
                     refs,
+                    stride: 0,
                 });
                 let elems = elems.clone();
                 self.alloc_value(cx, ins, dst, desc, &elems);
@@ -2100,6 +2589,13 @@ impl<'m> Builder<'m> {
             }
             Value::ListHead(v) => {
                 if let Some(d) = dst {
+                    if cx.aggregate(d).is_some() {
+                        // The list head is a box of the value (E1 step 5); unbox it.
+                        let base = *v;
+                        self.load_field(cx, ins, base, 0, Repr::Ref);
+                        self.unbox_top(cx, ins, d);
+                        return;
+                    }
                     let base = *v;
                     let repr = cx.f.vars[d].repr;
                     self.load_field(cx, ins, base, 0, repr);
@@ -2134,6 +2630,7 @@ impl<'m> Builder<'m> {
                     name: check::display_name(&self.m.functions[function].name).to_owned(),
                     show: None,
                     refs,
+                    stride: 0,
                 });
                 let Some(d) = dst else {
                     self.internal(format!("closure without a destination in {}", cx.f.name));
@@ -2151,6 +2648,13 @@ impl<'m> Builder<'m> {
             }
             Value::EnvGet { env, index } => {
                 if let Some(d) = dst {
+                    if cx.aggregate(d).is_some() {
+                        // A closure capture is a box of the value (E1 step 5); unbox it.
+                        let base = *env;
+                        self.load_field(cx, ins, base, index + 1, Repr::Ref);
+                        self.unbox_top(cx, ins, d);
+                        return;
+                    }
                     let base = *env;
                     let repr = cx.f.vars[d].repr;
                     self.load_field(cx, ins, base, index + 1, repr);
@@ -2188,6 +2692,7 @@ impl<'m> Builder<'m> {
                     name: "evidence".to_owned(),
                     show: None,
                     refs,
+                    stride: 0,
                 });
                 let bindings = bindings.clone();
                 self.alloc(cx, ins, d, desc, 2 + 2 * bindings.len());
@@ -2231,6 +2736,7 @@ impl<'m> Builder<'m> {
                     name: name.clone(),
                     show: None,
                     refs,
+                    stride: 0,
                 });
                 let Some(d) = dst else {
                     self.internal(format!("handler without a destination in {}", cx.f.name));
@@ -2263,38 +2769,92 @@ impl<'m> Builder<'m> {
             Value::Runtime { op, args } => self.runtime_op(cx, ins, dst, *op, args),
             Value::Coerce(v) => {
                 let Some(d) = dst else { return };
-                let from = cx.f.vars[*v].repr;
-                let to = cx.f.vars[d].repr;
-                if from == to {
-                    ins.local_get(cx.local(*v));
-                } else if to == Repr::Ref {
-                    // Box the value.
-                    let desc = self.desc(DescKey {
-                        kind: 0,
-                        tag: 0,
-                        enum_id: -1,
-                        name: "box".to_owned(),
-                        show: None,
-                        refs: vec![from == Repr::Ref],
-                    });
-                    ins.i32_const(1);
-                    ins.i32_const(desc as i32);
-                    let alloc = self.rt("alloc");
-                    ins.call(alloc);
-                    ins.local_set(cx.local(d));
-                    self.store_slot(cx, ins, d, 0, &Operand::Var(*v));
-                    return;
-                } else {
-                    // Unbox.
-                    ins.local_get(cx.local(*v));
-                    match to {
-                        Repr::I32 | Repr::Ref => ins.i32_load(mem(HDR, 4)),
-                        Repr::I64 => ins.i64_load(mem(HDR, 8)),
-                        Repr::F64 => ins.f64_load(mem(HDR, 8)),
-                        Repr::Void => unreachable!(),
-                    };
+                let from_agg = cx.aggregate(*v).is_some();
+                let to_agg = cx.aggregate(d).is_some();
+                match (from_agg, to_agg) {
+                    // A conversion between two values keeps the leaves.
+                    (true, true) => {
+                        let Some(n) = cx.aggregate(*v) else { return };
+                        for k in 0..n {
+                            ins.local_get(cx.leaf(*v, k));
+                            ins.local_set(cx.leaf(d, k));
+                        }
+                    }
+                    // `Agg -> Ref`: the `Any` box holds a reference to a box of the value, so its
+                    // one slot is a reference (E1 step 5).
+                    (true, false) => {
+                        let to = cx.f.vars[d].repr;
+                        if to != Repr::Ref {
+                            let name = cx.f.name.clone();
+                            self.internal(format!("a value crosses `Any` into a word in {name}"));
+                            return;
+                        }
+                        let desc = self.desc(DescKey {
+                            kind: 0,
+                            tag: 0,
+                            enum_id: -1,
+                            name: "box".to_owned(),
+                            show: None,
+                            refs: vec![true],
+                            stride: 0,
+                        });
+                        ins.i32_const(1);
+                        ins.i32_const(desc as i32);
+                        let alloc = self.rt("alloc");
+                        ins.call(alloc);
+                        ins.local_set(cx.local(d));
+                        ins.local_get(cx.local(d));
+                        self.box_value(cx, ins, *v);
+                        ins.i32_store(mem(HDR, 4));
+                    }
+                    // `Ref -> Agg`: an `Any` box whose slot 0 is a box of the value (E1 step 5).
+                    (false, true) => {
+                        let from = cx.f.vars[*v].repr;
+                        if from != Repr::Ref {
+                            let name = cx.f.name.clone();
+                            self.internal(format!("a word is unboxed from `Any` in {name}"));
+                            return;
+                        }
+                        ins.local_get(cx.local(*v));
+                        ins.i32_load(mem(HDR, 4));
+                        self.unbox_top(cx, ins, d);
+                    }
+                    (false, false) => {
+                        let from = cx.f.vars[*v].repr;
+                        let to = cx.f.vars[d].repr;
+                        if from == to {
+                            ins.local_get(cx.local(*v));
+                        } else if to == Repr::Ref {
+                            // Box the value.
+                            let desc = self.desc(DescKey {
+                                kind: 0,
+                                tag: 0,
+                                enum_id: -1,
+                                name: "box".to_owned(),
+                                show: None,
+                                refs: vec![from == Repr::Ref],
+                                stride: 0,
+                            });
+                            ins.i32_const(1);
+                            ins.i32_const(desc as i32);
+                            let alloc = self.rt("alloc");
+                            ins.call(alloc);
+                            ins.local_set(cx.local(d));
+                            self.store_slot(cx, ins, d, 0, &Operand::Var(*v));
+                            return;
+                        } else {
+                            // Unbox.
+                            ins.local_get(cx.local(*v));
+                            match to {
+                                Repr::I32 | Repr::Ref => ins.i32_load(mem(HDR, 4)),
+                                Repr::I64 => ins.i64_load(mem(HDR, 8)),
+                                Repr::F64 => ins.f64_load(mem(HDR, 8)),
+                                Repr::Void => unreachable!(),
+                            };
+                        }
+                        ins.local_set(cx.local(d));
+                    }
                 }
-                ins.local_set(cx.local(d));
             }
         }
     }
@@ -2340,6 +2900,106 @@ impl<'m> Builder<'m> {
         for (i, a) in args.iter().enumerate() {
             self.store_slot(cx, ins, d, i, a);
         }
+    }
+
+    /// The `Make` `dst = …` of a statement whose old block is reused (C4/PR-042): the destination
+    /// becomes the old variable, every old field that holds a reference is released, and the new
+    /// fields are written into the same object.
+    ///
+    /// `opt::reuse` proved that the old variable has exactly one use, the removed drop, so no
+    /// argument reads the old block and no other variable reaches it. A reference field is
+    /// released with the drop the old block's own release would have run, before the new field is
+    /// stored: the slot owns one reference and the new argument owns another (the `Make` consumes
+    /// it), so the release cannot free the argument's value, even when both denote the same
+    /// object. The constructor and the type are the same, so the descriptor, the tag, the number
+    /// of slots and the reference slots are the ones the object already has. A nullary
+    /// constructor is static data, which both values already are.
+    fn reuse_make(
+        &mut self,
+        cx: &mut FnCtx,
+        ins: &mut InstructionSink,
+        dst: Option<VarId>,
+        old: VarId,
+        value: &emela_lir::Value,
+    ) {
+        let emela_lir::Value::Make { ctor, args } = value else {
+            self.internal(format!(
+                "a reuse of a value that is not a `make` in {}",
+                cx.f.name
+            ));
+            return;
+        };
+        let Some(d) = dst else {
+            self.internal(format!("reuse without a destination in {}", cx.f.name));
+            return;
+        };
+        if enum_repr(self.core(), ctor.enum_id) == Repr::I32 {
+            // The representation is the tag itself: there is no block.
+            ins.local_get(cx.local(old));
+            ins.local_set(cx.local(d));
+            return;
+        }
+        if self.layout(cx.f.vars[d].ty).is_some() {
+            // Held by value: there is no allocation to reuse; the copy is the whole statement.
+            for a in args {
+                self.operand(cx, ins, a);
+            }
+            self.assign(cx, ins, Some(d), Repr::Ref);
+            return;
+        }
+        ins.local_get(cx.local(old));
+        ins.local_set(cx.local(d));
+        // The old slots own one reference each: give each back with the drop the removed `drop`
+        // would have run, in slot order, before the slot is overwritten.
+        let drop = self.rt("drop");
+        for slot in self.ref_slots(cx.f, old, ctor.enum_id, ctor.variant) {
+            ins.local_get(cx.local(d));
+            ins.i32_load(mem(HDR + slot as u32 * 8, 4));
+            ins.call(drop);
+        }
+        for (i, a) in args.iter().enumerate() {
+            self.store_slot(cx, ins, d, i, a);
+        }
+    }
+
+    /// The slots of the object of `old` that hold a reference, in slot order, from the fields of
+    /// the constructor's variant and the type arguments of the object's type.
+    ///
+    /// The descriptor was made from the same field representations ([`Value::Make`] marks a slot
+    /// a reference when its argument is `Repr::Ref`, and the verifier takes an argument's
+    /// representation from the field type), so these are the slots the old block's drop would
+    /// release.
+    fn ref_slots(
+        &mut self,
+        f: &Function,
+        old: VarId,
+        enum_id: EnumId,
+        variant: usize,
+    ) -> Vec<usize> {
+        let reprs = {
+            let core = self.core();
+            match core.ty(f.vars[old].ty) {
+                Type::Enum(id, args) if *id == enum_id => {
+                    core.enums[enum_id].variants.get(variant).map(|v| {
+                        v.tys
+                            .iter()
+                            .map(|&t| repr_of_subst(core, t, args))
+                            .collect::<Vec<_>>()
+                    })
+                }
+                _ => None,
+            }
+        };
+        let Some(reprs) = reprs else {
+            self.internal(format!("a reuse of an unexpected value in {}", f.name));
+            return Vec::new();
+        };
+        reprs
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| **r == Repr::Ref)
+            .map(|(i, _)| i)
+            .collect()
     }
 
     fn prim(&mut self, ins: &mut InstructionSink, op: PrimOp, ty: PrimTy) {
@@ -2521,13 +3181,33 @@ impl<'m> Builder<'m> {
     ) {
         match callee {
             Callee::Direct(g) => {
+                let m = self.m;
+                let f = &m.functions[*g];
+                // The result of a flattened function is one wasm result per scalar leaf.
+                let ret_leaves = self.leaves(f.ret).map(|l| l.to_vec());
+                let ret = self.repr(f.ret);
+                // The arguments must push exactly the parameters the signature declares: one
+                // value per scalar leaf of a by-value parameter, one for any other.
+                let expected: usize = f
+                    .params
+                    .iter()
+                    .map(|&p| self.leaves(f.vars[p].ty).map_or(1, |l| l.len()))
+                    .sum();
+                let pushed: usize = args.iter().map(|a| Self::operand_width(cx, a)).sum();
+                if pushed != expected {
+                    let (callee, caller) = (f.name.clone(), cx.f.name.clone());
+                    self.internal(format!(
+                        "{callee} takes {expected} wasm arguments in {caller} but the call \
+                         pushes {pushed}"
+                    ));
+                    return;
+                }
                 for a in args {
                     self.operand(cx, ins, a);
                 }
                 let index = self.fn_index(*g);
                 ins.call(index);
-                let ret = self.repr(self.m.functions[*g].ret);
-                self.assign(cx, ins, dst, ret);
+                self.assign_result(cx, ins, dst, ret, ret_leaves);
             }
             Callee::Indirect(c) => {
                 let fty = match self.core().ty(cx.f.vars[*c].ty) {
@@ -2540,8 +3220,7 @@ impl<'m> Builder<'m> {
                         return;
                     }
                 };
-                let ret = self.repr(fty.ret);
-                self.indirect(cx, ins, dst, *c, args, ret);
+                self.indirect(cx, ins, dst, *c, args, fty.ret);
             }
             Callee::Op {
                 handler,
@@ -2555,6 +3234,9 @@ impl<'m> Builder<'m> {
         }
     }
 
+    /// A `call_indirect` of a closure. The closure record is one reference parameter (the
+    /// environment); each other parameter and the result follow the layouts of the function type,
+    /// so an indirect call has the same signature as the function it enters.
     fn indirect(
         &mut self,
         cx: &mut FnCtx,
@@ -2562,13 +3244,12 @@ impl<'m> Builder<'m> {
         dst: Option<VarId>,
         closure: VarId,
         args: &[Operand],
-        ret: Repr,
+        ret_ty: TypeId,
     ) {
-        // The closure record is the environment: it goes first, then the arguments, then the
-        // table index.
-        let mut params = vec![Repr::Ref];
-        params.extend(args.iter().map(|a| Self::operand_repr(cx.f, a)));
-        let ty = self.call_ty(&params, ret);
+        let mut params = vec![val(Repr::Ref)];
+        params.extend(self.operand_val_types(cx, args));
+        let (results, ret_leaves) = self.result_val_types(ret_ty);
+        let ty = self.ty(params, results);
         ins.local_get(cx.local(closure));
         for a in args {
             self.operand(cx, ins, a);
@@ -2576,7 +3257,8 @@ impl<'m> Builder<'m> {
         ins.local_get(cx.local(closure));
         ins.i32_load(mem(HDR, 4));
         ins.call_indirect(0, ty);
-        self.assign(cx, ins, dst, ret);
+        let ret = self.repr(ret_ty);
+        self.assign_result(cx, ins, dst, ret, ret_leaves);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2593,14 +3275,20 @@ impl<'m> Builder<'m> {
     ) {
         let suspend = def.suspend;
         // A `suspend fn` implementation takes the resume function last and returns nothing; the
-        // value to continue with comes from `perform_end` (spec 8.4, 14.5).
-        let mut params = vec![Repr::Ref];
-        params.extend(args.iter().map(|a| Self::operand_repr(cx.f, a)));
+        // value to continue with comes from `perform_end` (spec 8.4, 14.5). Its parameters follow
+        // the layouts of the operation's function type (the implementation is a lifted closure of
+        // that type); its result stays boxed, because the resume channel carries one word.
+        let mut params = vec![val(Repr::Ref)];
+        params.extend(self.operand_val_types(cx, args));
         if suspend {
-            params.push(Repr::Ref);
+            params.push(val(Repr::Ref));
         }
-        let call_ret = if suspend { Repr::Void } else { ret };
-        let ty = self.call_ty(&params, call_ret);
+        let (results, ret_leaves) = if suspend {
+            (Vec::new(), None)
+        } else {
+            self.result_val_types(def.ret)
+        };
+        let ty = self.ty(params, results);
         let op_off = HDR + 8 * (op as u32 + 2);
         let rs = if suspend {
             let rs = cx.scratch(Repr::Ref, 0);
@@ -2635,8 +3323,10 @@ impl<'m> Builder<'m> {
             ins.local_get(rs);
             ins.call(end);
             self.perform_result(ins, ret);
+            self.assign(cx, ins, dst, ret);
+        } else {
+            self.assign_result(cx, ins, dst, ret, ret_leaves);
         }
-        self.assign(cx, ins, dst, ret);
     }
 
     /// the run-time scope of a group, `fork`, `join`, the Deferred operations and the
@@ -3028,24 +3718,38 @@ enum Scrutinee {
     Tag(VarId),
     /// An enum value whose representation is its variant number.
     Variant(VarId),
+    /// An enum value held by value in locals: its one constructor is 0.
+    TagZero,
     /// A literal `i32` or `i64` value.
     Lit(VarId),
+}
+
+/// The type a value that may suspend produces. `None` when it is not a call (a fiber or runtime
+/// operation has its own handling).
+fn value_ret_ty(b: &Builder<'_>, cx: &FnCtx<'_>, value: &Value) -> Option<TypeId> {
+    let Value::Call { callee, .. } = value else {
+        return None;
+    };
+    Some(match callee {
+        Callee::Direct(g) => b.m.functions[*g].ret,
+        Callee::Op { effect, op, .. } => b.core().effects[*effect].ops[*op].ret,
+        Callee::Indirect(c) => match b.core().ty(cx.f.vars[*c].ty) {
+            Type::Fn(fty) => fty.ret,
+            _ => return None,
+        },
+    })
 }
 
 /// The representation of a value that may suspend. The suspension edge needs it when the value is
 /// unused (`dst` is `None`) and the resumed reference must be released.
 fn value_repr(b: &Builder<'_>, cx: &FnCtx<'_>, value: &Value) -> Repr {
-    let Value::Call { callee, .. } = value else {
-        return Repr::Void;
-    };
-    match callee {
-        Callee::Direct(g) => b.repr(b.m.functions[*g].ret),
-        Callee::Op { effect, op, .. } => b.repr(b.core().effects[*effect].ops[*op].ret),
-        Callee::Indirect(c) => match b.core().ty(cx.f.vars[*c].ty) {
-            Type::Fn(fty) => b.repr(fty.ret),
-            _ => Repr::Void,
-        },
-    }
+    value_ret_ty(b, cx, value).map_or(Repr::Void, |ty| b.repr(ty))
+}
+
+/// The scalar leaves of a value that may suspend when its type is held by value.
+fn value_leaves(b: &Builder<'_>, cx: &FnCtx<'_>, value: &Value) -> Option<Vec<Repr>> {
+    let ty = value_ret_ty(b, cx, value)?;
+    b.leaves(ty).map(|leaves| leaves.to_vec())
 }
 
 fn value_on_fail(v: &Value) -> Option<&OnFail> {
@@ -3083,6 +3787,25 @@ fn dummy_return(ins: &mut InstructionSink, ret: Repr) {
     }
 }
 
+/// [`dummy_return`] for a function whose result is a span of leaves (one wasm result each).
+fn dummy_return_values(ins: &mut InstructionSink, leaves: &[Repr]) {
+    for &r in leaves {
+        match r {
+            Repr::Void => {}
+            Repr::I32 | Repr::Ref => {
+                ins.i32_const(0);
+            }
+            Repr::I64 => {
+                ins.i64_const(0);
+            }
+            Repr::F64 => {
+                ins.f64_const(0.0.into());
+            }
+        }
+    }
+    ins.return_();
+}
+
 /// A wasm label on the stack, for computing `br` depths.
 enum Lbl {
     Block(LabelId, Option<VarId>),
@@ -3090,11 +3813,24 @@ enum Lbl {
     Other,
 }
 
+/// The locals of one variable held by value: its representation of each leaf. The first local is
+/// `FnCtx::local(v)`.
+struct LocalSpan {
+    leaves: Vec<Repr>,
+}
+
 struct FnCtx<'a> {
     f: &'a Function,
-    ret: Repr,
+    /// The wasm results of the function: one per leaf of a by-value result, one for any other
+    /// representation except `()`, and empty for `()`.
+    ret_leaves: Vec<Repr>,
     local: Vec<u32>,
+    /// `Some` when the variable is held by value in a span of locals.
+    spans: Vec<Option<LocalSpan>>,
     scratch_base: [u32; 4],
+    /// A scratch local for the reference of a box while an escape boundary boxes or unboxes a
+    /// value (E1 step 5). Only declared when the module holds some value by value.
+    box_ref: Option<u32>,
     decls: Vec<(u32, ValType)>,
     labels: Vec<Lbl>,
 }
@@ -3107,23 +3843,51 @@ impl<'a> FnCtx<'a> {
     /// The context of a function whose wasm signature has `extra` parameters after the IR ones
     /// (a state machine's frame pointer). They occupy the locals right after the parameters.
     fn with_extra_params(f: &'a Function, b: &Builder<'_>, extra: u32) -> Self {
-        let nparams = f.params.len() as u32;
         let mut local = vec![0u32; f.vars.len()];
+        let mut spans: Vec<Option<LocalSpan>> = (0..f.vars.len()).map(|_| None).collect();
         let mut decls: Vec<(u32, ValType)> = Vec::new();
-        for (i, &p) in f.params.iter().enumerate() {
-            local[ix(p)] = i as u32;
+        // A parameter of a flattened signature occupies one wasm parameter per leaf, in field
+        // order (E1 step 3). Otherwise it is its single local from the boxed signature.
+        let mut nparams = 0u32;
+        for &p in &f.params {
+            local[ix(p)] = nparams;
+            match b.leaves(f.vars[p].ty) {
+                Some(leaves) if !leaves.is_empty() => {
+                    nparams += leaves.len() as u32;
+                    spans[ix(p)] = Some(LocalSpan {
+                        leaves: leaves.to_vec(),
+                    });
+                }
+                _ => nparams += 1,
+            }
         }
         let mut next = nparams + extra;
         for (v, data) in f.vars.iter() {
-            if !f.params.contains(&v) {
-                local[ix(v)] = next;
-                next += 1;
-                decls.push((1, val(data.repr)));
+            if f.params.contains(&v) {
+                continue;
+            }
+            local[ix(v)] = next;
+            match b.leaves(data.ty) {
+                // A value held by value is a span of locals, one per scalar leaf, in field order.
+                Some(leaves) if !leaves.is_empty() => {
+                    for &r in leaves {
+                        decls.push((1, val(r)));
+                    }
+                    next += leaves.len() as u32;
+                    spans[ix(v)] = Some(LocalSpan {
+                        leaves: leaves.to_vec(),
+                    });
+                }
+                _ => {
+                    decls.push((1, val(data.repr)));
+                    next += 1;
+                }
             }
         }
         // Scratch locals, one group per representation: for the `recur` parallel assignment and
-        // the general temporaries. At least one of each so a temporary always exists.
-        let count = max_recur(f).max(1);
+        // the general temporaries. At least one of each so a temporary always exists. A value
+        // held by value takes one slot per leaf, so a whole `recur` needs the sum of the leaves.
+        let count = recur_slots(f, b).max(1);
         let mut scratch_base = [0u32; 4];
         for base in scratch_base.iter_mut() {
             *base = next;
@@ -3133,19 +3897,55 @@ impl<'a> FnCtx<'a> {
         decls.push((count, ValType::I64));
         decls.push((count, ValType::F64));
         decls.push((count, ValType::I32));
+        // A single extra local holds a box reference while an escape boundary boxes or unboxes a
+        // value. It is only declared when the module holds a value by value, so a boxed build's
+        // bytes (and the existing pins) do not change.
+        let box_ref = if b.has_values() {
+            let local = next;
+            decls.push((1, ValType::I32));
+            Some(local)
+        } else {
+            None
+        };
         let ret = b.repr(f.ret);
+        let ret_leaves = match b.leaves(f.ret) {
+            Some(leaves) => leaves.to_vec(),
+            None if ret == Repr::Void => Vec::new(),
+            None => vec![ret],
+        };
         FnCtx {
             f,
-            ret,
+            ret_leaves,
             local,
+            spans,
             scratch_base,
+            box_ref,
             decls,
             labels: Vec::new(),
         }
     }
 
+    /// The first local of `v`.
     fn local(&self, v: VarId) -> u32 {
         self.local[ix(v)]
+    }
+
+    /// The number of locals of `v` if it is held by value, else `None`.
+    fn aggregate(&self, v: VarId) -> Option<u32> {
+        self.spans[ix(v)].as_ref().map(|s| s.leaves.len() as u32)
+    }
+
+    /// The local of leaf `i` of the value in `v`.
+    fn leaf(&self, v: VarId, i: u32) -> u32 {
+        self.local[ix(v)] + i
+    }
+
+    /// The representation of leaf `i` of the value in `v`.
+    fn leaf_repr(&self, v: VarId, i: u32) -> Repr {
+        self.spans[ix(v)]
+            .as_ref()
+            .expect("a leaf of a scalar") // a scalar has exactly one leaf at index 0
+            .leaves[i as usize]
     }
 
     fn scratch(&self, r: Repr, i: usize) -> u32 {
@@ -3190,11 +3990,23 @@ impl<'a> FnCtx<'a> {
     }
 }
 
-fn max_recur(f: &Function) -> u32 {
+/// The number of scratch locals a `recur` needs: one per argument, but a value held by value
+/// contributes one per leaf.
+fn recur_slots(f: &Function, b: &Builder<'_>) -> u32 {
     let mut max = 0;
     for (_, seq) in f.seqs.iter() {
         if let Term::Recur(args) = &seq.term {
-            max = max.max(args.len() as u32);
+            let mut n = 0u32;
+            for a in args {
+                n += match a {
+                    Operand::Var(v) => b
+                        .leaves(f.vars[*v].ty)
+                        .map_or(1, |leaves| leaves.len() as u32),
+                    Operand::Const(c) => u32::from(c.repr() != Repr::Void),
+                };
+            }
+            // At least one slot per argument, as before values existed.
+            max = max.max(n.max(args.len() as u32));
         }
     }
     max

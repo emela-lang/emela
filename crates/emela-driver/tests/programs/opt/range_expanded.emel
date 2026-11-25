@@ -1,0 +1,16 @@
+# The hand-written expansion of `range_fused.emel`: the same fold over
+# `List.range(0, n)` as a self tail call, which lowers to a loop.
+
+fn sum_squares(n: Int) -> Int {
+  go(0, n, 0)
+}
+
+fn go(i: Int, n: Int, acc: Int) -> Int {
+  if i >= n { acc } else { go(i + 1, n, acc + i * i) }
+}
+
+fn main() {
+  dbg(sum_squares(0))
+  dbg(sum_squares(1))
+  dbg(sum_squares(5))
+}

@@ -76,7 +76,7 @@ When the language's author asks you to review a proposal's pull request (by numb
    - grammar changes (`[grammar.*]`), diagnostics (`[diag.list]`) and APIs (`[api.*]`) are updated together
    - requirement keywords and terms of `spec/glossary.md`; explanations by analogy with other languages; hedging that belongs in "Open questions"
    - the motivation holds against what the current specification already allows; rejected proposals (`proposals/rejected/`) and open pull requests that cover the same ground
-   - Compatibility: programs that compile now and stop compiling or change meaning
+   - Compatibility: programs that compile now and stop compiling or change meaning. Such a change lands only in a minor release; a large or breaking change says whether it first lands as an experimental feature (`[intro.experimental]`) in patch releases (`docs/release.md`)
 3. Report the problems, most serious first, each with the file and line of the diff. Separate what blocks adoption from what is a matter of taste. Then say whether `/accept` would pass its checks (`status: draft`, no open questions, no Japanese text, a change to `spec/`).
 
 ## 4. After the decision

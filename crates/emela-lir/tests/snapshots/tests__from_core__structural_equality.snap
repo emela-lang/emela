@@ -32,10 +32,8 @@ export fn main() -> void (()) {
   if eq%15 {} else {
     s%16: ref (String) = call show$Point(t%13)
     s%17: ref (String) = call show$Point(t%14)
-    s%18: ref (String) = builtin String.append("\n right: ", s%17)
-    s%19: ref (String) = builtin String.append(s%16, s%18)
-    s%20: ref (String) = builtin String.append("assertion failed: Point(x: 1, y: 2) == Point(x: 1, y: 3)\n  left: ", s%19)
-    defect(s%20) at "src/main.emel:18:3"
+    s%18: ref (String) = runtime concat("assertion failed: Point(x: 1, y: 2) == Point(x: 1, y: 3)\n  left: ", s%16, "\n right: ", s%17)
+    defect(s%18) at "src/main.emel:18:3"
   }
   return
 }
@@ -89,11 +87,8 @@ fn show$Point(x%0: ref (Point)) -> ref (String) {
   s%2: ref (String) = builtin Int.to_string(f%1)
   f%3: i32 (Int) = field x%0 Point.Point.y#1
   s%4: ref (String) = builtin Int.to_string(f%3)
-  s%5: ref (String) = builtin String.append(s%4, ")")
-  s%6: ref (String) = builtin String.append(", y: ", s%5)
-  s%7: ref (String) = builtin String.append(s%2, s%6)
-  s%8: ref (String) = builtin String.append("Point(x: ", s%7)
-  return s%8
+  s%5: ref (String) = runtime concat("Point(x: ", s%2, ", y: ", s%4, ")")
+  return s%5
 }
 
 fn eq$Tree(a%0: ref (Tree), b%1: ref (Tree)) -> i32 (Bool) {

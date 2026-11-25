@@ -19,6 +19,7 @@
 use crate::common;
 
 use common::*;
+use emela_codegen_wasm::WasmOptions;
 
 /// FNV-1a, 64 bits: enough to catch an accidental change without another dependency.
 fn fnv1a(bytes: &[u8]) -> u64 {
@@ -46,8 +47,8 @@ fn main() {
   dbg("ab" == "ab")
 }
 "#,
-        13002,
-        0xae84_7a81_d788_99b4,
+        12886,
+        0xce3b_f855_b1c2_b1d3,
     ),
     (
         "lists_enums_strings",
@@ -81,8 +82,8 @@ fn main() {
   dbg(String.trim("  hi  "))
 }
 "#,
-        24149,
-        0xfc27_2dc6_cfe6_9d8b,
+        23978,
+        0xc3b2_ca3d_6a48_2881,
     ),
     (
         "floats",
@@ -96,8 +97,8 @@ fn main() {
   dbg(Float.to_string(Float.parse("2.5") escape { ParseError(_) -> 0.0 }))
 }
 "#,
-        22348,
-        0xf3eb_894a_3ec0_de3f,
+        22404,
+        0x686a_4035_cf6c_d594,
     ),
     (
         "platform_console",
@@ -111,8 +112,8 @@ fn main() {
   }
 }
 "#,
-        35253,
-        0x6386_c076_308a_95cf,
+        36147,
+        0x949d_1fef_ac09_6fd4,
     ),
     (
         "state_and_options",
@@ -131,8 +132,8 @@ fn main() {
   dbg(String.from_code_point(65))
 }
 "#,
-        15501,
-        0x9eec_4b41_23b7_e143,
+        15596,
+        0xf0ec_328c_81ee_7384,
     ),
     (
         "numeric",
@@ -158,8 +159,8 @@ fn main() {
   dbg(Float.from_int(7) % Float.from_int(2) > 0.5)
 }
 "#,
-        13289,
-        0x61b3_5060_8ba7_3288,
+        13252,
+        0xde55_f3e1_8caf_92c1,
     ),
 ];
 
@@ -178,8 +179,8 @@ pub fn fails_with_an_error() -> Int fails Nope { half(3) }
 pub fn raises_a_defect() { panic("boom") }
 "#,
     &["passes", "fails_with_an_error", "raises_a_defect"],
-    13118,
-    0x5482_f5b9_e0b0_0238,
+    13181,
+    0xf3ae_1892_a5c9_be47,
 )];
 
 /// Compares each `(name, bytes, expected length, expected FNV-1a)` and fails once, listing the new
@@ -217,4 +218,34 @@ fn emitted_test_bytes_do_not_change() {
     check(TEST_PROGRAMS.iter().map(|&(name, src, tests, len, hash)| {
         (name, compile_tests_checked(src, tests), len, hash)
     }));
+}
+
+/// The opt-in E2 form: an array of an all-scalar record stores the element inline. This is a
+/// feature pin for `WasmOptions::aggregate_arrays`, not a change to a boxed pin above; the option
+/// is off by default and every other pin stays as it was.
+#[test]
+fn emitted_inline_array_bytes_do_not_change() {
+    const SRC: &str = r#"
+import Std.Array.{Array}
+
+type Point(x: Int, y: Int)
+
+fn main() {
+  a = Array.from_list([Point(x: 1, y: 2), Point(x: 3, y: 4)])
+  dbg(a)
+  dbg(Array.set(a, 0, Point(x: 5, y: 6)))
+  dbg(Array.get(a, 1))
+  dbg(Array.to_list(a))
+}
+"#;
+    let output = to_output_with(
+        SRC,
+        WasmOptions {
+            aggregate_arrays: true,
+            ..WasmOptions::default()
+        },
+    );
+    wasmparser::validate(&output.module).expect("the inline-array module is valid");
+    // The C2 profitability rule changes the borrows of the call sites in this program.
+    check([("inline_array", output.module, 15647, 0x5e37_5b5c_c04d_e736)]);
 }

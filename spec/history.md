@@ -2,6 +2,21 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-25 (Bytes at the boundary of the native target)
+
+- `[ext.boundary]`, `[ext.c-host]`, `[target.native.export]`, `[diag.list]`: Give `Bytes` a C form at the boundary of external functions and exported functions on the native target: a parameter is a pointer and a length, a return value is a struct `em_bytes` of a pointer allocated with `malloc` and a length, and an external `suspend fn` completes with `em_complete_bytes`. E0443 then covers only Array. The C form of Bytes is decided apart from callbacks (`[open.list]` #38). For an external `suspend fn`, the bytes of a Bytes or String parameter stay valid until the task completes, not only until the C function returns. Adopted in the proposal `native-bytes-boundary` (#877).
+## 2026-11-25 (A named item does not provide its effect by name)
+
+- `[effect.use]`, `[effect.with]`, `[effect.handler]`, `[effect.label]`, `[type.rules]`, `[task.group]`, `[dyn.with]`, `[diag.list]`: - An item of a with bound to a name (`with x = H`, `with x = L by H`) makes the capability x and nothing else. A named item no longer provides its effect by name. Only an item without a name provides its effect by name. - An item that opens a handler member already provides nothing by name (`[effect.with]`). With this proposal, the same rule holds for every item: a named item makes a capability and provides nothing by name, and an item without a name provides its effect by name. - A label item that makes no handler (`x = L`, and `x = L by P` where P is an effect) can no longer be bound (E0447). Under this proposal it would provide nothing and only fix x to a handler that it does not make. Two named items of the same label in one with are no longer E0432. - A with that binds a capability and leaves the uses of the effect by name to the outer withs can then be written as one item (`with replica = ReplicaDb`). Under the current rule, the same program needs a label declared for that purpose and two withs. - No form is added for a named item that also provides its effect by name. In std, examples and the tests, only tests of the current rule use a named item that way, and such a program is rewritten by removing the name and declaring an effect alias in the body (Compatibility). - The change lands in 0.29, with `capability-identity` (#732), so that the rules for capabilities change in one version. No warning is given ahead of it. Adopted in the proposal `named-item-not-by-name` (#863).
+
+## 2026-11-25 (A background does not close)
+
+- `[task.background]`, `[task.interrupt]`, `[api.std.task]`, `[lib.http-service]`: A `Task.Background` does not close. Its tasks can start siblings while the body runs, after a task has failed, and after the body has ended while the release waits for the tasks. The release waits for the tasks started while it waits as well, so no task outlives the with. A task started after the with was interrupted from outside is interrupted before it starts running: it ends without calling its function, and `on_failure` is not called for it. A start on a background is never a defect. Adopted in the proposal `background-never-closes` (#871).
+
+## 2026-11-25 (Reading an offset with seconds in Instant.parse)
+
+- `[api.std.instant]`: `Instant.parse` also reads an offset from UTC that has seconds, written `±HH:MM:SS` or `±HHMMSS`. Within one offset, either every field after the hour follows a colon or none does, and the second of the offset is 00 to 59, with no fraction. Every text that `parse` read before the change reads as the same Instant after the change. Adopted in the proposal `instant-offset-seconds` (#868).
+
 ## 2026-11-24 (Diagnostic codes in bands of 1000, and one code per kind of mistake)
 
 - `[diag]`, `[diag.bands]`: The bands of diagnostic codes change from 100 codes per stage (E01xx to E09xx) to 1000 codes per stage (E1xxx to E9xxx), divided into subject bands of 100. A code names one kind of mistake: mistakes fixed in the same way share a code, and the message tells their forms apart. At the end of 0.29 the codes in `[diag.list]` are renumbered once into the new bands; codes of the same kind of mistake are merged, and retired codes are dropped. Adopted in the proposal `diagnostic-code-bands` (#837).

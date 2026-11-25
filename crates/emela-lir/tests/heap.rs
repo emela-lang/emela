@@ -6,13 +6,24 @@ use crate::support;
 
 use emela_core::{Roots, monomorphize_from, verify_monomorphic};
 use emela_lir::{
-    Callee, ErrorKind, Module, Stage, Stmt, Value, dump_function, from_core, to_heap, verify,
+    Callee, ErrorKind, Module, Stage, Stmt, Value, dump_function, from_core, to_heap, to_heap_with,
+    verify,
 };
-use support::try_lower;
+use support::try_lower_with_opt;
 
-/// Lowers (from `roots`), monomorphizes, converts, runs the Heap IR passes and verifies.
-fn convert(files: &[(&str, &str)], roots: Roots) -> Module {
-    let m = try_lower(files, roots).unwrap_or_else(|e| panic!("{e:#?}"));
+/// Lowers (from `roots`), monomorphizes and converts to the Flow IR (before the Heap IR passes).
+///
+/// The Core IR optimisations are off: the snapshots of this file pin the shape of lowering and of
+/// the Heap IR passes, which the Core optimisations may not disturb (plan §4.4).
+fn flow(files: &[(&str, &str)], roots: Roots) -> Module {
+    let m = try_lower_with_opt(
+        files,
+        roots,
+        emela_core::core_sources(),
+        emela_core::bundled_files(),
+        false,
+    )
+    .unwrap_or_else(|e| panic!("{e:#?}"));
     let fn_roots: Vec<_> = match roots {
         Roots::All => m.functions.iter().map(|(id, _)| id).collect(),
         _ => m
@@ -27,10 +38,15 @@ fn convert(files: &[(&str, &str)], roots: Roots) -> Module {
         let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
         panic!("not monomorphic:\n{}", lines.join("\n"));
     }
-    let mut lir = from_core(mono).unwrap_or_else(|errors| {
+    from_core(mono).unwrap_or_else(|errors| {
         let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
         panic!("conversion errors:\n{}", lines.join("\n"));
-    });
+    })
+}
+
+/// Lowers (from `roots`), monomorphizes, converts, runs the Heap IR passes and verifies.
+fn convert(files: &[(&str, &str)], roots: Roots) -> Module {
+    let mut lir = flow(files, roots);
     to_heap(&mut lir);
     assert!(lir.stage > Stage::Flow);
     if let Err(errors) = verify(&lir) {
@@ -100,6 +116,45 @@ fn every_example_converts() {
             std::fs::write(path, emela_lir::dump(&m)).unwrap();
         }
     }
+}
+
+/// The optimisation switch reaches the LIR passes (`to_heap_with`): with them switched off, the
+/// Heap IR differs from the default only where a pass changed it.
+///
+/// `List.map`'s closure reads a capture out of its environment and passes it on, and reference
+/// counting gives that view a reference of its own; `rc_cleanup` takes the reference back, so the
+/// two dumps differ only in `dup`/`drop` statements. SRA (the other pass) has nothing to replace
+/// here, so the rest of the Heap IR is identical.
+#[test]
+fn the_optimize_switch_reaches_the_heap_passes() {
+    let files = [(
+        "main.emel",
+        "\
+fn main() {
+  dbg(List.map([1, 2, 3], |x| x * 2))
+}
+",
+    )];
+    let mut off = flow(&files, Roots::Exported);
+    let mut on = flow(&files, Roots::Exported);
+    let none: emela_lir::opt::Stats = to_heap_with(&mut off, false);
+    let stats: emela_lir::opt::Stats = to_heap_with(&mut on, true);
+    assert_eq!(none.rc_pairs, 0);
+    assert_eq!(none.sra_tuples, 0);
+    assert!(stats.rc_pairs > 0, "{stats:?}");
+    // The passes off leave every reference counting statement of the default in place.
+    let without_refs = |m: &Module| {
+        emela_lir::dump(m)
+            .lines()
+            .filter(|l| {
+                let t = l.trim_start();
+                !t.starts_with("dup ") && !t.starts_with("drop ")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_ne!(emela_lir::dump(&off), emela_lir::dump(&on));
+    assert_eq!(without_refs(&off), without_refs(&on));
 }
 
 #[test]
@@ -583,4 +638,48 @@ fn main() {
     assert_eq!(set_keeps_array(&m, "histogram"), [false]);
     assert_eq!(set_keeps_array(&m, "local"), [false, false]);
     assert_eq!(set_keeps_array(&m, "bump_twice"), [true]);
+}
+
+/// `rc_cleanup` removes the reference that reference counting gives a view of a closure's capture
+/// (the shape of the matrix benchmark: a fold whose closure reads a captured array).
+///
+/// The reference of a row read out of the array stays: it is what the runtime hands back, not a
+/// view of the environment.
+#[test]
+fn rc_cleanup_takes_back_the_reference_of_a_captured_view() {
+    let files = [(
+        "main.emel",
+        "\
+import Std.Array.{Array}
+
+fn sum(m: Array[Array[Int]], n: Int) -> Int {
+  List.fold(List.range(0, n), from: 0, f: |acc, i| {
+    row = Array.get(m, i) |> Option.or(Array.repeat(0, 1))
+    acc + Array.size(row)
+  })
+}
+
+fn main() {
+  m = Array.from_list(List.map(List.range(0, 3), |i| Array.from_list(List.range(0, 3))))
+  dbg(sum(m, 3))
+}
+",
+    )];
+    let mut off = flow(&files, Roots::Exported);
+    let kept: emela_lir::opt::Stats = to_heap_with(&mut off, false);
+    assert_eq!(kept.rc_pairs, 0);
+    let before = parts(&off, &["sum$closure"]);
+    assert!(before.contains("dup"), "{before}");
+
+    let mut on = flow(&files, Roots::Exported);
+    let stats: emela_lir::opt::Stats = to_heap_with(&mut on, true);
+    assert!(stats.rc_pairs > 0, "{stats:?}");
+    let after = parts(&on, &["sum$closure"]);
+    assert!(!after.contains("dup"), "{after}");
+    // The row read out of the array is still given back.
+    assert!(after.contains("drop"), "{after}");
+    if let Err(errors) = verify(&on) {
+        let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        panic!("the Heap IR verifies:\n{}", lines.join("\n"));
+    }
 }
