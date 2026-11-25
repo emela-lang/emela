@@ -1,0 +1,22 @@
+---
+source: crates/emela-types/tests/capabilities.rs
+expression: "run(r#\"\ntype Id(n: Int) uses Pool\n\neffect Pool {\n  fn make() -> Id\n  fn read(id: Id) -> Int\n}\n\nhandler Ints: Pool {\n  fn make() { Id(1) }\n  fn read(id) { id.n }\n}\n\neffect Probe {\n  fn get() -> Int\n}\n\nhandler Made(pool: use Pool): Probe {\n  init(pool: use Pool) { Self(pool:) }\n  fn get() { self.pool.read(self.pool.make()) }\n}\n\nhandler Held(pool: use Pool, id: Id): Probe {\n  init(pool: use Pool, id: Id) { Self(pool:, id:) }\n  fn get() { self.pool.read(self.id) }\n}\n\nhandler Bound(pool: use Pool): Probe {\n  init(pool: use Pool) { Self(pool:) }\n  fn get() {\n    p = self.pool\n    p.read(p.make())\n  }\n}\n\nhandler Released(pool: use Pool): Probe {\n  init(pool: use Pool) { Self(pool:) }\n  release { _ = self.pool.read(self.pool.make()) }\n  fn get() { 0 }\n}\n\neffect Store {\n  fn keep(l: use Logger) -> ()\n}\n\nhandler Keeper: Store {\n  fn keep(l) { () }\n}\n\nhandler Passes(store: use Store, log: use Logger): Probe {\n  init(store: use Store, log: use Logger) { Self(store:, log:) }\n  fn get() {\n    self.store.keep(self.log)\n    0\n  }\n}\n\nfn made() -> Int {\n  with pool = Ints {\n    with probe = Made(pool:) { probe.get() }\n  }\n}\n\nfn held() -> Int {\n  with pool = Ints {\n    id = pool.make()\n    with probe = Held(pool:, id:) { probe.get() }\n  }\n}\n\nfn bound() -> Int {\n  with pool = Ints {\n    with probe = Bound(pool:) { probe.get() }\n  }\n}\n\nfn released() {\n  with pool = Ints {\n    with Released(pool:) { () }\n  }\n}\n\nfn unnamed() -> Int {\n  with pool = Ints {\n    with Made(pool:) {\n      p <- Probe\n      p.get()\n    }\n  }\n}\n\nfn passes() -> Int {\n  with s = Keeper, l = Quiet {\n    with probe = Passes(store: s, log: l) { probe.get() }\n  }\n}\n\"#)"
+---
+made: fn() -> Int
+  pool: use Pool
+  probe: use Probe
+held: fn() -> Int
+  pool: use Pool
+  id: Id
+  probe: use Probe
+bound: fn() -> Int
+  pool: use Pool
+  probe: use Probe
+released: fn() -> ()
+  pool: use Pool
+unnamed: fn() -> Int
+  pool: use Pool
+passes: fn() -> Int
+  s: use Store
+  l: use Logger
+  probe: use Probe

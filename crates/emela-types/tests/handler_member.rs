@@ -241,7 +241,8 @@ fn g() -> () uses { Quick, Slow } {
 /// An operation of a capability in a field of `self` is not required by name, but it counts as
 /// its effect for suspension: an fn operation that calls a suspend fn through a field is E0417.
 /// In release, a suspend fn called that way makes Async a requirement, so that the `with` shows
-/// that leaving it may suspend (`[effect.use]`).
+/// that leaving it may suspend (`[effect.use]`). A field bound to a local variable first is the
+/// same (#866).
 #[test]
 fn capability_fields_and_suspension() {
     insta::assert_snapshot!(run(r#"
@@ -266,6 +267,27 @@ handler Closing(inner: use Slow): Console {
 
 fn closing(s: use Slow) -> () {
   with Closing(inner: s) { (use Console).print_line("x") }
+}
+
+handler ThroughLocal(inner: use Slow): Quick {
+  init(inner: use Slow) { Self(inner:) }
+  fn get() {
+    p = self.inner
+    p.wait()
+  }
+}
+
+handler ClosingLocal(inner: use Slow): Console {
+  init(inner: use Slow) { Self(inner:) }
+  release {
+    p = self.inner
+    _ = p.wait()
+  }
+  fn print_line(s) { () }
+}
+
+fn closing_local(s: use Slow) -> () {
+  with ClosingLocal(inner: s) { (use Console).print_line("x") }
 }
 "#));
 }

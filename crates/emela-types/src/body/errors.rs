@@ -573,6 +573,9 @@ impl BodyInfer<'_> {
                 }
                 _ => false,
             }),
+            // The set of a field of a handler, removed at the end of its operation body or
+            // release (`end_self`).
+            RowElem::Bound(_) => minus.contains(a),
             _ => false,
         }
     }

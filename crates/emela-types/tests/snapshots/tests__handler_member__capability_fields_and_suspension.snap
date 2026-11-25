@@ -1,7 +1,10 @@
 ---
 source: crates/emela-types/tests/handler_member.rs
-expression: "run(r#\"\neffect Slow {\n  suspend fn wait() -> Int\n}\n\neffect Quick {\n  fn get() -> Int\n}\n\nhandler Through(inner: use Slow): Quick {\n  init(inner: use Slow) { Self(inner:) }\n  fn get() { self.inner.wait() }\n}\n\nhandler Closing(inner: use Slow): Console {\n  init(inner: use Slow) { Self(inner:) }\n  release { _ = self.inner.wait() }\n  fn print_line(s) { () }\n}\n\nfn closing(s: use Slow) -> () {\n  with Closing(inner: s) { (use Console).print_line(\"x\") }\n}\n\"#)"
+expression: "run(r#\"\neffect Slow {\n  suspend fn wait() -> Int\n}\n\neffect Quick {\n  fn get() -> Int\n}\n\nhandler Through(inner: use Slow): Quick {\n  init(inner: use Slow) { Self(inner:) }\n  fn get() { self.inner.wait() }\n}\n\nhandler Closing(inner: use Slow): Console {\n  init(inner: use Slow) { Self(inner:) }\n  release { _ = self.inner.wait() }\n  fn print_line(s) { () }\n}\n\nfn closing(s: use Slow) -> () {\n  with Closing(inner: s) { (use Console).print_line(\"x\") }\n}\n\nhandler ThroughLocal(inner: use Slow): Quick {\n  init(inner: use Slow) { Self(inner:) }\n  fn get() {\n    p = self.inner\n    p.wait()\n  }\n}\n\nhandler ClosingLocal(inner: use Slow): Console {\n  init(inner: use Slow) { Self(inner:) }\n  release {\n    p = self.inner\n    _ = p.wait()\n  }\n  fn print_line(s) { () }\n}\n\nfn closing_local(s: use Slow) -> () {\n  with ClosingLocal(inner: s) { (use Console).print_line(\"x\") }\n}\n\"#)"
 ---
 closing: fn(use Slow) -> () uses { Async }
   s: use Slow
+closing_local: fn(use Slow) -> () uses { Async }
+  s: use Slow
 `self.inner.wait()` SuspendingFnOp { op: "get", call: Op { effect: "Slow", op: "wait" } }
+`p.wait()` SuspendingFnOp { op: "get", call: Op { effect: "Slow", op: "wait" } }

@@ -119,7 +119,7 @@ impl BodyInfer<'_> {
                         self.ctx.scopes.enter(body);
                         let row = self.expr_effects(body);
                         self.ctx.scopes.exit();
-                        let mut row = self.end_self(&row, def);
+                        let mut row = self.end_self(&row, def, true);
                         // The capability parameters end with the body (`[effect.handler]`).
                         if let Some(rigid) = self.quantified_lambdas.get(&body).cloned() {
                             let minus: Vec<RowElem> = rigid.into_iter().map(RowElem::Cap).collect();
@@ -142,15 +142,15 @@ impl BodyInfer<'_> {
                     }
                     // The R of init and release bodies are dependencies too (spec 9.4). release
                     // may call suspend operations (spec 8.4).
-                    let parts: Vec<ExprId> = self
+                    let parts: Vec<(ExprId, bool)> = self
                         .handler_parts
                         .iter()
                         .filter(|p| p.handler == def)
-                        .map(|p| p.body)
+                        .map(|p| (p.body, p.release))
                         .collect();
-                    for body in parts {
+                    for (body, release) in parts {
                         let row = self.expr_effects(body);
-                        let row = self.end_self(&row, def);
+                        let row = self.end_self(&row, def, release);
                         self.ctx.add_subset_of(
                             SetKind::Effects,
                             row,
@@ -464,14 +464,22 @@ impl BodyInfer<'_> {
     }
 
     /// `row` without the `self` of the handler `def` ([`CapId::SelfOf`]): it ends with the body
-    /// of the operation, the init or the release (`[effect.handler]`).
-    fn end_self(&mut self, row: &Row, def: DefId) -> Row {
-        let elem = RowElem::Cap(CapElem {
+    /// of the operation, the init or the release (`[effect.handler]`). With `fields`, in an
+    /// operation body or the release, also without the sets of its fields (`Bound(i)`,
+    /// [`BodyInfer::field_sets`]): the capabilities they hold belong to a with around the
+    /// handler's, so they are not requirements of the handler, also when they are passed to an
+    /// operation or recorded in a value (#866). In init, `Bound(i)` are the sets of init's
+    /// parameters.
+    fn end_self(&mut self, row: &Row, def: DefId, fields: bool) -> Row {
+        let mut minus = vec![RowElem::Cap(CapElem {
             id: CapId::SelfOf(def),
             name: Default::default(),
             tag: Tag::new(def),
-        });
-        self.subtract_elems(row, &[elem])
+        })];
+        if fields {
+            minus.extend(self.field_sets(def));
+        }
+        self.subtract_elems(row, &minus)
     }
 
     /// The capabilities in the types of the values that the closure or local fn `binder`
@@ -558,6 +566,7 @@ impl BodyInfer<'_> {
                     }
                     _ => false,
                 }),
+                RowElem::Bound(_) => minus.contains(e),
                 RowElem::Var(v) => {
                     let d = self.ctx.new_row_var();
                     self.ctx.effect_vars.insert(d);
