@@ -1,8 +1,9 @@
 //! E1 step 2: records and tuples held by value in WASM locals.
 //!
-//! The option is off by default. With it on, an eligible record is a span of locals instead of a
-//! heap object; the same program must print the same thing and exit the same way, and the local
-//! construction must stop calling the allocator.
+//! The option is on by default since E1 step 6; these tests choose it and the boxed form
+//! explicitly. With it on, an eligible record is a span of locals instead of a heap object; the
+//! same program must print the same thing and exit the same way, and the local construction must
+//! stop calling the allocator.
 //!
 //! The structural check reads the core module inside the component. `alloc` is the only callee
 //! with the signature `(i32, i32) -> i32` whose call count is one lower with the option on: the

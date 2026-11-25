@@ -66,22 +66,35 @@ pub struct TestEntry {
 /// The start of a test result line (the same as the JS test runner's).
 pub const TEST_EVENT_PREFIX: &str = "\u{1e}emela-test ";
 
-/// Which representation choices the emitter makes. The default is the boxed representation
-/// everywhere, so the emitted bytes do not change.
-#[derive(Debug, Clone, Copy, Default)]
+/// Which representation choices the emitter makes.
+///
+/// By default the emitter holds eligible records and tuples by value (`values`), and stores array
+/// elements boxed (`aggregate_arrays` off). [`WasmOptions::boxed`] returns the representation used
+/// before E1 step 6: both options off, every record and tuple in a heap box.
+#[derive(Debug, Clone, Copy)]
 pub struct WasmOptions {
-    /// E1 steps 2–5: hold eligible records and tuples by value (a span of WASM locals or
+    /// E1 steps 2–6: hold eligible records and tuples by value (a span of WASM locals or
     /// parameters, one per scalar leaf) instead of allocating a heap object per value, and flatten
     /// the signature of every call of a function type whose parameters or result are held by
-    /// value: a direct call, `call_indirect`, a closure's non-environment parameters and a
-    /// non-suspending effect operation agree.
+    /// value: a direct call, `call_indirect`, a closure's non-environment parameters, a
+    /// non-suspending effect operation, and a suspending function or operation implementation.
     ///
-    /// Off by default. A value held in locals is boxed at a boundary that stores a reference and
-    /// unboxed when it is read back: a list head, an enum payload field, a closure capture and
-    /// environment slot, `Any`, and an array element. Suspension frames, suspending functions and
-    /// operations, fiber thunks, the entry thunk, exports, externals, constants and error shows
-    /// keep the boxed form, so a type used in one of those places stays boxed everywhere.
-    /// Turning the option on by default is step 6.
+    /// On by default since E1 step 6. The measurement behind the default: the WASM size is
+    /// neutral and the allocations and the memory high-water mark fall. Use [`WasmOptions::boxed`]
+    /// for the representation from before step 6,
+    /// or set this field to `false` in a struct update
+    /// (`WasmOptions { values: false, ..Default::default() }`).
+    ///
+    /// A value held in locals is boxed at a boundary that stores a reference and unboxed when it
+    /// is read back: a list head, an enum payload field, a closure capture and environment slot,
+    /// `Any`, and an array element. A variable live across a suspension is saved as one frame slot
+    /// per scalar leaf, and the restore path reads the leaves back in order.
+    ///
+    /// Two results stay boxed: a suspending function's or operation's result of more than one leaf
+    /// (the runtime's resume channel carries one word), and a function value passed to a fiber
+    /// operation together with its parameters and result (the fiber thunk carries one word). The
+    /// entry thunk, exports, externals, constants and error shows keep the boxed form, so a type
+    /// used in one of those places stays boxed everywhere.
     pub values: bool,
     /// E2 step 2: store an array element that is an all-scalar record or tuple inline (one
     /// 8-byte slot per scalar leaf) instead of a reference to a separately allocated box.
@@ -99,6 +112,31 @@ pub struct WasmOptions {
     /// `Array.get` still boxes the element because its `Option` payload is one reference, and
     /// `Array.to_list` still boxes each element because a list head is a reference.
     pub aggregate_arrays: bool,
+}
+
+impl Default for WasmOptions {
+    /// The representation Emela builds by default since E1 step 6: records and tuples that the
+    /// emitter can hold in locals are held by value, and array elements stay boxed.
+    fn default() -> Self {
+        WasmOptions {
+            values: true,
+            aggregate_arrays: false,
+        }
+    }
+}
+
+impl WasmOptions {
+    /// The boxed representation from before E1 step 6: no record or tuple is held by value and
+    /// every array element is a reference to a heap box.
+    ///
+    /// For a test that compares the default build with the old representation, and for a tool
+    /// that needs the old emitted bytes.
+    pub const fn boxed() -> Self {
+        WasmOptions {
+            values: false,
+            aggregate_arrays: false,
+        }
+    }
 }
 
 /// The output of [`compile`].
@@ -180,8 +218,9 @@ pub fn compile_with_lir(
 
 /// [`compile_with_lir`] with the emitter's representation choices (see [`WasmOptions`]).
 ///
-/// The default [`WasmOptions`] is the boxed representation. This entry point is for tests that
-/// compile the same program both ways and compare what it prints.
+/// The default [`WasmOptions`] holds eligible records and tuples by value (E1 step 6). This entry
+/// point is for tests that compile the same program both ways and compare what it prints; pass
+/// [`WasmOptions::boxed`] for the representation from before step 6.
 pub fn compile_with_wasm_options(
     core: &emela_core::Module,
     entry: &Entry,

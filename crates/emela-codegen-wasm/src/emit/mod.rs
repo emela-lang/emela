@@ -621,9 +621,10 @@ impl<'m> Builder<'m> {
     /// The wasm parameters and results of `f`. A parameter held by value is its leaves, and a
     /// result held by value is one wasm result per leaf (multi-value). The layout predicate keeps
     /// a function whose signature another calling convention sees (the entry, an external host, a
-    /// state machine, a fiber thunk, the table) boxed, so the flattened form is used by every call
-    /// of a function type that agrees on it: a direct `call`, `call_indirect`, a lifted closure
-    /// and a non-suspending operation.
+    /// fiber thunk, the table, an exporting thunk) boxed, so the flattened form is used by every
+    /// call of a function type that agrees on it: a direct `call`, `call_indirect`, a lifted
+    /// closure, an operation implementation, and a suspending function's wrapper, body and
+    /// trampoline.
     fn signature(&self, f: &Function) -> (Vec<ValType>, Vec<ValType>) {
         let mut params = Vec::new();
         for &p in &f.params {
@@ -1472,10 +1473,14 @@ impl<'m> Builder<'m> {
             self.internal(format!("no state machine for {}", f.name));
             return WasmFunction::new(Vec::<(u32, ValType)>::new());
         };
+        // The wrapper has the function's ordinary (flattened) signature and forwards every wasm
+        // parameter to the body, which takes the same parameters then the frame pointer. A by-value
+        // parameter is several wasm parameters, in field order.
+        let params = self.signature(f).0;
         let mut func = WasmFunction::new(Vec::<(u32, ValType)>::new());
         {
             let mut ins = func.instructions();
-            for i in 0..f.params.len() as u32 {
+            for i in 0..params.len() as u32 {
                 ins.local_get(i);
             }
             ins.i32_const(0);
@@ -3270,8 +3275,9 @@ impl<'m> Builder<'m> {
     ) {
         let suspend = def.suspend;
         // A `suspend fn` implementation takes the resume function last and returns nothing; the
-        // value to continue with comes from `perform_end` (spec 8.4, 14.5). Its parameters and
-        // result stay boxed, so the trampoline keeps its one-word result.
+        // value to continue with comes from `perform_end` (spec 8.4, 14.5). Its parameters follow
+        // the layouts of the operation's function type (the implementation is a lifted closure of
+        // that type); its result stays boxed, because the resume channel carries one word.
         let mut params = vec![val(Repr::Ref)];
         params.extend(self.operand_val_types(cx, args));
         if suspend {
@@ -3718,20 +3724,32 @@ enum Scrutinee {
     Lit(VarId),
 }
 
+/// The type a value that may suspend produces. `None` when it is not a call (a fiber or runtime
+/// operation has its own handling).
+fn value_ret_ty(b: &Builder<'_>, cx: &FnCtx<'_>, value: &Value) -> Option<TypeId> {
+    let Value::Call { callee, .. } = value else {
+        return None;
+    };
+    Some(match callee {
+        Callee::Direct(g) => b.m.functions[*g].ret,
+        Callee::Op { effect, op, .. } => b.core().effects[*effect].ops[*op].ret,
+        Callee::Indirect(c) => match b.core().ty(cx.f.vars[*c].ty) {
+            Type::Fn(fty) => fty.ret,
+            _ => return None,
+        },
+    })
+}
+
 /// The representation of a value that may suspend. The suspension edge needs it when the value is
 /// unused (`dst` is `None`) and the resumed reference must be released.
 fn value_repr(b: &Builder<'_>, cx: &FnCtx<'_>, value: &Value) -> Repr {
-    let Value::Call { callee, .. } = value else {
-        return Repr::Void;
-    };
-    match callee {
-        Callee::Direct(g) => b.repr(b.m.functions[*g].ret),
-        Callee::Op { effect, op, .. } => b.repr(b.core().effects[*effect].ops[*op].ret),
-        Callee::Indirect(c) => match b.core().ty(cx.f.vars[*c].ty) {
-            Type::Fn(fty) => b.repr(fty.ret),
-            _ => Repr::Void,
-        },
-    }
+    value_ret_ty(b, cx, value).map_or(Repr::Void, |ty| b.repr(ty))
+}
+
+/// The scalar leaves of a value that may suspend when its type is held by value.
+fn value_leaves(b: &Builder<'_>, cx: &FnCtx<'_>, value: &Value) -> Option<Vec<Repr>> {
+    let ty = value_ret_ty(b, cx, value)?;
+    b.leaves(ty).map(|leaves| leaves.to_vec())
 }
 
 fn value_on_fail(v: &Value) -> Option<&OnFail> {
@@ -3803,7 +3821,6 @@ struct LocalSpan {
 
 struct FnCtx<'a> {
     f: &'a Function,
-    ret: Repr,
     /// The wasm results of the function: one per leaf of a by-value result, one for any other
     /// representation except `()`, and empty for `()`.
     ret_leaves: Vec<Repr>,
@@ -3898,7 +3915,6 @@ impl<'a> FnCtx<'a> {
         };
         FnCtx {
             f,
-            ret,
             ret_leaves,
             local,
             spans,

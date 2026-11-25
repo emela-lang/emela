@@ -1022,6 +1022,8 @@ fn main() {
     assert_eq!(run.code, 0, "inline: {}", run.stderr);
     assert_eq!(run.stderr, "10000\nPoint(x: 9999, y: 10000)\n");
 
+    // The default build keeps one heap box per array element because `aggregate_arrays` is off,
+    // even though E1's by-value representation holds a `Point` in locals outside the array.
     let boxed = compile_checked(SRC);
     let boxed_run = run_limited_bytes("memory-boxed-array", &boxed);
     assert_ne!(

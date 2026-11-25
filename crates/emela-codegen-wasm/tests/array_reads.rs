@@ -1,6 +1,7 @@
 //! E2 step 3: read an all-scalar array element directly into a by-value destination.
 //!
-//! Both options are off by default. With `aggregate_arrays` on, an element of an all-scalar
+//! `values` is on by default since E1 step 6 and `aggregate_arrays` is off by default; these
+//! tests choose both explicitly. With `aggregate_arrays` on, an element of an all-scalar
 //! record or tuple is stored inline (E2 step 2). With `values` also on, `Array.get`'s two
 //! internal fusions, `ArrayGetOr` and `ArrayLoadUnchecked`, read each scalar leaf of the element
 //! directly into the destination's wasm locals: no box is allocated and no reference is duped

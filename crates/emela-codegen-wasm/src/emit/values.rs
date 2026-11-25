@@ -23,15 +23,16 @@
 //! A type keeps `Repr::Ref` when the module uses it in a way that cannot be boxed soundly:
 //!
 //! - a parameter or result of a function whose wasm signature is reached through another calling
-//!   convention (an exported, external or const function, a suspending function, the entry, an
-//!   error `show` function), or an argument or result of a suspending effect operation;
+//!   convention (an exported, external or const function, the entry, an error `show` function), or
+//!   the result of a suspending effect operation;
+//! - the result of a suspending function when it has more than one leaf: the trampoline reports it
+//!   through the runtime's one-word resume channel;
 //! - an element of `Cell` (its content is one word and is excluded with the type it contains);
 //! - an argument of a builtin or a runtime operation (except `Array.set`, whose value is boxed),
 //!   and a function value passed to a fiber operation (its thunk passes the result as one word,
 //!   selected by representation);
 //! - the element type of an array whose module uses `Array.map_range`, whose loop calls the
-//!   closure with one `em_word` result;
-//! - any variable of a suspending function, or any variable saved across a suspension.
+//!   closure with one `em_word` result.
 //!
 //! A type that is excluded, or that contains an excluded field, has no layout, and the emitter
 //! keeps its boxed representation everywhere. The exclusion is a whole-module property: a type is
@@ -40,16 +41,23 @@
 //! # The call ABI
 //!
 //! Every call of a function type uses one signature. A function whose wasm signature no other
-//! calling convention sees (not exported, external, a const, suspending, the entry or an error
-//! `show`) follows the layouts: an `Agg` parameter is its leaves, and an `Agg` result is zero or
-//! several wasm results. A function used as a value (`MakeClosure`) follows the same rule, so a
-//! direct call and a `call_indirect` of its type agree. A lifted closure keeps its environment as
-//! one reference parameter; only its other parameters and its result may flatten.
+//! calling convention sees (not exported, external, a const, the entry or an error `show`) follows
+//! the layouts: an `Agg` parameter is its leaves, and an `Agg` result is zero or several wasm
+//! results. A function used as a value (`MakeClosure`) follows the same rule, so a direct call and
+//! a `call_indirect` of its type agree. A lifted closure keeps its environment as one reference
+//! parameter; only its other parameters and its result may flatten.
 //!
-//! A non-suspending effect operation also uses the layouts of its parameters and result, because
-//! its implementation is a closure of the same function type. A suspending operation, a
-//! suspending function and everything a suspension frame saves stay boxed in this step: the
-//! trampoline returns one `em_word`-shaped result, selected by representation.
+//! A suspending function follows the same rule. Its ordinary wrapper, the state-machine body (its
+//! parameters then the frame pointer), its trampoline and every call of its type use the signature
+//! the layouts give, so a direct call, a closure and a `call_indirect` agree. A by-value variable
+//! saved across a suspension occupies one frame slot per scalar leaf, and the frame's descriptor
+//! marks each of those slots inert; the restore path reads them back in the same order.
+//!
+//! An effect operation uses the layouts of its parameters: its implementation is a closure of the
+//! same function type. A suspending operation's *result* stays boxed, because it is delivered
+//! through the one-word resume channel (`perform_new`/`perform_end`). A function value passed to a
+//! fiber operation stays boxed with its parameters and result, because a fiber thunk calls it and
+//! carries one word (E1 step 4's documented limits).
 //! No proposal is needed: `[target.unspecified]` leaves the memory representation of values to
 //! the implementation, and this changes only how many objects are allocated.
 //!
@@ -277,33 +285,47 @@ fn build_layout(
 }
 
 /// Adds `ty` and every type argument reachable from it to `out`. Used where a value is stored in a
-/// position that cannot box it (a cell's content, a boxed function signature, a suspension frame,
-/// a fiber thunk), so that nothing nested inside it can be held by value either.
+/// position that cannot box it (a cell's content, a boxed function signature, a fiber thunk, a
+/// one-word resume channel), so that nothing nested inside it can be held by value either.
 fn mark_subtree(core: &emela_core::Module, ty: TypeId, out: &mut FxHashSet<TypeId>) {
-    if !out.insert(ty) {
+    let mut seen = FxHashSet::default();
+    mark_subtree_in(core, ty, out, &mut seen);
+}
+
+/// [`mark_subtree`] with the types already visited. A type may already be excluded (a
+/// function type whose value is taken, for example) while one of its parts is not: the walk must
+/// still reach the parts, so it tracks its own visits rather than stopping at the exclusion set.
+fn mark_subtree_in(
+    core: &emela_core::Module,
+    ty: TypeId,
+    out: &mut FxHashSet<TypeId>,
+    seen: &mut FxHashSet<TypeId>,
+) {
+    if !seen.insert(ty) {
         return;
     }
+    out.insert(ty);
     match core.ty(ty) {
         Type::Tuple(ts) => {
             for &t in ts {
-                mark_subtree(core, t, out);
+                mark_subtree_in(core, t, out, seen);
             }
         }
         Type::Enum(_, args) => {
             for &t in args {
-                mark_subtree(core, t, out);
+                mark_subtree_in(core, t, out, seen);
             }
         }
-        Type::Array(t) | Type::List(t) | Type::Cell(t) => mark_subtree(core, *t, out),
+        Type::Array(t) | Type::List(t) | Type::Cell(t) => mark_subtree_in(core, *t, out, seen),
         Type::Fn(f) => {
             for &t in &f.params {
-                mark_subtree(core, t, out);
+                mark_subtree_in(core, t, out, seen);
             }
-            mark_subtree(core, f.ret, out);
+            mark_subtree_in(core, f.ret, out, seen);
         }
         Type::Set(s) => {
             for &t in &s.params {
-                mark_subtree(core, t, out);
+                mark_subtree_in(core, t, out, seen);
             }
         }
         _ => {}
@@ -313,30 +335,52 @@ fn mark_subtree(core: &emela_core::Module, ty: TypeId, out: &mut FxHashSet<TypeI
 /// Whether the wasm signature of `f` follows the layouts of its parameters and result.
 ///
 /// The signature is flattened only when no other calling convention can see it: the function is
-/// not exported, external, a const, suspending, a root the entry thunk calls, or an error's `show`
-/// function (the descriptor calls it through the table). Otherwise its parameters and result keep
-/// the boxed form, so the entry, the external hosts, the state machines, the fiber thunks and the
-/// table need no change.
+/// not exported, external, a const, a root the entry thunk calls, or an error's `show` function
+/// (the descriptor calls it through the table). Otherwise its parameters and result keep the
+/// boxed form, so the entry, the external hosts, the fiber thunks and the table need no change.
+///
+/// A suspending function follows the same rule. Its wrapper, its state-machine body, its
+/// trampoline and every call of its type use one signature derived from the layouts, so a direct
+/// call, a closure and a `call_indirect` agree. The one exception is its result, which crosses the
+/// runtime's resume channel as a single word: [`excluded`] keeps a result of more than one leaf
+/// boxed. A suspension edge in a function that is not marked suspending is a bug the ordinary
+/// emitter reports; it is kept boxed defensively.
 ///
 /// A function used as a value is not excluded: an indirect call now uses the same layouts as a
 /// direct call, so `call_indirect`, a handler operation and every direct call of the type agree.
 /// A lifted closure's environment parameter stays one reference (its type is not a value).
 fn flat_function(m: &Module, id: FnId, f: &Function, roots: &FxHashSet<FnId>) -> bool {
+    let edge = f.stmts.iter().any(|(_, s)| {
+        matches!(
+            s,
+            Stmt::Let {
+                on_suspend: Some(_),
+                ..
+            }
+        )
+    });
     !f.exported
         && f.external.is_none()
         && !f.constant
-        && !f.suspends
         && !roots.contains(&id)
         && !m.error_shows.iter().any(|&(_, show)| show == id)
-        && !f.stmts.iter().any(|(_, s)| {
-            matches!(
-                s,
-                Stmt::Let {
-                    on_suspend: Some(_),
-                    ..
-                }
-            )
-        })
+        && (f.suspends || !edge)
+}
+
+/// The number of scalar leaves of `ty`'s layout, ignoring how the module uses it.
+///
+/// Eligibility is a whole-module property, but the rule for a suspending function's result needs
+/// the shape of the type before the exclusion set is final. A type with no layout is `None`.
+fn candidate_leaves(core: &emela_core::Module, ty: TypeId) -> Option<usize> {
+    let mut probe = Values {
+        core,
+        layouts: Vec::new(),
+        of: FxHashMap::default(),
+        excluded: FxHashSet::default(),
+        building: FxHashSet::default(),
+    };
+    let index = probe.layout(ty)?;
+    Some(probe.layouts[index].leaves.len())
 }
 
 /// The types of `m` that the converted slices cannot hold by value.
@@ -357,17 +401,16 @@ fn excluded(m: &Module, roots: &[FnId]) -> FxHashSet<TypeId> {
         }
     }
 
-    // A suspending operation returns through the trampoline, which carries one word selected by
-    // representation, and its implementation may be a state machine. Keep its parameters and
-    // result boxed in this step. A non-suspending operation uses the same layouts as its
-    // implementation closure, so its parameters and result may flatten.
+    // A suspending operation returns through the resume channel, which carries one word selected
+    // by representation (`perform_new`/`resume_<repr>`), so its result keeps the boxed form. Its
+    // parameters follow the layouts exactly like the parameters of a non-suspending operation: the
+    // implementation is a lifted closure of the operation's function type, called with the
+    // handler, the parameters and the resume function, and a suspending function's parameters are
+    // flattened (below). A result type that is also a parameter stays boxed with it.
     for (_, effect) in core.effects.iter() {
         for op in &effect.ops {
             if !op.suspend {
                 continue;
-            }
-            for &t in &op.params {
-                mark_subtree(core, t, &mut out);
             }
             mark_subtree(core, op.ret, &mut out);
         }
@@ -384,38 +427,20 @@ fn excluded(m: &Module, roots: &[FnId]) -> FxHashSet<TypeId> {
             }
             out.insert(f.ret);
         }
-        // A state machine stores every live variable in a word-shaped frame; keep all of a
-        // suspending function's types boxed in this slice.
-        if f.suspends
-            || f.stmts.iter().any(|(_, s)| {
-                matches!(
-                    s,
-                    Stmt::Let {
-                        on_suspend: Some(_),
-                        ..
-                    }
-                )
-            })
+        // The result of a suspending function is reported by its trampoline through the runtime's
+        // one-word resume channel (`out_word`, then the next frame's `in_word`). A result of more
+        // than one leaf cannot cross it, so the type stays boxed module-wide; a one-leaf result is
+        // the same single word a scalar result is. A result without a layout is already boxed.
+        if flat(id) && f.suspends && candidate_leaves(core, f.ret).is_some_and(|leaves| leaves > 1)
         {
-            for (_, var) in f.vars.iter() {
-                out.insert(var.ty);
-            }
+            out.insert(f.ret);
         }
         for (_, stmt) in f.stmts.iter() {
-            let Stmt::Let {
-                dst,
-                value,
-                on_suspend,
-                ..
-            } = stmt
-            else {
+            let Stmt::Let { dst, value, .. } = stmt else {
                 continue;
             };
-            if let Some(edge) = on_suspend {
-                for &v in &edge.saved {
-                    out.insert(f.vars[v].ty);
-                }
-            }
+            // A variable saved across a suspension is copied into consecutive frame slots, one per
+            // scalar leaf (see `emit::suspend`), so its type may be held by value too.
             // A call returns its leaves when the callee's signature follows the layouts, so its
             // destination is buildable in place like a construction. A value read out of a box
             // (`Field`, `ListHead`, `EnvGet`, `Coerce`, an array element) is unboxed into locals
@@ -919,7 +944,7 @@ mod tests {
         let boxed = crate::emit::emit(
             &m,
             &crate::emit::Run::Main(Some(main)),
-            crate::WasmOptions::default(),
+            crate::WasmOptions::boxed(),
         )
         .unwrap_or_else(|e| panic!("{e:?}"));
         wasmparser::validate(&boxed.module).expect("the boxed module is valid");
@@ -1089,6 +1114,47 @@ mod tests {
         let m: &'static Module = Box::leak(Box::new(m));
         let values = Values::new(m, &[]);
         assert!(values.index(rec).is_some());
+    }
+
+    #[test]
+    fn a_suspending_function_parameter_is_held_by_value() {
+        // The wrapper, the state-machine body, the trampoline and every call of the type use one
+        // signature derived from the layout, so the parameter flattens.
+        let mut core = emela_core::Module::new();
+        let rec = record(&mut core, "Point", vec![("x", TypeId::INT)]);
+        let values = values_of(core, |b| {
+            b.set_suspends();
+            b.param("p", rec);
+        });
+        assert!(values.index(rec).is_some());
+    }
+
+    #[test]
+    fn a_one_leaf_suspending_result_is_held_by_value() {
+        // The resume channel carries one word, which a one-leaf result is.
+        let mut core = emela_core::Module::new();
+        let rec = record(&mut core, "Meter", vec![("v", TypeId::INT)]);
+        let values = values_of(core, |b| {
+            b.set_suspends();
+            b.set_ret(rec);
+        });
+        assert!(values.index(rec).is_some());
+    }
+
+    #[test]
+    fn a_multi_leaf_suspending_result_keeps_the_box() {
+        // The trampoline reports the result through the runtime's one-word resume channel.
+        let mut core = emela_core::Module::new();
+        let rec = record(
+            &mut core,
+            "Pair",
+            vec![("a", TypeId::INT), ("b", TypeId::INT)],
+        );
+        let values = values_of(core, |b| {
+            b.set_suspends();
+            b.set_ret(rec);
+        });
+        assert_eq!(values.index(rec), None);
     }
 
     #[test]
