@@ -232,7 +232,7 @@ impl fmt::Display for DiagnosticKind {
             DiagnosticKind::DuplicateModule { name, first } => write!(
                 f,
                 "duplicate module `{name}` (already defined by `{}`)",
-                first.display()
+                crate::shown_path(first)
             ),
             DiagnosticKind::UndefinedModule { name } => {
                 write!(f, "undefined module `{name}`")

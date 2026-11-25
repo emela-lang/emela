@@ -570,14 +570,7 @@ pub(crate) fn lower_typed(
         let source = &analysis.sources[file];
         sources.insert(module, source.text());
         paths.insert(module, source.path());
-        shown_paths.insert(
-            module,
-            analysis
-                .sources
-                .display_path(source.path())
-                .display()
-                .to_string(),
-        );
+        shown_paths.insert(module, analysis.sources.display_path(source.path()));
     }
     let input = emela_core::LowerInput {
         hir: &typed.hir,

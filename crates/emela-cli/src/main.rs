@@ -725,7 +725,7 @@ fn fmt(paths: Vec<PathBuf>, check: bool) -> ExitCode {
     if check && !report.changed.is_empty() {
         let mut out = String::new();
         for path in &report.changed {
-            out.push_str(&format!("{}\n", path.display()));
+            out.push_str(&format!("{path}\n"));
         }
         let _ = std::io::stdout().lock().write_all(out.as_bytes());
         code = ExitCode::from(DIAGNOSTIC_FAILURE);

@@ -30,8 +30,8 @@ pub type WriteFile<'a> = &'a mut dyn FnMut(&Path, &str) -> io::Result<()>;
 pub struct FmtTarget {
     pub path: PathBuf,
     /// The path shown in diagnostics and listings, relative to the project (or to the file's
-    /// directory for a single file).
-    pub display: PathBuf,
+    /// directory for a single file), with `/` between its components on every OS.
+    pub display: String,
 }
 
 /// Diagnostics of a file that could not be formatted. Paths are relative to a per-file base, so
@@ -54,7 +54,7 @@ impl FmtFailure {
 #[derive(Debug, Default)]
 pub struct FmtReport {
     /// Files whose contents change (display paths). Files that failed to write are excluded.
-    pub changed: Vec<PathBuf>,
+    pub changed: Vec<String>,
     pub failures: Vec<FmtFailure>,
 }
 
@@ -136,7 +136,7 @@ pub fn fmt_targets(fs: &dyn FileSystem, paths: &[PathBuf]) -> (Vec<FmtTarget>, V
                 failures.push(FmtFailure::new(
                     Diagnostic::error(format!("cannot read directory: {err}"))
                         .with_code(code::CANNOT_READ)
-                        .at(Location::Path(display_path(&input.base, &dir))),
+                        .at(Location::Path(display_path(&input.base, &dir).into())),
                 ));
             }
             targets.extend(files.into_iter().map(target));
@@ -169,10 +169,10 @@ fn walk(
     Ok(())
 }
 
-fn display_path(base: &Path, path: &Path) -> PathBuf {
+fn display_path(base: &Path, path: &Path) -> String {
     match path.strip_prefix(base) {
-        Ok(relative) if !relative.as_os_str().is_empty() => relative.to_owned(),
-        _ => path.to_owned(),
+        Ok(relative) if !relative.as_os_str().is_empty() => emela_resolve::shown_path(relative),
+        _ => emela_resolve::shown_path(path),
     }
 }
 
@@ -221,12 +221,12 @@ pub fn fmt(fs: &dyn FileSystem, paths: &[PathBuf], mut write: Option<WriteFile<'
                 failures.push(FmtFailure::new(
                     Diagnostic::error(format!("cannot read file: {err}"))
                         .with_code(code::CANNOT_READ)
-                        .at(Location::Path(target.display)),
+                        .at(Location::Path(target.display.into())),
                 ));
                 continue;
             }
         };
-        let formatted = match format_source(&target.display, &text) {
+        let formatted = match format_source(Path::new(&target.display), &text) {
             Ok(Some(formatted)) => formatted,
             Ok(None) => continue,
             Err(failure) => {
@@ -240,7 +240,7 @@ pub fn fmt(fs: &dyn FileSystem, paths: &[PathBuf], mut write: Option<WriteFile<'
             failures.push(FmtFailure::new(
                 Diagnostic::error(format!("cannot write file: {err}"))
                     .with_code(code::CANNOT_WRITE_OUTPUT)
-                    .at(Location::Path(target.display)),
+                    .at(Location::Path(target.display.into())),
             ));
             continue;
         }
@@ -262,10 +262,7 @@ mod tests {
         let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
         let (targets, failures) = fmt_targets(&fs, &paths);
         (
-            targets
-                .iter()
-                .map(|t| t.display.display().to_string())
-                .collect(),
+            targets.iter().map(|t| t.display.clone()).collect(),
             failures
                 .iter()
                 .flat_map(|f| &f.diagnostics)
@@ -371,7 +368,7 @@ mod tests {
         );
         assert_eq!(
             report.changed,
-            vec![PathBuf::from("src/a.emel"), PathBuf::from("src/d.emel")]
+            vec!["src/a.emel".to_owned(), "src/d.emel".to_owned()]
         );
         assert!(report.has_errors());
         let rendered = report.render(false);

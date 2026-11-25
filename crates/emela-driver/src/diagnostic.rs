@@ -150,7 +150,7 @@ impl Diagnostic {
             (Some(file), None) => Location::File(file),
             (None, _) => Location::Path(diagnostic.file.clone()),
         };
-        let display = |path: &Path| format!("`{}`", sources.display_path(path).display());
+        let display = |path: &Path| format!("`{}`", sources.display_path(path));
         let (code, message) = match &diagnostic.kind {
             DiagnosticKind::InvalidFileName { name, error } => (
                 code::INVALID_FILE_NAME,

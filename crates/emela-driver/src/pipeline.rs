@@ -781,7 +781,7 @@ pub fn check<F: Frontend>(
         analysis.diagnostics.push(
             Diagnostic::error(format!(
                 "`{}` is under the test root, which only check and test read",
-                analysis.sources.display_path(entry).display()
+                analysis.sources.display_path(entry)
             ))
             .with_code(code::OUTSIDE_SOURCE_ROOT)
             .at(Location::Path(entry.clone())),
@@ -791,7 +791,7 @@ pub fn check<F: Frontend>(
         analysis.diagnostics.push(
             Diagnostic::error(format!(
                 "the entry `{}` is not a module",
-                analysis.sources.display_path(entry).display()
+                analysis.sources.display_path(entry)
             ))
             .with_code(code::ENTRY_NOT_MODULE)
             .at(Location::Path(entry.clone())),
@@ -869,10 +869,7 @@ fn build_with<F: Frontend, B: Backend<F::Program>>(
         analysis.diagnostics.push(
             Diagnostic::error(format!(
                 "the entry `{}` does not exist",
-                analysis
-                    .sources
-                    .display_path(&input.root.join(ENTRY_FILE))
-                    .display()
+                analysis.sources.display_path(&input.root.join(ENTRY_FILE))
             ))
             .with_code(code::ENTRY_NOT_FOUND),
         );
@@ -889,7 +886,7 @@ fn build_with<F: Frontend, B: Backend<F::Program>>(
         analysis.diagnostics.push(
             Diagnostic::error(format!(
                 "entry `{}` has no `main` function",
-                analysis.sources.display_path(entry).display()
+                analysis.sources.display_path(entry)
             ))
             .with_code(code::ENTRY_WITHOUT_MAIN)
             .at(Location::Path(entry.clone())),

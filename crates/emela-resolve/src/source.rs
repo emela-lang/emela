@@ -18,6 +18,23 @@ use crate::{ModuleName, PRELUDE, STD};
 
 pub const EXTENSION: &str = "emel";
 
+/// A path as the compiler and tools show it: a relative path (a file in the project, relative to
+/// the project directory) has its components separated by `/` on every OS, so the output of a
+/// project is the same on Windows (#812). An absolute path keeps the separators of the OS.
+pub fn shown_path(path: &Path) -> String {
+    if path.is_absolute() || path.has_root() {
+        return path.display().to_string();
+    }
+    let mut shown = String::new();
+    for component in path.components() {
+        if !shown.is_empty() {
+            shown.push('/');
+        }
+        shown.push_str(&component.as_os_str().to_string_lossy());
+    }
+    shown
+}
+
 /// A minimal file system that only lists directories.
 pub trait SourceFs {
     /// The entries directly under `dir`, in any order (the caller sorts them).
@@ -536,14 +553,39 @@ mod tests {
         let (map, diagnostics) = collect_modules(&fs, Path::new("src"));
         let diagnostics = diagnostics
             .iter()
-            .map(|d| format!("{}: {d}", d.file.display()))
+            .map(|d| format!("{}: {d}", shown_path(&d.file)))
             .collect();
         (map, diagnostics)
     }
 
+    #[test]
+    fn shown_path_separates_relative_paths_with_slash() {
+        let nested = Path::new("src").join("http").join("client.emel");
+        assert_eq!(shown_path(&nested), "src/http/client.emel");
+        assert_eq!(shown_path(Path::new("main.emel")), "main.emel");
+        assert_eq!(
+            shown_path(&Path::new("..").join("src").join("a.emel")),
+            "../src/a.emel"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn shown_path_replaces_the_windows_separator() {
+        assert_eq!(
+            shown_path(Path::new(r"src\http\client.emel")),
+            "src/http/client.emel"
+        );
+        // An absolute path is outside the project and keeps the separators of the OS.
+        assert_eq!(
+            shown_path(Path::new(r"C:\p\src\a.emel")),
+            r"C:\p\src\a.emel"
+        );
+    }
+
     fn names(map: &ModuleMap) -> Vec<String> {
         map.iter()
-            .map(|(_, m)| format!("{} = {}", m.name, m.file.display()))
+            .map(|(_, m)| format!("{} = {}", m.name, shown_path(&m.file)))
             .collect()
     }
 
@@ -722,7 +764,7 @@ mod tests {
     #[test]
     fn looks_up_imports_from_the_importers_pome() {
         let (map, main, router, client) = packages();
-        let file = |id: Option<ModuleId>| id.map(|id| map[id].file.display().to_string());
+        let file = |id: Option<ModuleId>| id.map(|id| shown_path(&map[id].file));
         let from = |importer, name| file(map.lookup_from(importer, &ModuleName::parse(name)));
         // The project sees its own modules and its dependency under the root name.
         assert_eq!(from(main, "Util").as_deref(), Some("src/util.emel"));
@@ -766,7 +808,7 @@ mod tests {
         let found = map.add_test_root(&fs, Path::new("test"));
         let found: Vec<String> = found
             .iter()
-            .map(|d| format!("{}: {d}", d.file.display()))
+            .map(|d| format!("{}: {d}", shown_path(&d.file)))
             .collect();
         assert_eq!(
             found,

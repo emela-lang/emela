@@ -86,7 +86,13 @@ fn run_impl(files: &[(&str, &str)], core: &[(&str, &str)], deprecated: bool) -> 
 
     let mut out = String::new();
     for (id, data) in modules.iter().filter(|(id, _)| !modules.is_core(*id)) {
-        writeln!(out, "== {} ({})", data.name, data.file.display()).unwrap();
+        writeln!(
+            out,
+            "== {} ({})",
+            data.name,
+            emela_resolve::shown_path(&data.file)
+        )
+        .unwrap();
         out.push_str(&dump_module(&program, &modules, id));
     }
     if !diagnostics.is_empty() {
@@ -103,7 +109,7 @@ fn run_impl(files: &[(&str, &str)], core: &[(&str, &str)], deprecated: bool) -> 
         writeln!(
             out,
             "{level} {}@{:?} `{}`: {d}",
-            d.file.display(),
+            emela_resolve::shown_path(&d.file),
             range,
             &text[range]
         )

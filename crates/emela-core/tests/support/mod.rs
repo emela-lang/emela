@@ -242,7 +242,7 @@ fn try_lower_rooted_lowered_lang(
     let shown_paths = modules
         .iter()
         .filter(|(_, m)| m.file.starts_with("src"))
-        .map(|(id, m)| (id, m.file.display().to_string()))
+        .map(|(id, m)| (id, emela_resolve::shown_path(&m.file)))
         .collect();
     let input = LowerInput {
         hir: &program,
