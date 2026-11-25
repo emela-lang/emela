@@ -77,6 +77,16 @@ pub struct WasmOptions {
     /// statics, arrays, lists, enum payloads, closure captures and suspension frames keep the
     /// boxed form.
     pub values: bool,
+    /// E2 step 2: store an array element that is an all-scalar record or tuple inline (one
+    /// 8-byte slot per scalar leaf) instead of a reference to a separately allocated box.
+    ///
+    /// Off by default. It changes the array descriptor's element stride and the array runtime,
+    /// but not the IR: a read still returns a reference, so `Array.get`, `get_or`, the unchecked
+    /// load and `to_list` allocate one box per element read. Construction (`from_list`,
+    /// `map_range`), `Array.set`, `slice`, `concat` and `copy` copy the element's slots and never
+    /// allocate one box per element. Elements that contain a reference are rejected (there is no
+    /// per-field drop map).
+    pub aggregate_arrays: bool,
 }
 
 /// The output of [`compile`].

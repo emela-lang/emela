@@ -202,6 +202,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         refs: vec![
             false, false, true, false, false, true, false, false, true, false,
         ],
+        stride: 0,
     });
     let resume_desc = b.desc(DescKey {
         kind: 0,
@@ -210,6 +211,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "resume".to_owned(),
         show: None,
         refs: vec![false, true],
+        stride: 0,
     });
     let interrupted_desc = b.desc(DescKey {
         kind: 0,
@@ -218,6 +220,7 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         name: "interrupted".to_owned(),
         show: None,
         refs: vec![true],
+        stride: 0,
     });
     let interrupted = b.nullary(interrupted_desc);
     let twice_prefix = b.string_literal(b"resume called twice in ");
@@ -1073,6 +1076,7 @@ fn compile_edge(
         name: check::display_name(&mcx.f.name).to_owned(),
         show: None,
         refs,
+        stride: 0,
     });
     let table = mcx
         .b

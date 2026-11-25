@@ -147,6 +147,10 @@ pub(crate) struct DescKey {
     pub name: String,
     pub show: Option<u32>,
     pub refs: Vec<bool>,
+    /// The element stride in 8-byte slots. Only an array descriptor (kind 2) keeps it, at
+    /// [`DESC_STRIDE`]; every other kind writes 0 and stays [`DESC_SIZE`] bytes. Scalar elements
+    /// keep a stride of 1, so their arrays are unchanged.
+    pub stride: u32,
 }
 
 /// The wasm value type of a representation.
@@ -228,9 +232,14 @@ const DESC_SHOW: u32 = 20;
 const DESC_NAME: u32 = 24;
 const DESC_NAMELEN: u32 = 28;
 const DESC_SIZE: u32 = 32;
+/// The element stride of an array in 8-byte slots, after [`DESC_SIZE`]. Only an array descriptor
+/// has it (E2); a descriptor of any other kind keeps [`DESC_SIZE`] bytes, so no other output moves.
+const DESC_STRIDE: u32 = 32;
 
 pub(crate) struct Builder<'m> {
     pub(crate) m: &'m Module,
+    /// The representation options (see [`WasmOptions`]).
+    options: WasmOptions,
     /// The records and tuples held by value in locals (E1). Empty unless `options.values`.
     values: values::Values<'m>,
     types: Vec<(Vec<ValType>, Vec<ValType>)>,
@@ -298,6 +307,7 @@ impl<'m> Builder<'m> {
     fn new(m: &'m Module, options: WasmOptions) -> Self {
         let mut b = Builder {
             m,
+            options,
             values: if options.values {
                 values::Values::new(m)
             } else {
@@ -899,6 +909,7 @@ impl<'m> Builder<'m> {
             name: "String".to_owned(),
             show: None,
             refs: Vec::new(),
+            stride: 0,
         })
     }
 
@@ -911,6 +922,7 @@ impl<'m> Builder<'m> {
             name: "list".to_owned(),
             show: None,
             refs: vec![head_ref, true],
+            stride: 0,
         })
     }
 
@@ -928,7 +940,11 @@ impl<'m> Builder<'m> {
         if let Some(&o) = self.descs.get(&key) {
             return o;
         }
-        let o = self.alloc_static(DESC_SIZE);
+        let o = self.alloc_static(if key.kind == runtime::array::KIND {
+            DESC_SIZE + 4
+        } else {
+            DESC_SIZE
+        });
         let refs = if key.refs.is_empty() {
             0
         } else {
@@ -954,6 +970,9 @@ impl<'m> Builder<'m> {
         self.write_u32(o + DESC_SHOW, key.show.unwrap_or(u32::MAX));
         self.write_u32(o + DESC_NAME, name_ptr);
         self.write_u32(o + DESC_NAMELEN, name_len);
+        if key.kind == runtime::array::KIND {
+            self.write_u32(o + DESC_STRIDE, key.stride);
+        }
         self.descs.insert(key, o);
         o
     }
@@ -983,6 +1002,7 @@ impl<'m> Builder<'m> {
             name: "Some".to_owned(),
             show: None,
             refs: vec![field_ref],
+            stride: 0,
         });
         let none_desc = self.desc(DescKey {
             kind: 0,
@@ -991,6 +1011,7 @@ impl<'m> Builder<'m> {
             name: "None".to_owned(),
             show: None,
             refs: Vec::new(),
+            stride: 0,
         });
         let none = self.nullary(none_desc);
         (some, none)
@@ -1004,10 +1025,48 @@ impl<'m> Builder<'m> {
         }
     }
 
+    /// The layout of the element of the array type `ty` when it is an all-scalar record or tuple
+    /// stored inline (E2), or `None` when the elements stay one-word values or references.
+    ///
+    /// This ignores the local-only exclusions of [`values::Values`]: an array element can be
+    /// stored inline even when the same type is a function parameter, a result or a list head.
+    pub(crate) fn inline_array_elem(&self, ty: TypeId) -> Option<values::Layout> {
+        if !self.options.aggregate_arrays {
+            return None;
+        }
+        match self.core().ty(ty) {
+            Type::Array(elem) => values::all_scalar(self.core(), *elem),
+            _ => None,
+        }
+    }
+
+    /// The descriptor of the box made when an inline array element is read as a reference (E2).
+    /// Its slots are the element's scalar leaves and it has no references, exactly what
+    /// `Value::Make` gives a boxed all-scalar record or tuple.
+    pub(crate) fn inline_array_elem_desc(&mut self, ty: TypeId) -> Option<u32> {
+        let layout = self.inline_array_elem(ty)?;
+        let slots = layout.slots();
+        Some(self.desc(DescKey {
+            kind: 0,
+            tag: 0,
+            enum_id: -1,
+            name: layout.name.clone(),
+            show: None,
+            refs: vec![false; slots],
+            stride: 0,
+        }))
+    }
+
     /// The descriptor of an array of type `ty` (`runtime/array.rs`): kind 2, with `refs[0]`
-    /// telling whether the elements are references.
+    /// telling whether the elements are references and the element stride in slots.
+    ///
+    /// A scalar array keeps a stride of 1 (one 8-byte word). An array of an all-scalar record or
+    /// tuple stores the element inline, one slot per scalar leaf, so `refs[0]` is false whatever
+    /// the IR representation of the element is.
     pub(crate) fn array_desc(&mut self, ty: TypeId) -> u32 {
-        let elem_ref = self.array_elem_repr(ty) == Repr::Ref;
+        let inline = self.inline_array_elem(ty);
+        let stride = inline.as_ref().map_or(1, |layout| layout.slots() as u32);
+        let elem_ref = inline.is_none() && self.array_elem_repr(ty) == Repr::Ref;
         self.desc(DescKey {
             kind: runtime::array::KIND,
             tag: 0,
@@ -1015,6 +1074,7 @@ impl<'m> Builder<'m> {
             name: "Array".to_owned(),
             show: None,
             refs: vec![elem_ref],
+            stride,
         })
     }
 
@@ -1041,6 +1101,7 @@ impl<'m> Builder<'m> {
             name: check::display_name(&self.m.functions[function].name).to_owned(),
             show: None,
             refs: vec![false],
+            stride: 0,
         });
         let o = self.alloc_static(HDR + 8);
         self.write_u32(o + 8, desc);
@@ -2169,6 +2230,7 @@ impl<'m> Builder<'m> {
                         None
                     },
                     refs,
+                    stride: 0,
                 };
                 let desc = self.desc(key);
                 if args.is_empty() {
@@ -2231,6 +2293,7 @@ impl<'m> Builder<'m> {
                     name: "tuple".to_owned(),
                     show: None,
                     refs,
+                    stride: 0,
                 });
                 let elems = elems.clone();
                 self.alloc_value(cx, ins, dst, desc, &elems);
@@ -2313,6 +2376,7 @@ impl<'m> Builder<'m> {
                     name: check::display_name(&self.m.functions[function].name).to_owned(),
                     show: None,
                     refs,
+                    stride: 0,
                 });
                 let Some(d) = dst else {
                     self.internal(format!("closure without a destination in {}", cx.f.name));
@@ -2374,6 +2438,7 @@ impl<'m> Builder<'m> {
                     name: "evidence".to_owned(),
                     show: None,
                     refs,
+                    stride: 0,
                 });
                 let bindings = bindings.clone();
                 self.alloc(cx, ins, d, desc, 2 + 2 * bindings.len());
@@ -2417,6 +2482,7 @@ impl<'m> Builder<'m> {
                     name: name.clone(),
                     show: None,
                     refs,
+                    stride: 0,
                 });
                 let Some(d) = dst else {
                     self.internal(format!("handler without a destination in {}", cx.f.name));
@@ -2469,6 +2535,7 @@ impl<'m> Builder<'m> {
                         name: "box".to_owned(),
                         show: None,
                         refs: vec![from == Repr::Ref],
+                        stride: 0,
                     });
                     ins.i32_const(1);
                     ins.i32_const(desc as i32);

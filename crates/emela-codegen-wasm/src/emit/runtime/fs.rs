@@ -374,6 +374,7 @@ pub(super) fn prepare(b: &mut Builder<'_>) {
         name: "fs_raw".to_owned(),
         show: None,
         refs: Vec::new(),
+        stride: 0,
     });
     let outcome_desc = b.desc(DescKey {
         kind: 0,
@@ -382,6 +383,7 @@ pub(super) fn prepare(b: &mut Builder<'_>) {
         name: "fs_outcome".to_owned(),
         show: None,
         refs: vec![false; 5],
+        stride: 0,
     });
     let empty = b.string_literal(b"");
     let err_table = b.alloc_static(8 * 4);

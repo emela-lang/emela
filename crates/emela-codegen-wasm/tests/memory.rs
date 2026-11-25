@@ -10,6 +10,7 @@
 use crate::common;
 
 use common::*;
+use emela_codegen_wasm::WasmOptions;
 use wasmparser::{Operator, Parser, Payload};
 
 /// The linear memory each program may grow to: six 64 KiB pages.
@@ -974,5 +975,91 @@ fn main() -> () uses { Async } {
 }
 "#,
         "True\n",
+    );
+}
+
+/// Compiles with the E2 inline-array option on, validating the module.
+fn compile_inline_arrays(name: &str, src: &str) -> Vec<u8> {
+    let output = to_output_with(
+        src,
+        WasmOptions {
+            aggregate_arrays: true,
+            ..WasmOptions::default()
+        },
+    );
+    wasmparser::validate(&output.module).expect("the inline-array module is valid");
+    let _ = name;
+    output.module
+}
+
+/// Runs `bytes` with linear memory limited to [`LIMIT`].
+fn run_limited_bytes(name: &str, bytes: &[u8]) -> Run {
+    run_bytes_with_command(&out_dir(name), bytes, |command| {
+        command.arg("-W").arg(format!("max-memory-size={LIMIT}"));
+        command.arg("-W").arg("trap-on-grow-failure=n");
+    })
+}
+
+#[test]
+fn an_inline_array_of_records_fits_where_the_boxes_do_not() {
+    // 10k `Point`s. The inline form is one array of 10k two-slot elements (160 KiB) plus one
+    // transient box; the boxed form also keeps 10k boxes of 32 bytes (320 KiB), which does not
+    // fit in the six pages together with the array.
+    const SRC: &str = r#"
+import Std.Array.{Array}
+
+type Point(x: Int, y: Int)
+
+fn main() {
+  a = Array.from_list(List.map(List.range(0, 10000), |i| Point(x: i, y: i + 1)))
+  dbg(Array.size(a))
+  dbg(Array.get(a, 9999) |> Option.or(Point(x: 0, y: 0)))
+}
+"#;
+    let Some(_) = wasmtime() else { return };
+    let inline = compile_inline_arrays("memory-inline-array", SRC);
+    let run = run_limited_bytes("memory-inline-array", &inline);
+    assert_eq!(run.code, 0, "inline: {}", run.stderr);
+    assert_eq!(run.stderr, "10000\nPoint(x: 9999, y: 10000)\n");
+
+    let boxed = compile_checked(SRC);
+    let boxed_run = run_limited_bytes("memory-boxed-array", &boxed);
+    assert_ne!(
+        boxed_run.code, 0,
+        "the boxed array was expected to exceed the limit"
+    );
+}
+
+#[test]
+fn inline_arrays_reuse_memory_across_set_slice_and_concat() {
+    // Repeated `set` writes in place (the array is the last reference), and a slice+concat builds
+    // new arrays and frees the old ones, so the peak stays far below the limit.
+    const SRC: &str = r#"
+import Std.Array.{Array}
+
+type Point(x: Int, y: Int)
+
+fn fill(a: Array[Point], i: Int, n: Int) -> Array[Point] {
+  if i == n { a } else { fill(Array.set(a, i, Point(x: i, y: -i)), i + 1, n) }
+}
+
+fn main() {
+  a = Array.from_list(List.map(List.range(0, 2000), |i| Point(x: i, y: i)))
+  a = fill(a, 0, 2000)
+  b = Array.concat([Array.slice(a, 0, 1000), Array.slice(a, 1000, 2000)])
+  dbg(Array.size(b))
+  dbg(Array.get(b, 1999) |> Option.or(Point(x: 0, y: 0)))
+  c = Array.concat([b, b])
+  dbg(Array.size(c))
+  dbg(Array.get(c, 0) |> Option.or(Point(x: 0, y: 0)))
+}
+"#;
+    let Some(_) = wasmtime() else { return };
+    let bytes = compile_inline_arrays("memory-inline-array-reuse", SRC);
+    let run = run_limited_bytes("memory-inline-array-reuse", &bytes);
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(
+        run.stderr,
+        "2000\nPoint(x: 1999, y: -1999)\n4000\nPoint(x: 0, y: 0)\n"
     );
 }
