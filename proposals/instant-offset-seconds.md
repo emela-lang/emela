@@ -1,11 +1,13 @@
 ---
 title: Reading an offset with seconds in Instant.parse
 authors: [somnicattus]
-status: draft
+status: accepted
 issue:
 touches: [api.std.instant]
 requires: []
 related: [instant-parse]
+pr: 868
+decided: 2026-11-25
 ---
 
 # Reading an offset with seconds in Instant.parse
@@ -137,3 +139,5 @@ Every program that compiles before the change compiles after the change, with th
 ## Open questions
 
 ## Decision
+
+Real systems write offsets with seconds for times in the period of local mean time (PostgreSQL, Java, Python, Go), and a record holding such an Instant could not be decoded at all. Every text that `parse` read before reads as the same Instant, and `to_string`, Encode and Shaped do not change. Reading `±HHMMSS` keeps the offset forms symmetric with `±HHMM`, and mixing colons within one offset stays rejected.
