@@ -47,8 +47,9 @@ pub struct CoreC {
     cc: Option<(PathBuf, Vec<String>)>,
     /// Whether the LIR optimisation passes run (`emela_lir::to_heap_with`). On by default.
     optimize: bool,
-    /// Which LIR passes run (see [`emela_lir::opt::Options`]). The default: borrow inference and
-    /// the other off-by-default passes do not run.
+    /// Which LIR passes run (see [`emela_lir::opt::Options`]). The default: the M3 memory passes
+    /// that pay for themselves run; drop specialisation, record SRA and closure devirtualisation
+    /// do not.
     lir_options: emela_lir::opt::Options,
 }
 

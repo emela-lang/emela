@@ -1,8 +1,9 @@
 //! Drop specialisation (C3/PR-027): the type-directed block drop.
 //!
 //! A `drop` whose value's payload holds no reference and whose type has no finalizer is classified
-//! as a block release; every other drop stays generic. The pass is off by default, so a default
-//! build's Heap IR (and both backends' output) is unchanged.
+//! as a block release; every other drop stays generic. The pass is opt-in (off by default) because
+//! of its measured size cost, so these tests turn it on explicitly; a test that needs the default
+//! sets the flag off explicitly.
 
 use crate::support;
 
@@ -61,9 +62,23 @@ fn with_drop_spec() -> LirRules {
     }
 }
 
-/// The default passes, with drop specialisation off.
+/// The default passes, with drop specialisation explicitly off.
 fn without_drop_spec() -> LirRules {
-    LirRules::default()
+    LirRules {
+        drop_spec: false,
+        ..LirRules::default()
+    }
+}
+
+/// Only drop specialisation among the passes whose counters this file checks: the M3 passes that
+/// could move another counter are explicitly off.
+fn only_drop_spec() -> LirRules {
+    LirRules {
+        drop_spec: true,
+        dce: false,
+        borrow: false,
+        ..LirRules::default()
+    }
 }
 
 /// The drops of the module, as (type name, kind). A drop without an entry is `Generic`.
@@ -247,25 +262,24 @@ fn a_finalizer_or_an_untracked_type_stays_generic() {
     }
 }
 
-/// The flag is off by default: no function carries a kind and the dump is what it was without the
-/// pass. The counters stay zero.
+/// With the flag off no function carries a kind and the dump is what it was without the pass. The
+/// counters stay zero. `run_heap` uses the default rules, where the pass is off until it pays.
 #[test]
 fn the_flag_off_leaves_the_heap_ir_and_the_counters_alone() {
     let (m, stats) = heap(PROGRAM, without_drop_spec());
     assert!(
         m.functions.iter().all(|(_, f)| f.drop_kinds.is_empty()),
-        "a default build carries a drop kind"
+        "the flag off carries a drop kind"
     );
     assert_eq!(stats.drop_specialized, 0);
     assert_eq!(stats.drop_deopts, 0);
 
-    // A module the pass is not run on is the same as one where it is switched off: `run_heap`
-    // uses the default rules.
+    // `run_heap` uses the default rules, where drop specialisation is opt-in.
     let (mut off, _) = heap(PROGRAM, without_drop_spec());
     let stats = emela_lir::opt::run_heap(&mut off, true);
     assert!(
         off.functions.iter().all(|(_, f)| f.drop_kinds.is_empty()),
-        "`run_heap` specialised a drop"
+        "`run_heap` specialised a drop with the default rules"
     );
     assert_eq!(stats.drop_specialized, 0);
     assert_eq!(stats.drop_deopts, 0);
@@ -301,7 +315,7 @@ fn the_pass_is_idempotent() {
 /// The borrow signature is untouched and no other counter moves: the pass only classifies drops.
 #[test]
 fn the_pass_writes_no_other_stat() {
-    let (_, stats) = heap(PROGRAM, with_drop_spec());
+    let (_, stats) = heap(PROGRAM, only_drop_spec());
     let default = opt::Stats::default();
     assert_eq!(stats.sra_tuples, default.sra_tuples);
     assert_eq!(stats.sra_records, default.sra_records);

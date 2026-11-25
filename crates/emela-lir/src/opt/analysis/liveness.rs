@@ -22,7 +22,8 @@
 //! Deopt (unknown): a consumer that gets `Unknown` does not remove the statement, the frame slot or
 //!                  the reference it wanted to remove. It must not read `Unknown` as "not live".
 //!                  `None` from [`live_after`] is also "no answer", not an empty set.
-//! Consumers: LIR DCE and frame pruning (C7/PR-028), rc cleanup (C1/PR-025) and SRA (C5/PR-043).
+//! Consumers: LIR DCE (C7/PR-028), rc cleanup (C1/PR-025), SRA (C5/PR-043) and the frame-slot scan
+//!            (C7/PR-028, read-only).
 //! ```
 //!
 //! # Stages
@@ -42,7 +43,7 @@
 //! # Queries
 //!
 //! [`live_after`] looks up a `let` statement. Only `let` statements are keyed: they are the
-//! definitions a DCE pass removes and the points rc cleanup and frame pruning ask about. A
+//! definitions a DCE pass removes and the points rc cleanup and the frame-slot scan ask about. A
 //! statement that is not keyed gives `None`, which is "no answer".
 //!
 //! There is no `last_use` query. A single "last statement" cannot be sound on structured control:

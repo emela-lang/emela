@@ -2,8 +2,8 @@
 //! ([`LirRules::rc_borrow`]).
 //!
 //! Each test builds the Heap IR the reference counting pass emits (`dup` and `drop` explicit), runs
-//! the Heap IR passes with the flag on or off, and checks the output with the verifier. With the
-//! flag off nothing in this file may change: that is the default build's output.
+//! the Heap IR passes with the flag on or off, and checks the output with the verifier. The flag is
+//! on by default (M3); a test that needs it off sets it explicitly.
 
 use crate::support;
 
@@ -12,7 +12,7 @@ use emela_lir::opt::analysis::{liveness, ownership};
 use emela_lir::opt::{LirRules, Options, Stats, run_heap_with};
 use emela_lir::{
     Const, FnBuilder, FnId, Module, Stage, Stmt, Term, Value, dump_function, from_core,
-    to_heap_with, verify,
+    to_heap_with_options, verify,
 };
 use support::try_lower_with_opt;
 
@@ -128,7 +128,7 @@ fn a_view_of_a_live_unique_local_is_elided_under_the_flag() {
     assert_eq!(before.matches("dup").count(), 1, "{before}");
     assert!(before.contains("drop t"), "{before}");
 
-    // The default rules keep the reference: the flag is off by default.
+    // With the flag explicitly off the reference stays.
     let mut fx = Fixture::new();
     let id = local_view(&mut fx);
     let before = snapshot(&mut fx.m, id);
@@ -465,7 +465,8 @@ fn the_facts_the_rule_needs_are_unknown_at_the_flow_stage() {
     assert!(ownership::analyze(&fx.m).is_known());
 }
 
-/// Lowers a program and takes it to the Heap IR with the default passes (the borrow elision off).
+/// Lowers a program and takes it to the Heap IR with the default passes, except the borrow elision,
+/// so that the `dup`/`drop` pair is still there for the test to elide.
 fn lowered(src: &str) -> Module {
     let m = try_lower_with_opt(
         &[("main.emel", src)],
@@ -490,7 +491,16 @@ fn lowered(src: &str) -> Module {
         let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
         panic!("conversion errors:\n{}", lines.join("\n"));
     });
-    to_heap_with(&mut lir, true);
+    to_heap_with_options(
+        &mut lir,
+        true,
+        Options {
+            rules: LirRules {
+                rc_borrow: false,
+                ..LirRules::default()
+            },
+        },
+    );
     lir
 }
 

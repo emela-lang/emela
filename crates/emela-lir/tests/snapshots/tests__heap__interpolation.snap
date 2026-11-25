@@ -4,6 +4,7 @@ expression: "parts(&m, &[\"label\", \"show$Shape\", \"show$List\"])"
 ---
 fn label(s%0: ref (Shape), n%1: i32 (Int)) -> ref (String) {
   s%2: ref (String) = call show$Shape(s%0)
+  drop s%0
   s%3: ref (String) = builtin Int.to_string(n%1)
   s%4: ref (String) = runtime concat("shape ", s%2, " number ", s%3)
   drop s%2
@@ -15,7 +16,6 @@ fn show$Shape(x%0: ref (Shape)) -> ref (String) {
   switch tag(x%0) {
     case Shape.Circle {
       f%1: f64 (Float) = field x%0 Shape.Circle.radius#0
-      drop x%0
       s%2: ref (String) = builtin Float.to_string(f%1)
       s%3: ref (String) = runtime concat("Circle(radius: ", s%2, ")")
       drop s%2
@@ -23,12 +23,9 @@ fn show$Shape(x%0: ref (Shape)) -> ref (String) {
     }
     case Shape.Named {
       f%4: ref (String) = field x%0 Shape.Named#0
-      dup f%4
       s%5: ref (String) = runtime show_string(f%4)
-      drop f%4
       f%6: ref (List[Option[Int]]) = field x%0 Shape.Named#1
       dup f%6
-      drop x%0
       s%7: ref (String) = call show$List[Option[Int]](f%6)
       s%8: ref (String) = runtime concat("Named(", s%5, ", ", s%7, ")")
       drop s%5
