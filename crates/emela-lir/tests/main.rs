@@ -8,6 +8,7 @@ mod common;
 mod support;
 
 mod analysis_escape;
+mod analysis_liveness;
 mod dump;
 mod from_core;
 mod heap;
