@@ -33,7 +33,7 @@
 //! | Pass | Counter | Stage | Status |
 //! |---|---|---|---|
 //! | [`analysis`] (`escape`, `liveness`, `borrow`, `ownership`) | — | every stage | `escape` and its parameter summary implemented (B3/PR-022); the others answer `Unknown` until B4/PR-023 and B6/PR-024 |
-//! | [`sra`] | [`Stats::sra_tuples`] | [`run_mid`] | scalar tuples; C5/PR-043 extends it to records and closures |
+//! | [`sra`] | [`Stats::sra_tuples`], [`Stats::sra_records`] | [`run_mid`] | scalar tuples; scalar records behind [`LirRules::sra_records`] (C5/PR-043). The closure half of C5 is deferred to E5/PR-037 |
 //! | closure devirtualisation | — | [`run_mid`] | not implemented (E5/PR-037) |
 //! | [`rc`] cleanup | [`Stats::rc_pairs`] | [`run_heap`] | `dup`/`drop` pairs; C1/PR-025 generalises it |
 //! | drop specialisation | — | [`run_heap`] | not implemented (C3/PR-027) |
@@ -45,12 +45,17 @@
 //!
 //! # Feature flags
 //!
-//! [`LirRules`] has one flag per LIR pass that exists today ([`sra`] and the `rc` cleanup), and
-//! [`Options`] holds them. [`run_mid_with`] and [`run_heap_with`] take the options; [`run_mid`] and
-//! [`run_heap`] keep their old signatures and use [`Options::default`], which turns every pass on.
-//! The flags are a programmatic API only: no command-line flag is added in this skeleton. The
-//! analyses and the later LIR passes (drop specialisation, reuse, DCE, frame pruning) get their
-//! own flags when they land.
+//! [`LirRules`] has one flag per LIR pass that exists today ([`sra`] and the `rc` cleanup), plus
+//! one that extends SRA to records, and [`Options`] holds them. [`run_mid_with`] and
+//! [`run_heap_with`] take the options; [`run_mid`] and [`run_heap`] keep their old signatures and
+//! use [`Options::default`], which leaves the stage's output as it was before records were
+//! decomposed. The flags are a programmatic API only: no command-line flag is added in this
+//! skeleton. The later LIR passes (drop specialisation, reuse, DCE, frame pruning) get their own
+//! flags when they land.
+//!
+//! [`LirRules::sra_records`] is off by default so that a default build's output, the WASM byte pins
+//! and the differential tests stay what they were. It only takes part when [`LirRules::sra`] is on
+//! too.
 
 pub mod analysis;
 pub(crate) mod escape;
@@ -70,6 +75,10 @@ use crate::ir::{Module, Stage};
 pub struct Stats {
     /// Non-escaping tuples replaced by their fields (SRA).
     pub sra_tuples: u32,
+    /// Non-escaping records replaced by their fields (SRA, C5/PR-043).
+    pub sra_records: u32,
+    /// Record candidates SRA left alone (a deopt), one per `make` bound by a `let`.
+    pub sra_deopts: u32,
     /// `dup`/`drop` pairs removed by [`rc`], one per duplicated reference.
     pub rc_pairs: u32,
 }
@@ -78,6 +87,8 @@ impl Stats {
     /// Adds what `other` changed to these.
     pub fn merge(&mut self, other: Stats) {
         self.sra_tuples += other.sra_tuples;
+        self.sra_records += other.sra_records;
+        self.sra_deopts += other.sra_deopts;
         self.rc_pairs += other.rc_pairs;
     }
 }
@@ -90,6 +101,11 @@ impl Stats {
 pub struct LirRules {
     /// SRA at [`run_mid`]: non-escaping scalar tuples replaced by their fields.
     pub sra: bool,
+    /// SRA of records at [`run_mid`]: a non-escaping record whose fields are scalars is replaced
+    /// by its fields (C5/PR-043). Off by default, so a default build's output is unchanged. It has
+    /// no effect when [`sra`](Self::sra) is off. Closure records are not covered: that half of C5
+    /// needs the closure devirtualisation of E5/PR-037.
+    pub sra_records: bool,
     /// `rc` cleanup at [`run_heap`]: `dup`/`drop` pairs removed.
     pub rc_cleanup: bool,
 }
@@ -99,6 +115,7 @@ impl LirRules {
     pub const fn all() -> Self {
         Self {
             sra: true,
+            sra_records: true,
             rc_cleanup: true,
         }
     }
@@ -107,15 +124,21 @@ impl LirRules {
     pub const fn none() -> Self {
         Self {
             sra: false,
+            sra_records: false,
             rc_cleanup: false,
         }
     }
 }
 
 impl Default for LirRules {
-    /// All passes on, the behaviour of the stages before the flags existed.
+    /// The passes that are on by default: SRA and the `rc` cleanup. Record SRA is off until a
+    /// later change turns it on, so a default build's output is unchanged.
     fn default() -> Self {
-        Self::all()
+        Self {
+            sra: true,
+            sra_records: false,
+            rc_cleanup: true,
+        }
     }
 }
 
@@ -154,7 +177,8 @@ pub fn run_flow(_m: &mut Module, _optimize: bool) -> Stats {
 /// evidence table, a cell, a runtime object), values stored in a container, a handler or an
 /// evidence table, captured values, and values live across a suspension point.
 ///
-/// [`sra`] replaces non-escaping scalar tuples here; `rc_cleanup` runs later, in [`run_heap`].
+/// [`sra`] replaces non-escaping scalar tuples here, and scalar records when
+/// [`LirRules::sra_records`] is set; `rc_cleanup` runs later, in [`run_heap`].
 ///
 /// This stage is the only one where SRA and closure devirtualisation are sound: running them after
 /// `state_machines` would also have to rewrite `Suspend::saved`, which this stage fixes.
@@ -188,7 +212,7 @@ pub fn run_mid_with(m: &mut Module, options: Options) -> Stats {
     observe_mid_now(m);
     let mut stats = Stats::default();
     if options.rules.sra {
-        stats.merge(sra::run(m));
+        stats.merge(sra::run(m, options.rules.sra_records));
         check(m);
     }
     stats
@@ -386,25 +410,34 @@ mod tests {
         let mut total = Stats::default();
         total.merge(Stats {
             sra_tuples: 2,
+            sra_records: 1,
+            sra_deopts: 1,
             rc_pairs: 1,
         });
         total.merge(Stats {
             sra_tuples: 3,
+            sra_records: 4,
+            sra_deopts: 2,
             rc_pairs: 4,
         });
         total.merge(Stats::default());
         assert_eq!(total.sra_tuples, 5);
+        assert_eq!(total.sra_records, 5);
+        assert_eq!(total.sra_deopts, 3);
         assert_eq!(total.rc_pairs, 5);
     }
 
-    /// `LirRules::all` and `Default` agree; `none` turns every flag off.
+    /// `LirRules::all` turns every flag on; `none` turns every flag off. Record SRA is off in
+    /// `Default`, so a default build keeps the output as it was before C5/PR-043.
     #[test]
     fn the_lir_rule_flags_have_conservative_defaults() {
         let all = LirRules::all();
-        assert_eq!(LirRules::default(), all);
-        assert!(all.sra && all.rc_cleanup);
+        assert!(all.sra && all.sra_records && all.rc_cleanup);
+        let default = LirRules::default();
+        assert!(default.sra && default.rc_cleanup);
+        assert!(!default.sra_records);
         let none = LirRules::none();
-        assert!(!none.sra && !none.rc_cleanup);
+        assert!(!none.sra && !none.sra_records && !none.rc_cleanup);
     }
 
     /// A stage whose pass is off does not run: the module and the counters are untouched.
@@ -420,6 +453,8 @@ mod tests {
             },
         );
         assert_eq!(stats.sra_tuples, 0);
+        assert_eq!(stats.sra_records, 0);
+        assert_eq!(stats.sra_deopts, 0);
         assert_eq!(stats.rc_pairs, 0);
         assert_eq!(crate::dump(&m), before);
     }
@@ -437,6 +472,8 @@ mod tests {
             },
         );
         assert_eq!(stats.sra_tuples, 0);
+        assert_eq!(stats.sra_records, 0);
+        assert_eq!(stats.sra_deopts, 0);
         assert_eq!(stats.rc_pairs, 0);
     }
 }
