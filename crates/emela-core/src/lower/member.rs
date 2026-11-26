@@ -23,7 +23,7 @@
 use emela_resolve::hir::{DefId, ExprId, HandlerItem, Item, Res};
 use emela_types::{Tag, Ty};
 
-use super::{Lowerer, direct, direct_marked, is_stateful};
+use super::{Lowerer, direct, direct_marked, generic_call, is_stateful};
 use crate::intrinsics::Builtin;
 use crate::ir::{Arm, Callee, Expr, FnType, Lit, Local, OpDef, Pat, Type, TypeId, WithBind};
 
@@ -290,6 +290,9 @@ impl Lowerer<'_> {
             .is_some_and(|r| self.row_needs_ev(r));
         let ev: Vec<Expr> = takes_ev.then(|| self.ev_arg()).into_iter().collect();
         let f = self.fn_id(inner, 0);
+        // The functions of an inner handler have the type parameters of its outer handler
+        // (`[effect.handler]`), and are called with them as they stand in the outer handler.
+        let ty_args = self.own_ty_args(inner);
         let release_ty = self.release_fn_ty(suspend);
         let unit_release = || Expr::Lambda {
             params: Vec::new(),
@@ -298,7 +301,7 @@ impl Lowerer<'_> {
             suspends: false,
         };
         if !is_stateful(item) {
-            let value = direct(f, ev, false);
+            let value = generic_call(direct(f, ev, false), &ty_args);
             return (Expr::Tuple(vec![value, unit_release()]), false);
         }
         let (init, release) = self.handler_fns(inner);
@@ -317,10 +320,13 @@ impl Lowerer<'_> {
         let mut init_args = args;
         init_args.extend(cell.map(|(c, _)| Expr::Var(c)));
         init_args.extend(ev.clone());
-        let init_call = direct_marked(&self.module, init, init_args, init_fails);
+        let init_call = generic_call(
+            direct_marked(&self.module, init, init_args, init_fails),
+            &ty_args,
+        );
         let init_suspends = self.module.functions[init].suspends;
         let with_state: Vec<Expr> = std::iter::once(Expr::Var(state)).chain(ev).collect();
-        let handler_value = direct(f, with_state.clone(), false);
+        let handler_value = generic_call(direct(f, with_state.clone(), false), &ty_args);
         // The value of release is discarded (`[effect.handler]`).
         let mut release_body = match release {
             Some(r) => {
@@ -334,7 +340,10 @@ impl Lowerer<'_> {
                 };
                 Expr::Let {
                     var: self.module.local("_", ret),
-                    value: Box::new(direct_marked(&self.module, r, with_state, false)),
+                    value: Box::new(generic_call(
+                        direct_marked(&self.module, r, with_state, false),
+                        &ty_args,
+                    )),
                     body: Box::new(Expr::Lit(Lit::Unit)),
                 }
             }

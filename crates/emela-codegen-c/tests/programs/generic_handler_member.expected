@@ -1,0 +1,9 @@
+exit: 0
+--- stdout
+--- stderr
+1
+2
+1
+"a"
+"ab"
+"a"
