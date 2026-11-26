@@ -1,6 +1,6 @@
 # 14. Dynamic semantics `[dyn]`
 
-Evaluation is strict and proceeds from left to right, and the initialization on entering a with and the release on leaving it always come in pairs. The details of this chapter were decided in the triage of 18.2. The formal semantics is planned to be defined on a core calculus obtained by desugaring the surface syntax.
+Evaluation is strict and proceeds from left to right, and the initialization on entering a with and the release on leaving it come in pairs: a release runs only for a handler whose init has returned, and every such handler is released, except in the cases listed in `[dyn.with]`. The details of this chapter were decided in the triage of 18.2. The formal semantics is planned to be defined on a core calculus obtained by desugaring the surface syntax.
 
 ## 14.1 Evaluation order `[dyn.order]`
 
@@ -18,7 +18,10 @@ Evaluation is strict and proceeds from left to right, and the initialization on 
 3. Run the releases in the reverse order of initialization.
 4. The result of the body (a value, an error, a defect or an interruption) is the result of the with.
 
-- Step 3 runs however the body ends.
+- Step 3 runs however the body ends. A release does not run, or is cut off, only in these cases. In each of them, the program may be unable to go on to run or finish a release.
+  - When the program cannot obtain the memory it needs, whether the releases run is implementation-defined (`[dyn.memory]`). Running a release can itself need memory, and the targets behave differently when memory runs out.
+  - When the event loop becomes empty, releases that are running are cut off, except the release of a group or a background, which waits for its tasks to unwind (`[dyn.suspend]`). Nothing is left that could resume a suspended release, and a release is not interrupted (`[task.interrupt]`), so it cannot be unwound as a body is. The tasks of a group or a background are interrupted when the event loop becomes empty, so the wait for them ends.
+  - When the process ends before the program leaves the with, no more releases run, because no code of the program runs after the process ends. This happens when an external function ends the process (for example, a C function calls `abort` or is stopped by a signal, `[ext.exception]`), when an exported fn is called while a launch is running on the same thread (`[target.native.export]`), and when the process is ended from outside the program (by a signal, such as the one Ctrl-C sends, or when the host stops). An exported fn called during a launch ends the process because the runtime may be in the middle of an allocation or a switch between tasks, where no code of the program can run safely.
 - If evaluating an argument fails, no init has run yet, so nothing is released, and the with ends with that error.
 - If an init fails, only the handlers already initialized are released, in reverse order, and the body is not evaluated. The release of the handler that failed is not run (because its init returned no value). The with ends with the error of that init.
 - The effects used in the operation bodies of a handler are provided by handlers outside the with, or by the handlers of items without a name initialized earlier in the same with.
