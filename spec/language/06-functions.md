@@ -14,7 +14,7 @@ fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] { ... }
 pub fn find(id: Int) -> User fails NotFound uses { Users } { ... }
 ```
 
-- In a top-level fn and a local fn (6.9), the parameter types are written (omitting them is a compile error (E3006)). In an anonymous function they can be omitted. The return type, `fails`, and `uses` can be omitted. The meaning when they are omitted is defined in 7.4 and 9.3.
+- In a top-level fn and a local fn (6.9), the parameter types are written (omitting them is a compile error (E3006)). In a loop expression (6.8) they are not written; they are inferred. In an anonymous function they can be omitted. The return type, `fails`, and `uses` can be omitted. The meaning when they are omitted is defined in 7.4 and 9.3.
 - A call determines the type parameters of a top-level fn only from the type of the fn: the parameter types, the return type, the fails clause and the uses clause, including inside function types and in the type arguments of named types. When the return type, the fails clause or the uses clause is omitted, the inferred one is used (in `fn f[A](x: Int) { none: Option[A] = None; none }` the return type is inferred as `Option[A]`, so A appears in it). A type parameter that does not appear in the type of the fn is never determined, so the compiler warns (W3002) at that type parameter in the list. A bound (`[A: Show]`) and type annotations inside the body do not count as appearing. Ordinary type parameters and set type parameters are treated alike.
 - The body is a block, and the value of the last expression is the return value. There is no `return`.
 - An anonymous function is written `|x| x + 1`. The parameters are written between `|` and `|`, separated by `,` (`|acc, x| acc + x`). An anonymous function without parameters is written with the token `||` (`|| fetch(1)`). Parameter types can be omitted. There is no annotation of the return type.
@@ -45,7 +45,7 @@ connect(host: "localhost", port: 5432)
 - When the variable name and the argument name are the same, it can be shortened to `NotFound(id:)`. The same holds in patterns: `User(name:)` binds `name`.
 - Constructors with named fields follow the same rule, so both `Circle(1.0)` and `Circle(radius: 1.0)` can be written.
 - Parameter names are part of the public API, and renaming one is a breaking change.
-- Named arguments can be used only when calling an fn (a top-level fn or a local fn) or a constructor referred to by name, and when calling an operation on a capability value (`log.info(msg: "hi")`, where the argument names are the parameter names in the declaration of the effect operation). Function values such as local variables and lambdas have no parameter names (the function type `fn(A) -> B` has no names), so they can be called with positional arguments only (E3103).
+- Named arguments can be used only when calling an fn (a top-level fn or a local fn), the name of a loop expression inside its body (6.8), or a constructor referred to by name, and when calling an operation on a capability value (`log.info(msg: "hi")`, where the argument names are the parameter names in the declaration of the effect operation). Function values such as local variables and lambdas have no parameter names (the function type `fn(A) -> B` has no names), so they can be called with positional arguments only (E3103).
 - A wrong number of arguments is E3101, a label with no matching parameter is E3103, and passing to the same parameter twice is E3104. A call that has a label error (E3103, E3104) does not also get an error for the number of arguments.
 
 ## 6.3 Blocks and bindings `[fn.block]`
@@ -173,23 +173,40 @@ scores
 
 ## 6.8 Repetition `[fn.loop]`
 
-- There is no for or while. Repetition is written with recursion or with functions such as `List.map` and `List.fold`.
-- A tail call to the function itself is guaranteed not to consume stack. For a local fn, a call to its own name inside its body, where the name refers to that local fn, is a call to itself. The same holds for functions that contain suspend operations.
+- There is no for or while. Repetition is written with recursion, with a loop expression (below), or with functions such as `List.map` and `List.fold`.
+- A tail call to the function itself is guaranteed not to consume stack. For a local fn, a call to its own name inside its body, where the name refers to that local fn, is a call to itself. For a loop expression, a call to its name inside its body is a call to itself. The same holds for functions that contain suspend operations.
 - Tail calls between mutually recursive functions are not guaranteed. The compiler detects them and warns.
 
 The tail positions are the following.
 
-- The last expression of the block of a function body
+- The last expression of the block of a function body, and the last expression of the body of a loop expression
 - Both branches of an if in tail position, the body of each arm of a match in tail position, and the last expression of a block in tail position
 - The right-hand side of `&&` and `||` in tail position (`a && b` is the same as `if a { b } else { False }`, and `a || b` is the same as `if a { True } else { b }`)
 
 The following are not tail positions.
 
-- The body of an anonymous function and the body of a local fn, as positions of the enclosing function (a call there to the enclosing function is not a call to the function itself)
+- The body of an anonymous function, the body of a local fn and the body of a loop expression, as positions of the enclosing function (a call there to the enclosing function is not a call to the function itself)
 - The target expression of `escape` (the escape arms can run after it)
 - The body of `with` (the handler's release runs after it)
 
 The linter warns that a call to the function itself that looks like a tail call inside the target of an escape or the body of a with is "not guaranteed".
+
+A loop expression defines a function that calls itself only in tail position, and calls it in place with initial values.
+
+```emel
+pub fn range(from: Int, to: Int) -> List[Int] {
+  loop onto(to:, acc: []) {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+}
+```
+
+- A loop expression is written `loop name(p: e, ...) [signature] block`. Each element in the parentheses names a parameter and gives its initial value, in the form of a named argument (6.2): `p: e`, or `p:` for `p: p`. The same name written twice is a compile error (E3104), as for an argument given twice. The parentheses can be empty. The return type, `fails` and `uses` follow the rules of a top-level fn (9.3). A loop expression has no type parameters, attributes, `pub` or `suspend`, and `fn` is not written. Whether it suspends is decided by its R, as for any function.
+- The initial values are evaluated from left to right, in the scope outside the loop expression, before the body runs. The parameters are not visible in them: in `loop go(a: 1, b: a)`, the `a` of `b: a` is the `a` outside. The body then runs with each parameter bound to its initial value, and the value of the loop expression is the value of the body.
+- A call to the name runs the body again with the parameters bound to its arguments. It follows the rules of calls (6.2): the arguments are positional, in the order of the parentheses, or named by the parameter names.
+- The name is visible only inside the body, not in the parentheses and not after the loop expression. The body can refer to the variables visible at the loop expression. A parameter, binding or local fn of the same name inside the body hides the name, as in 6.9, and the rules on the name below do not apply to what the hiding name refers to.
+- The name can be written only as the callee of a call in tail position of the body. A call anywhere else is a compile error (E3111): a call not in tail position (`onto(..) + 1`, an argument of another call, the right-hand side of a binding, a statement that is not the last of its block), and a call inside the target or an arm of an `escape`, the body of a `with`, an anonymous function, a local fn or another loop expression that is itself in the body. An `escape` or `with` around the whole loop expression does not count: `loop go(..) { .. } escape { .. }` is allowed. The name written as a value (`List.map(xs, onto)`, `f = onto`) is a compile error (E3112). A pipe into the name (`acc |> onto(n)`, `n |> onto`) is a call to it (6.7). The name is not found by a method call (9.4).
+- The type of each parameter is the monomorphic type that its initial value and the arguments of the calls to the name determine. It is not generalized (6.3). A type that they leave open, or that is needed before they determine it (a field access, 9.4), is given by the return type or by a binding with a type before the loop expression (`empty: List[Int] = []`, then `acc: empty`).
 
 ## 6.9 Local functions `[fn.local]`
 

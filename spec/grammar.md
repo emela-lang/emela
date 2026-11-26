@@ -171,7 +171,7 @@ primary    = literal | lower_name | upper_name | type_ref | "self" | "Self"
            | "(" expr ")"
            | "(" expr "," expr { "," expr } ")"
            | "[" [ expr { "," expr } [ "," ".." expr ] ] "]"
-           | block | if_expr | with_expr
+           | block | if_expr | with_expr | loop_expr
 
 args       = arg { "," arg } [ "," ".." expr ]
            | ".." expr
@@ -180,6 +180,8 @@ arg        = expr | lower_name ":" [ expr ]
 if_expr    = "if" expr block [ "else" ( block | if_expr ) ]
 arm        = pattern [ "if" expr ] "->" expr
 with_expr  = "with" with_item { "," with_item } block
+loop_expr  = "loop" lower_name "(" [ loop_param { "," loop_param } ] ")" [ signature ] block   (* 6.8 *)
+loop_param = lower_name ":" [ expr ]
 with_item  = [ lower_name "=" ] supply [ "by" by_right ]                 (* by is in 8.9 *)
 by_right   = type_ref [ "[" type { "," type } "]" ] [ "(" [ args ] ")" ]
 lambda     = ( "||" | "|" [ lambda_param { "," lambda_param } ] "|" ) expr
@@ -189,6 +191,7 @@ lambda_param = pattern [ ":" type ]
 - The body of a lambda is an `expr`, so it extends as far to the right as possible. A lambda is never followed by anything in the same expression; to call it or apply an operator to it, it is enclosed in parentheses.
 - A statement that starts with `fn` followed by a lower_name is a local_fn (6.9). `fn` followed by `(` in an expression is a compile error (E1405).
 - Type parameters, attributes, `pub` and `suspend` on a local_fn are a compile error (E1213 for type parameters, E1212 for the rest).
+- Each element in the parentheses of a loop_expr is a name followed by `:`. Any other element is a syntax error (E1101): `loop go(0)` and `loop go(i)` cannot be written.
 - A doc comment can come before a local_fn on its own lines (2.2).
 - Inside the parameter list of a lambda, a `|` at bracket depth zero closes the list, and the `error_set` of a function type there has one item. Two or more items are written inside parentheses (`"(" type ")"`).
 - `||` in operand position is a lambda without parameters; after an operand it is the operator of `or_expr`.
