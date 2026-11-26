@@ -2,15 +2,15 @@
 //! (spec 8.3, 14.2).
 //!
 //! - A layer is a bundle of handlers. Its contents are handlers or other layers, flattened in
-//!   source order. Layers that include each other are E0422; expansion stops at the second
+//!   source order. Layers that include each other are E4103; expansion stops at the second
 //!   encounter.
 //! - `with H1, ..., Hn` is the list of handlers with layers expanded. For handlers of the same
 //!   effect the later one wins, and earlier ones are removed (never initialized).
 //! - Initialization order follows dependencies ("deps(H)" in spec 9.4). A handler depending on a
 //!   handler in the same `with` that provides another effect is initialized after it. Without
 //!   cycles, the order is the first one that preserves source order.
-//! - Errors inside a layer (two handlers providing the same effect, E0421; dependency cycles,
-//!   E0411; mutual inclusion, E0422) are reported once, at the layer declaration
+//! - Errors inside a layer (two handlers providing the same effect, E4102; dependency cycles,
+//!   E4101; mutual inclusion, E4103) are reported once, at the layer declaration
 //!   ([`check_layers`]), and not repeated at `with`.
 
 use emela_resolve::hir::{DefId, DefKind, ExprId, Item, Program, Res, Span, TypeId, WithItem};
@@ -449,8 +449,8 @@ fn by_tag(
 }
 
 /// Reports the items in `with` that do not fit (issue #255): an effect that is not a label
-/// listed alone or left of `by` (E0430), a provider of another effect right of `by` (E0431), and
-/// the same label given a provider twice (E0432).
+/// listed alone or left of `by` (E4202), a provider of another effect right of `by` (E4203), and
+/// the same label given a provider twice (E4204).
 pub(crate) fn check_with_items(
     program: &Program,
     sigs: &Signatures,
@@ -468,7 +468,7 @@ pub(crate) fn check_with_items(
         if program.defs[def].kind != DefKind::Effect {
             continue;
         }
-        // A label whose base cannot be used is reported at its declaration (E0429).
+        // A label whose base cannot be used is reported at its declaration (E4201).
         if !is_label(program, def) {
             diags.push(Diagnostic {
                 span: Some(item.span),
@@ -525,7 +525,7 @@ pub(crate) fn check_with_items(
         ) else {
             continue;
         };
-        // Missing or wrong type arguments are reported once (E0423, E0304).
+        // Missing or wrong type arguments are reported once (E4008, E3101).
         if !arg_diags.is_empty() {
             for mut d in arg_diags {
                 d.span = Some(by_span);
@@ -554,7 +554,7 @@ pub(crate) fn check_with_items(
 
 /// For a label item that makes no handler (`L`, or `L by P` where P is an effect or a label),
 /// the effect it would provide by name if it had no name: L for `L by P`, the underlying effect
-/// for `L`. Such an item cannot be bound to a name (E0447, `[effect.with]`). `None` for an item
+/// for `L`. Such an item cannot be bound to a name (E4105, `[effect.with]`). `None` for an item
 /// whose right of `by` is a handler, or does not resolve.
 fn unmade_label_item(
     program: &Program,
@@ -694,7 +694,7 @@ pub(crate) fn init_order(entries: &[Entry], deps: &[Row]) -> Result<Vec<usize>, 
     Ok(order)
 }
 
-/// The dependency-cycle diagnostic (E0411).
+/// The dependency-cycle diagnostic (E4101).
 pub(crate) fn cycle_diagnostic(
     program: &Program,
     entries: &[Entry],
@@ -735,7 +735,7 @@ pub(crate) fn check_layers(
         let Some(Item::Layer(item)) = program.item(layer) else {
             continue;
         };
-        // Layers that include each other (E0422). Each cycle is reported once.
+        // Layers that include each other (E4103). Each cycle is reported once.
         if let Some(cycle) = layer_cycle(program, layer) {
             let mut key = cycle.clone();
             key.sort_by_key(|d| d.into_raw());
@@ -782,13 +782,13 @@ pub(crate) fn check_layers(
                 ArgsSource::Item(_) => &[],
             };
             let own = handler_tags(sigs, ty_table, handler, ty_args);
-            // A handler of several effects counts as providing each of them (E0421,
+            // A handler of several effects counts as providing each of them (E4102,
             // `[effect.layer]`).
             for effect in own.iter().cloned() {
                 let member = item.members[origin].res;
                 let span = item.members[origin].span;
                 let from_layer = matches!(member, Res::Def(m) if matches!(program.item(m), Some(Item::Layer(_))));
-                // Two handlers for the same effect (E0421). A duplicate only inside a nested layer is
+                // Two handlers for the same effect (E4102). A duplicate only inside a nested layer is
                 // reported at that layer.
                 if let Some(first) = entries.iter().find(|e| e.effect == effect) {
                     if !(from_layer && first.from_layer && first.origin == origin) {

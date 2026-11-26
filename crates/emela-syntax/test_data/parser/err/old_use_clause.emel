@@ -1,4 +1,4 @@
-# 前の形の効果の節 use（E0147）．uses 節として読み続ける．
+# 前の形の効果の節 use（E1404）．uses 節として読み続ける．
 fn a() -> Int use Db { 1 }
 fn b() -> Int fails E use { Db, Log } { 1 }
 fn c(f: fn() -> () fails {} use {}) { f() }
@@ -20,7 +20,7 @@ trait Go {
   fn go(self) -> () use Db
 }
 
-# effect の operation には uses 節を書けない（E0137）．
+# effect の operation には uses 節を書けない（E1211）．
 effect Store {
   fn get() -> Int use Db
   fn put() -> ()

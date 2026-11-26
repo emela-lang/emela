@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-warning[W0206]: unknown experimental feature `from-the-future`
+warning[W2304]: unknown experimental feature `from-the-future`
    ╭─[ Pome.toml:7:1 ]
    │
  7 │ from-the-future = true
@@ -10,7 +10,7 @@ warning[W0206]: unknown experimental feature `from-the-future`
    │        ╰───────── 
 ───╯
 
-warning[W0206]: unknown experimental feature `also-unknown`
+warning[W2304]: unknown experimental feature `also-unknown`
    ╭─[ Pome.toml:8:1 ]
    │
  8 │ also-unknown = false

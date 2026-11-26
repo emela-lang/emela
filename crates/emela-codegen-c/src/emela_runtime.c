@@ -1916,7 +1916,7 @@ typedef struct em_htask em_htask;
 
 /* Who receives a continuation's result: the fiber (its main continuation), or the operation call
  * whose implementation it runs. An implementation waits only before it resumes: after resume it
- * does not suspend (E0461). */
+ * does not suspend (E4305). */
 enum { EM_END_MAIN, EM_END_IMPL };
 
 /* What a wait waits for. */
@@ -3619,7 +3619,7 @@ static void em_root_interrupt(em_root *r) {
   }
   for (size_t i = 0; i < waits.len; i++) {
     em_wait *w = waits.items[i];
-    /* An implementation waits only before it resumes (E0461), and is unwound by dropping its
+    /* An implementation waits only before it resumes (E4305), and is unwound by dropping its
      * caller (`onDrop`). */
     if (w->live && w->end == EM_END_MAIN) {
       em_drop_wait(r, w);
@@ -3868,7 +3868,7 @@ em_word em_perform_end(em_ref rs) {
   em_cur_main = p->prev_main;
   if (em_suspending) {
     /* The implementation suspended before it resumed: it goes on as another continuation of the
-     * same fiber, and runs to its end without suspending once it resumes (E0461). */
+     * same fiber, and runs to its end without suspending once it resumes (E4305). */
     em_ref chain;
     em_wait *w = em_take_suspension(NULL, &chain);
     if (w == NULL) {

@@ -245,7 +245,7 @@ fn check_compiler_version(
     })
 }
 
-/// Dependencies whose `[pome].targets` does not include `target` (E0238, spec 4.7). Only build,
+/// Dependencies whose `[pome].targets` does not include `target` (E2307, spec 4.7). Only build,
 /// run and test have a target; check and the language server do not call this.
 pub fn check_dependency_targets(dependencies: &Dependencies, target: Target) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();

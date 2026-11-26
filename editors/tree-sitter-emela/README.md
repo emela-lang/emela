@@ -44,7 +44,7 @@ is the more permissive one, since an editor has to highlight code that is still 
   continues a type, enum or error declaration, only where the grammar places the zero-width tokens
   `_signature_continues` and `_derive_continues`. The scanner never produces them; their presence
   in `valid_symbols` tells it that it is at such a position. The old clause is read as a
-  `uses_clause`, as the compiler reads it (E0147).
+  `uses_clause`, as the compiler reads it (E1404).
 - A `|` at the start of a line continues an error set inside a signature, where the grammar places
   `_signature_continues`, and starts an anonymous function elsewhere. The scanner keeps no state,
   so an error set continued in the type annotation of a binding (rule 5) is not read.
@@ -56,8 +56,8 @@ is the more permissive one, since an editor has to highlight code that is still 
   only where the grammar expects them (tree-sitter's keyword extraction with `word`). The reserved
   words that have syntax cannot be identifiers anywhere (`reserved`). `as` and the words reserved
   for the future (`[kw.future]`) have no syntax, so they read as ordinary names.
-- A string ends at the end of its line when its `"` is missing (E0101), so that the rest of the
+- A string ends at the end of its line when its `"` is missing (E1001), so that the rest of the
   file is not read as a string. A `"""` string ends at a line holding only `"""`; the indentation
   before it is whitespace, not body.
-- Any `\` followed by a character is an `escape_sequence`. Invalid escapes (E0107, E0108) are not
+- Any `\` followed by a character is an `escape_sequence`. Invalid escapes (E1007, E1008) are not
   told apart.

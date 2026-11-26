@@ -96,7 +96,7 @@ pub enum TyConKind {
     Error,
     /// A handler value (spec 8.4). Cannot be written in source; appears only as the value of a
     /// handler's `init` and as the type of `self`. Takes no type arguments. A handler without
-    /// fields uses the same type for `self` (accessing a field is E0312).
+    /// fields uses the same type for `self` (accessing a field is E3106).
     Handler,
 }
 
@@ -120,7 +120,7 @@ pub struct TyParam {
     pub name: SmolStr,
     /// The names of the constraints, for display: the traits and `Immediate`.
     pub bounds: Vec<SmolStr>,
-    /// The trait constraints, checked where the parameter is instantiated (E0326, spec 10.3).
+    /// The trait constraints, checked where the parameter is instantiated (E3302, spec 10.3).
     /// Supertraits are not added; they are followed when a constraint is looked up.
     pub traits: Vec<DefId>,
     pub kind: ParamKind,

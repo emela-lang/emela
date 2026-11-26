@@ -112,5 +112,5 @@ ROOT@0..298
       NEWLINE@295..296 "\n"
       R_BRACE@296..297 "}"
   NEWLINE@297..298 "\n"
-error[E0122]@125..126: expected newline or `}` after statement
-error[E0117]@267..268: string interpolation is not allowed in a pattern
+error[E1109]@125..126: expected newline or `}` after statement
+error[E1105]@267..268: string interpolation is not allowed in a pattern

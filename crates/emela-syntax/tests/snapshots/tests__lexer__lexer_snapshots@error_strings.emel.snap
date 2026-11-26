@@ -38,14 +38,14 @@ STRING_TEXT@125..130 "open "
 INTERP_START@130..132 "#{"
 LOWER_NAME@132..133 "a"
 NEWLINE_CONT@133..134 "\n"
-error[E0101]@0..9: unterminated string literal
-error[E0107]@19..21: unknown escape sequence `\v`
-error[E0107]@29..32: unknown escape sequence `\é`
-error[E0108]@63..71: `\u{D800}` is a surrogate, not a Unicode scalar value
-error[E0108]@72..82: `\u{110000}` is out of range: the maximum is `\u{10FFFF}`
-error[E0108]@83..87: a unicode escape needs 1 to 6 hex digits
-error[E0108]@88..90: expected `{` after `\u`
-error[E0101]@98..119: unterminated string literal
-error[E0106]@118..119: missing character after `\`
-error[E0101]@124..134: unterminated string literal
-error[E0102]@130..134: unterminated interpolation
+error[E1001]@0..9: unterminated string literal
+error[E1007]@19..21: unknown escape sequence `\v`
+error[E1007]@29..32: unknown escape sequence `\é`
+error[E1008]@63..71: `\u{D800}` is a surrogate, not a Unicode scalar value
+error[E1008]@72..82: `\u{110000}` is out of range: the maximum is `\u{10FFFF}`
+error[E1008]@83..87: a unicode escape needs 1 to 6 hex digits
+error[E1008]@88..90: expected `{` after `\u`
+error[E1001]@98..119: unterminated string literal
+error[E1006]@118..119: missing character after `\`
+error[E1001]@124..134: unterminated string literal
+error[E1002]@130..134: unterminated interpolation

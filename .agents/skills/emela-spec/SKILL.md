@@ -28,7 +28,7 @@ The specification is in `spec/`. Every section has a stable name (`[effect.handl
    | Results and their order | `[dyn]`, `[fiber]` |
    | The standard library | `[lib]` (scope and commitments), `[api]` (each API) |
    | Differences between targets | `[target]`, `[target.js]`, `[target.c]`, `[target.wasm]` |
-   | Diagnostic codes and messages | `[diag.list]` (`rg -n 'E0424' spec/diagnostics.md`) |
+   | Diagnostic codes and messages | `[diag.list]` (`rg -n 'E4009' spec/diagnostics.md`) |
    | Commands, formatter, language server, Pome | `spec/tooling/` |
    | What is not decided yet | `[open.list]` |
    | A term | `[glossary]` |

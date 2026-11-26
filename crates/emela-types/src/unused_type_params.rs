@@ -1,4 +1,4 @@
-//! W0305 (`[fn.decl]`, `[trait.decl]`, `[ext.decl]`): a type parameter of a fn that does not
+//! W3002 (`[fn.decl]`, `[trait.decl]`, `[ext.decl]`): a type parameter of a fn that does not
 //! appear in the type of the fn. A call determines type parameters only from that type, so such a
 //! type parameter is never determined.
 
@@ -9,7 +9,7 @@ use crate::row::{Row, RowElem};
 use crate::signature::Signatures;
 use crate::ty::Ty;
 
-/// Reports W0305 for top-level fns (including `@external` ones) and for the type parameters that
+/// Reports W3002 for top-level fns (including `@external` ones) and for the type parameters that
 /// trait functions declare themselves. Called once every body is checked, so a return type, E and
 /// R omitted in the declaration are the inferred ones.
 ///

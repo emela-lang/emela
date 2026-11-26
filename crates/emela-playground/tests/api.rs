@@ -29,7 +29,7 @@ fn check_renders_errors_against_main_emel_without_color() {
     let result = parse(check("fn main() { x }\n"));
     assert_eq!(result["ok"], false);
     let diagnostics = result["diagnostics"].as_str().unwrap();
-    assert!(diagnostics.contains("error[E0211]"), "{diagnostics}");
+    assert!(diagnostics.contains("error[E2101]"), "{diagnostics}");
     assert!(diagnostics.contains("main.emel:1:13"), "{diagnostics}");
     assert!(!diagnostics.contains("/playground"), "{diagnostics}");
     assert!(!diagnostics.contains('\u{1b}'), "{diagnostics}");
@@ -45,7 +45,7 @@ fn warnings_alone_keep_ok() {
         result["diagnostics"]
             .as_str()
             .unwrap()
-            .contains("warning[W0302]"),
+            .contains("warning[W3201]"),
         "{result}"
     );
 }

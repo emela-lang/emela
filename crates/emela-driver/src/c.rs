@@ -237,7 +237,7 @@ pub(crate) fn cc_invocation(
 }
 
 /// Compiles `sources` (relative to `out_dir`, or absolute) with `cc` into the executable
-/// `out_dir/main`, with `args` after the sources. E0907 if cc cannot start, E0908 if it fails
+/// `out_dir/main`, with `args` after the sources. E9101 if cc cannot start, E9103 if it fails
 /// (with its messages as a note).
 pub fn build_executable(
     cc: &Path,
@@ -277,11 +277,11 @@ fn truncate(text: &str, max: usize) -> String {
     format!("{}\n...", &text[..end])
 }
 
-/// E0907 (`[target.native.cc]`). A program with whitespace in its name came from `EMELA_CC`, and
+/// E9101 (`[target.native.cc]`). A program with whitespace in its name came from `EMELA_CC`, and
 /// most likely carries flags, so the help points to `EMELA_CC_ARGS`.
 fn cc_spawn_error(cc: &Path, err: &io::Error) -> Diagnostic {
     let d = Diagnostic::error(format!("cannot start `{}`: {err}", cc.display()))
-        .with_code(code::CC_UNAVAILABLE);
+        .with_code(code::TOOL_UNAVAILABLE);
     if has_whitespace(cc) {
         d.with_help(cc_args_help())
     } else if err.kind() == io::ErrorKind::NotFound {
@@ -318,12 +318,12 @@ pub(crate) fn cc_missing_help() -> String {
     format!("install a C11 compiler and add it to PATH as `cc`, or set {CC_ENV} to the compiler")
 }
 
-/// The help of E0907 when the value of `EMELA_CC` contains whitespace (`[target.native.cc]`).
+/// The help of E9101 when the value of `EMELA_CC` contains whitespace (`[target.native.cc]`).
 pub(crate) fn cc_args_help() -> String {
     format!("{CC_ENV} names only the compiler; pass flags in {CC_ARGS_ENV}")
 }
 
-/// The help of E0907 for the program `cc`: [`cc_args_help`] when its name contains whitespace,
+/// The help of E9101 for the program `cc`: [`cc_args_help`] when its name contains whitespace,
 /// otherwise [`cc_missing_help`].
 pub(crate) fn cc_unavailable_help(cc: &Path) -> String {
     if has_whitespace(cc) {

@@ -3,7 +3,7 @@ source: crates/emela-driver/tests/diagnostics.rs
 assertion_line: 845
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-error[E0219]: `Self` can only be used as a value in the `init` of a handler
+error[E2108]: `Self` can only be used as a value in the `init` of a handler
     ╭─[ main.emel:12:15 ]
     │
  12 │   fn make() { Self(n: 1) }
@@ -12,7 +12,7 @@ error[E0219]: `Self` can only be used as a value in the `init` of a handler
 ────╯
    = help: inside a handler's `init`, `Self(...)` constructs that handler
 
-error[E0222]: cannot update `Self` with `..`
+error[E2111]: cannot update `Self` with `..`
     ╭─[ main.emel:16:10 ]
     │
  16 │   init { Self(n: 0, ..Self(n: 1)) }
@@ -21,7 +21,7 @@ error[E0222]: cannot update `Self` with `..`
 ────╯
    = help: `Self` constructs a handler from its fields only
 
-error[E0219]: `Self` can only be used as a value in the `init` of a handler
+error[E2108]: `Self` can only be used as a value in the `init` of a handler
     ╭─[ main.emel:23:13 ]
     │
  23 │ fn make() { Self(n: 1) }
@@ -30,7 +30,7 @@ error[E0219]: `Self` can only be used as a value in the `init` of a handler
 ────╯
    = help: inside a handler's `init`, `Self(...)` constructs that handler
 
-error[E0418]: handler `Counter` can only be constructed in its own `init`
+error[E4005]: handler `Counter` can only be constructed in its own `init`
     ╭─[ main.emel:18:12 ]
     │
  18 │     next = Self(n: self.n + 1)

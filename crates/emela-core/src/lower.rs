@@ -64,14 +64,14 @@ pub enum LowerError {
     /// host files (`LowerInput::bundled_files`). An error in the bundled sources. `path` is the
     /// specifier as written.
     MissingCoreFile { path: String, span: Option<Span> },
-    /// An exported fn that may suspend, on the native target (E0441, `[target.native.export]`). `name` is
+    /// An exported fn that may suspend, on the native target (E5202, `[target.native.export]`). `name` is
     /// the fn, or the fn with `@entry` for an export made by `@entry`. `span` is the `@export` or
     /// the `@entry`.
     SuspendingExport { name: String, span: Option<Span> },
     /// An `@export(wasm, ...)` written by a user, on the `wasm` target (`[target.wasm.external]`).
     /// `span` is the `@export` or the `@entry`.
     WasmExport { name: String, span: Option<Span> },
-    /// `@entry(Http.serve)` on the native target (E0442, `[target.native.unsupported]`). `span` is the
+    /// `@entry(Http.serve)` on the native target (E5203, `[target.native.unsupported]`). `span` is the
     /// `@entry`.
     HttpServiceOnC { span: Option<Span> },
 }
@@ -119,7 +119,7 @@ pub struct LowerInput<'a> {
     /// a project with neither `src/main.emel` nor `src/lib.emel`.
     pub entry: Option<ModuleId>,
     /// `@test` fns (spec 13.1), not exported in a normal build. The caller has checked that normal
-    /// code does not reference them (E0227), so a normal build never reaches them and drops them.
+    /// code does not reference them (E2204), so a normal build never reaches them and drops them.
     pub tests: Vec<DefId>,
     /// Source file paths of modules. Used to rewrite `@external` modules naming a file
     /// (`"./ffi.mjs"`) to the file next to the declaring source (spec 12.1). Modules without a
@@ -1088,7 +1088,7 @@ impl<'a> Lowerer<'a> {
             _ => match hir.impl_fn(def) {
                 Some((_, f)) => (
                     f.params.iter().map(|p| self.local(p.local)).collect(),
-                    Some(f.body.expect("an impl function has a body (E0135)")),
+                    Some(f.body.expect("an impl function has a body (E1209)")),
                 ),
                 None => unreachable!(
                     "fn_id got a definition that is not a fn, const, handler, trait function or \
@@ -1750,7 +1750,7 @@ impl<'a> Lowerer<'a> {
                         name: name.clone(),
                     }
                 }
-                // The parser reported the malformed attribute (E0138).
+                // The parser reported the malformed attribute (E1301).
                 _ => continue,
             };
             bindings.push(ExternalBinding {
@@ -1896,7 +1896,7 @@ impl<'a> Lowerer<'a> {
                 .effects
                 .get(body)
                 .is_some_and(|r| self.row_suspends(r));
-            // As in the type checker (E0417), an fn-operation implementation is not a generator
+            // As in the type checker (E4303), an fn-operation implementation is not a generator
             // unless its body's R is not Immediate and it contains a suspending call. With Clock in
             // the body's R, calling only `clock.now()` does not suspend. When R is Immediate but a
             // true call occurs (inside a `with` of an immediately resuming handler), the backend
@@ -1942,7 +1942,7 @@ impl<'a> Lowerer<'a> {
             tables[k][index] = Some(self.member_impl(inner, &op));
         }
         if tables.iter().flatten().any(Option::is_none) {
-            // Missing operations have already been reported by the type checker (E0404).
+            // Missing operations have already been reported by the type checker (E4001).
             return (
                 params,
                 ret,
@@ -2145,7 +2145,7 @@ impl<'a> Lowerer<'a> {
         };
         let name = self.ir_name(def);
         // The init and the release of an inner handler of a handler member without `suspend` do
-        // not suspend (E0417, `[effect.decl]`).
+        // not suspend (E4303, `[effect.decl]`).
         let plain = member::implements_plain_member(self.hir, h);
         let suspends = |cx: &Self, body: ExprId| {
             !plain
@@ -2178,7 +2178,7 @@ impl<'a> Lowerer<'a> {
     /// and evaluates the body with the current evidence table extended by the provided effects. A
     /// handler's dependencies are satisfied by handlers in the same `with` providing other effects;
     /// the rest, and dependencies on its own effect, by the outer table. Dependency cycles have been
-    /// reported by the type checker (E0411).
+    /// reported by the type checker (E4101).
     ///
     /// For a stateful handler, init's value (the state) becomes a binding without release, and the
     /// handler value built from the state a binding with release (`WithBind::managed`). Without a
@@ -3222,7 +3222,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// The type (Int or Int64) decides an integer's width. The range was checked by the type
-    /// checker (E0311).
+    /// checker (E3004).
     fn lit_value(&self, ty: &Ty, lit: &Literal) -> Lit {
         match lit {
             Literal::Int(text) => {
@@ -3514,7 +3514,7 @@ impl<'a> Lowerer<'a> {
                 };
             }
             // Calls to suspend fn operations may suspend (spec 8.1); fn operation bodies do not
-            // (E0417).
+            // (E4303).
             let call = Call {
                 suspends: self.module.effects[effect].ops[index].suspend,
                 ..call
@@ -4071,7 +4071,7 @@ impl<'a> Lowerer<'a> {
     /// A block: statements become nested `let`s, and statements whose value is unused are bound to
     /// a discard variable. Bindings with patterns other than a variable or `_` (`(a, b) = pair`)
     /// become a one-arm match with the remaining statements in its body. The type checker has
-    /// checked that binding patterns always succeed (E0317).
+    /// checked that binding patterns always succeed (E3108).
     fn block(&mut self, block: &Block) -> Expr {
         let hir = self.hir;
         let mut binds = Vec::new();
@@ -4094,7 +4094,7 @@ impl<'a> Lowerer<'a> {
                 Some((_, PatKind::Bind(l))) => Bind::Var(self.local(*l), value),
                 Some((p, _)) => {
                     let pat = self.pat(p);
-                    // Bindings that always succeed (E0317) never have const patterns.
+                    // Bindings that always succeed (E3108) never have const patterns.
                     if !std::mem::take(&mut self.pat_guards).is_empty() {
                         self.report("const pattern in binding", hir.pats[p].span);
                     }
@@ -4470,7 +4470,7 @@ impl<'a> Lowerer<'a> {
 
     /// Fills [`Lowerer::host_exports`] with the exports for `language` (every language for
     /// `None`), and reports the ones the build target cannot expose: one that may suspend on the
-    /// native target, whose language is `c` (E0441), and on `wasm` any written by a user (`[target.wasm.external]`; only `Std.Http.serve`, the entry
+    /// native target, whose language is `c` (E5202), and on `wasm` any written by a user (`[target.wasm.external]`; only `Std.Http.serve`, the entry
     /// adapter of the bundled `Std`, is exposed by the runtime).
     fn collect_host_exports(&mut self, language: Option<&str>) {
         for exposed in emela_types::host_exports(self.hir, self.entry) {
@@ -4492,7 +4492,7 @@ impl<'a> Lowerer<'a> {
                     let (interface, name) = match e.args.as_slice() {
                         [interface, name] => (Some(interface.clone()), name.clone()),
                         [name] => (None, name.clone()),
-                        // The parser reported it (E0146).
+                        // The parser reported it (E1301).
                         _ => return None,
                     };
                     Some(HostExport {

@@ -1,9 +1,9 @@
 //! Checks of the field attributes `@key` and `@tag` (`[kw.annotation]`).
 //!
 //! `@key("...")` goes on a field of a type (an error declaration is one) or of the named contents
-//! of a variant, and `@tag("...")` on a variant, each once and with one string literal (E0338). The keys of the fields of one type or
+//! of a variant, and `@tag("...")` on a variant, each once and with one string literal (E3310). The keys of the fields of one type or
 //! variant, and the tags of the variants of one enum, are distinct once the attributes are applied
-//! (E0337). Name resolution reads their values into the HIR (`emela_resolve::string_attr_value`)
+//! (E3309). Name resolution reads their values into the HIR (`emela_resolve::string_attr_value`)
 //! for the derivations; these checks only need the syntax, so they run beside the checks of
 //! `@test` and `@internal`.
 
@@ -20,7 +20,7 @@ use crate::pipeline::Analysis;
 const KEY: &str = "key";
 const TAG: &str = "tag";
 
-/// E0338 for each misplaced `@key` or `@tag` or invalid argument, and E0337 for each key or tag
+/// E3310 for each misplaced `@key` or `@tag` or invalid argument, and E3309 for each key or tag
 /// that a field or variant before it in the same declaration already has.
 pub(crate) fn check_key_tag<'p>(
     analysis: &Analysis,
@@ -157,7 +157,7 @@ fn repeated(
     let mut out = Vec::new();
     for (key, name, node) in elements {
         match seen.get(&key) {
-            // The same name twice is E0213 of name resolution.
+            // The same name twice is E2103 of name resolution.
             Some(first) if *first != name => out.push((key, first.clone(), name, node)),
             Some(_) => {}
             None => {

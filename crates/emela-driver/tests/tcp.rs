@@ -9,7 +9,7 @@
 //! when it is given as `Pem`.
 //!
 //! Only JS runs the operations so far: native and WASM implement the registry of `SystemTcp`
-//! (its init and release), and their operations are E0412 (`c::tcp_operations_are_e0412_natively`).
+//! (its init and release), and their operations are E5001 (`c::tcp_operations_are_e0412_natively`).
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};

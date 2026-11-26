@@ -36,7 +36,7 @@ pub(super) enum Dot {
 enum Field {
     /// The field index and type.
     Found(usize, Ty),
-    /// An opaque type outside its module, whose fields cannot be accessed (E0315).
+    /// An opaque type outside its module, whose fields cannot be accessed (E2105).
     Opaque,
     /// The type has fields, but none with that name.
     Missing,
@@ -50,7 +50,7 @@ impl BodyInfer<'_> {
     /// that defines the type whose first parameter has that type at its head; (3) the functions
     /// that take `self` of the traits that the type implements, among those visible by name. A
     /// field is taken when it is not called, without looking further. More than one candidate is
-    /// E0335; a function found but not called is E0312.
+    /// E3110; a function found but not called is E3106.
     pub(super) fn infer_dot(
         &mut self,
         expr: ExprId,
@@ -75,7 +75,7 @@ impl BodyInfer<'_> {
         let field = self.lookup_field(&base_ty, &name.name);
         if let Field::Found(index, ty) = &field {
             let (index, ty) = (*index, ty.clone());
-            // E0334 keeps the fns of the module apart from the fields, so only traits can also
+            // E3109 keeps the fns of the module apart from the fields, so only traits can also
             // be found here.
             let traits = if call {
                 self.trait_methods(&base_ty, &name.name)
@@ -248,7 +248,7 @@ impl BodyInfer<'_> {
         let env = self.current.map(|d| self.def_params(d)).unwrap_or_default();
         let head = erase_args(ty);
         // The trait function is looked for before the impl: checking the impl marks a derived
-        // impl as used (W0303).
+        // impl as used (W3301).
         candidate_traits(program, self.traits, module, ty, &env)
             .into_iter()
             .filter_map(|t| {
@@ -266,7 +266,7 @@ impl BodyInfer<'_> {
             .collect()
     }
 
-    /// Reports more than one candidate for a method call (E0335). `field` tells whether a field
+    /// Reports more than one candidate for a method call (E3110). `field` tells whether a field
     /// is among them, besides the functions `fns`.
     fn ambiguous_method(
         &mut self,

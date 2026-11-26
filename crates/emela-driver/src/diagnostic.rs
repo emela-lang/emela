@@ -22,7 +22,7 @@ use crate::target::Target;
 /// The prefix of notes that are help.
 pub const HELP_PREFIX: &str = "help: ";
 
-/// The part of the helps of W0403 and E0453 that suggests a bound item. The help is left out
+/// The part of the helps of W4401 and E4404 that suggests a bound item. The help is left out
 /// where a bound item would change meaning ([`emela_types::ProgramTypes::bound_item_redirects`]).
 pub(crate) const NAMED_ITEM_SUGGESTION: &str = "a named item `with x = H`";
 
@@ -136,7 +136,7 @@ impl Diagnostic {
         self.severity == Severity::Error
     }
 
-    /// The code (E01xx) and English message come from emela-syntax.
+    /// The code (E1xxx) and English message come from emela-syntax.
     pub fn from_syntax(file: FileId, diagnostic: &emela_syntax::Diagnostic) -> Self {
         let out = Diagnostic::error(&diagnostic.message)
             .with_code(diagnostic.code.as_str())
@@ -157,14 +157,14 @@ impl Diagnostic {
         let display = |path: &Path| format!("`{}`", sources.display_path(path));
         let (code, message) = match &diagnostic.kind {
             DiagnosticKind::InvalidFileName { name, error } => (
-                code::INVALID_FILE_NAME,
+                code::NOT_A_MODULE_NAME,
                 format!(
                     "file name `{name}` cannot be a module name: {}",
                     name_error(error)
                 ),
             ),
             DiagnosticKind::InvalidDirName { name, error } => (
-                code::INVALID_DIR_NAME,
+                code::NOT_A_MODULE_NAME,
                 format!(
                     "directory name `{name}` cannot be a module name: {}",
                     name_error(error)
@@ -223,8 +223,8 @@ impl Diagnostic {
         Diagnostic::error(message).with_code(code).at(location)
     }
 
-    /// Name resolution diagnostics (declarations, imports, names in expressions): E0211 to
-    /// E0220, W0201 to W0202.
+    /// Name resolution diagnostics (declarations, imports, names in expressions): E2101 to
+    /// E2109, W2101 to W2102.
     fn from_name_resolution(diagnostic: &emela_resolve::Diagnostic, location: Location) -> Self {
         let first_here = |first: &Option<TextRange>| match (&location, first) {
             (Location::Span(span), Some(range)) => Some(Span::new(span.file, *range)),
@@ -278,13 +278,13 @@ impl Diagnostic {
                 ));
                 (
                     Severity::Error,
-                    code::OPAQUE_CONSTRUCTION,
+                    code::OPAQUE_OUTSIDE_MODULE,
                     format!("cannot construct opaque `{name}` outside module `{module}`"),
                 )
             }
             DiagnosticKind::OpaquePattern { name, module } => (
                 Severity::Error,
-                code::OPAQUE_PATTERN,
+                code::OPAQUE_OUTSIDE_MODULE,
                 format!("cannot match on opaque `{name}` outside module `{module}`"),
             ),
             DiagnosticKind::WrongKind {
@@ -462,7 +462,7 @@ impl Diagnostic {
         out
     }
 
-    /// E0455: a capability leaves what made it (`[effect.escape]`, `[diag.list]`).
+    /// E4405: a capability leaves what made it (`[effect.escape]`, `[diag.list]`).
     pub fn from_capability_leak(
         diagnostic: &emela_types::Diagnostic,
         files: &ArenaMap<ModuleId, FileId>,
@@ -637,7 +637,7 @@ impl Diagnostic {
                 found,
             } => (
                 Severity::Error,
-                Some(code::WRONG_TYPE_ARG_COUNT),
+                Some(code::WRONG_COUNT),
                 format!("wrong number of type arguments: `{name}` takes {expected}, found {found}"),
             ),
             TypeDiagnosticKind::Unsupported { what } => {
@@ -649,7 +649,7 @@ impl Diagnostic {
                 found,
             } => (
                 Severity::Error,
-                Some(code::WRONG_ARG_COUNT),
+                Some(code::WRONG_COUNT),
                 match callee {
                     Some(callee) => format!(
                         "wrong number of arguments: `{callee}` takes {expected}, found {found}"
@@ -691,7 +691,7 @@ impl Diagnostic {
                 found,
             } => (
                 Severity::Error,
-                Some(code::PATTERN_FIELD_COUNT),
+                Some(code::WRONG_COUNT),
                 format!("pattern `{ctor}` has {expected} fields, found {found}"),
             ),
             TypeDiagnosticKind::NotNumeric { found, integer } => (
@@ -790,7 +790,7 @@ impl Diagnostic {
             }
             TypeDiagnosticKind::OpaqueField { ty, field } => (
                 Severity::Error,
-                Some(code::OPAQUE_FIELD),
+                Some(code::OPAQUE_OUTSIDE_MODULE),
                 format!(
                     "cannot access field `{field}` of opaque type {} outside its module",
                     show(ty)
@@ -882,7 +882,7 @@ impl Diagnostic {
                     help = Some(layer_arg_help(arg));
                     (
                         Severity::Error,
-                        Some(code::UNHANDLED_ERRORS),
+                        Some(code::UNDECLARED_ERRORS),
                         format!("unhandled {list}"),
                     )
                 } else if *declared {
@@ -890,14 +890,14 @@ impl Diagnostic {
                     let verb = if errors.len() == 1 { "is" } else { "are" };
                     (
                         Severity::Error,
-                        Some(code::UNHANDLED_ERRORS),
+                        Some(code::UNDECLARED_ERRORS),
                         format!("{list} {verb} not declared in `fails`"),
                     )
                 } else {
                     help = Some("handle it with `escape`, or declare it with `fails`".to_owned());
                     (
                         Severity::Error,
-                        Some(code::UNHANDLED_ERRORS),
+                        Some(code::UNDECLARED_ERRORS),
                         format!("unhandled {list}"),
                     )
                 }
@@ -919,7 +919,7 @@ impl Diagnostic {
             ),
             TypeDiagnosticKind::ErrorSetMismatch { expected, found } => (
                 Severity::Error,
-                Some(code::ERROR_SET_MISMATCH),
+                Some(code::UNDECLARED_ERRORS),
                 format!("error set mismatch: expected `fails {expected}`, found `fails {found}`"),
             ),
             TypeDiagnosticKind::UnraisedError { error } => (
@@ -966,7 +966,7 @@ impl Diagnostic {
             ),
             TypeDiagnosticKind::ExportFails { function, errors } => (
                 Severity::Error,
-                Some(code::UNHANDLED_EFFECTS),
+                Some(code::UNDECLARED_EFFECTS),
                 format!("exported function `{function}` cannot fail with `{errors}`"),
             ),
             TypeDiagnosticKind::EntryMismatch { entry, adapter } => (
@@ -1086,7 +1086,7 @@ impl Diagnostic {
                         "`External` of `{module}` is removed only in the handlers of `{module}`; call it in a handler of `{module}`, or declare in `{module}` an effect and a handler that call it"
                     ));
                 }
-                (Severity::Error, Some(code::UNHANDLED_EFFECTS), message)
+                (Severity::Error, Some(code::UNDECLARED_EFFECTS), message)
             }
             TypeDiagnosticKind::EffectSetMismatch {
                 expected,
@@ -1107,7 +1107,7 @@ impl Diagnostic {
                 }
                 (
                     Severity::Error,
-                    Some(code::EFFECT_SET_MISMATCH),
+                    Some(code::UNDECLARED_EFFECTS),
                     format!(
                         "effect set mismatch: expected `uses {expected}`, found `uses {found}`"
                     ),
@@ -1179,7 +1179,7 @@ impl Diagnostic {
                 help = Some(format!("write `{effect}.{member}({})`", args.join(", ")));
                 (
                     Severity::Error,
-                    Some(code::MISSING_INIT_ARGS),
+                    Some(code::INIT_ARGS_MISMATCH),
                     format!("handler member `{member}` needs arguments"),
                 )
             }
@@ -1269,7 +1269,7 @@ impl Diagnostic {
                 ));
                 (
                     Severity::Error,
-                    Some(code::SHARED_OPERATION_NAME),
+                    Some(code::REPEATED_IN_HANDLER_HEAD),
                     format!(
                         "effects `{first}` and `{second}` of handler `{handler}` both have `{op}`"
                     ),
@@ -1277,7 +1277,7 @@ impl Diagnostic {
             }
             TypeDiagnosticKind::RepeatedHandlerEffect { handler, effect } => (
                 Severity::Error,
-                Some(code::REPEATED_HANDLER_EFFECT),
+                Some(code::REPEATED_IN_HANDLER_HEAD),
                 format!("effect `{effect}` is listed more than once in handler `{handler}`"),
             ),
             TypeDiagnosticKind::MissingCapabilityEffects {
@@ -1309,7 +1309,7 @@ impl Diagnostic {
                 found,
             } => (
                 Severity::Error,
-                Some(code::HANDLER_OP_ARG_COUNT),
+                Some(code::WRONG_COUNT),
                 format!(
                     "wrong number of parameters: operation `{op}` takes {expected}, found {found}"
                 ),
@@ -1355,7 +1355,7 @@ impl Diagnostic {
                 help = Some(format!("write `{handler}({})`", args.join(", ")));
                 (
                     Severity::Error,
-                    Some(code::MISSING_INIT_ARGS),
+                    Some(code::INIT_ARGS_MISMATCH),
                     format!("handler `{handler}` needs arguments for its `init`"),
                 )
             }
@@ -1363,7 +1363,7 @@ impl Diagnostic {
                 help = Some(format!("write `{name}` without parentheses"));
                 (
                     Severity::Error,
-                    Some(code::UNEXPECTED_INIT_ARGS),
+                    Some(code::INIT_ARGS_MISMATCH),
                     format!("{kind} `{name}` takes no arguments"),
                 )
             }
@@ -1460,7 +1460,7 @@ impl Diagnostic {
                 );
                 (
                     Severity::Error,
-                    Some(code::INNER_HANDLER_TYPE_PARAMS),
+                    Some(code::MISPLACED_TYPE_PARAMS),
                     format!("inner handler `{handler}` cannot have type parameters"),
                 )
             }
@@ -1570,13 +1570,13 @@ impl Diagnostic {
                 ));
                 (
                     Severity::Error,
-                    Some(code::HANDLER_OF_LABEL),
+                    Some(code::UNIMPLEMENTABLE_BY_HANDLER),
                     format!("handler `{handler}` cannot implement label `{label}`"),
                 )
             }
             TypeDiagnosticKind::HostEffectHandler { handler, effect } => (
                 Severity::Error,
-                Some(code::HOST_EFFECT_HANDLER),
+                Some(code::UNIMPLEMENTABLE_BY_HANDLER),
                 format!(
                     "handler `{handler}` cannot implement `{effect}`: only the host provides it"
                 ),
@@ -1587,14 +1587,14 @@ impl Diagnostic {
                 provider,
             } => (
                 Severity::Error,
-                Some(code::HOST_EFFECT_HANDLER),
+                Some(code::UNIMPLEMENTABLE_BY_HANDLER),
                 format!(
                     "handler `{handler}` cannot implement `{effect}`: only `{provider}` provides it"
                 ),
             ),
             TypeDiagnosticKind::OpTypeParams { op } => (
                 Severity::Error,
-                Some(code::OP_TYPE_PARAMS),
+                Some(code::MISPLACED_TYPE_PARAMS),
                 format!(
                     "operation `{op}` cannot have type parameters: only built-in effects may declare them"
                 ),
@@ -1932,7 +1932,7 @@ impl Diagnostic {
                 found,
             } => (
                 Severity::Error,
-                Some(code::IMPL_FN_PARAM_COUNT),
+                Some(code::WRONG_COUNT),
                 format!(
                     "wrong number of parameters: `{name}` of `{trait_name}` takes {expected}, \
                      found {found}"
@@ -1984,7 +1984,7 @@ impl Diagnostic {
     }
 }
 
-/// The help of E0318 and E0402 in the arguments of a layer item (`[effect.layer]`).
+/// The help of E3201 and E4301 in the arguments of a layer item (`[effect.layer]`).
 fn layer_arg_help(arg: &emela_types::LayerArg) -> String {
     format!(
         "the arguments in a layer must be pure; to pass this value, list `{}` after the layer: `with {}, {}(...) {{ ... }}`",
@@ -2040,7 +2040,7 @@ fn joined(items: &[String], word: &str) -> String {
     }
 }
 
-/// Why a call may suspend, for E0417 (spec 8.1).
+/// Why a call may suspend, for E4303 (spec 8.1).
 fn suspending_cause(call: &SuspendingCall) -> String {
     match call {
         SuspendingCall::Op { effect, op } => {
@@ -2062,14 +2062,14 @@ fn suspending_cause(call: &SuspendingCall) -> String {
     }
 }
 
-/// The entry of a launch that `context` stands for, as named in the note of E0402 for a host
+/// The entry of a launch that `context` stands for, as named in the note of E4301 for a host
 /// effect (`[effect.host]`). `None` for a context that is not an entry.
 fn host_entry(context: &EffectContext) -> Option<String> {
     match context {
         EffectContext::Main => Some("`main`".to_owned()),
         EffectContext::Test { .. } => Some("the test runner".to_owned()),
         // An entry adapter. A fn made by `@entry` has these too, but an error in it is reported as
-        // E0440 instead (`emela_types::export`).
+        // E5105 instead (`emela_types::export`).
         EffectContext::Export { name, hosts } if !hosts.is_empty() => Some(format!("`{name}`")),
         EffectContext::Export { .. } => Some("the host of an exported function".to_owned()),
         EffectContext::Declared | EffectContext::Const | EffectContext::LayerArg(_) => None,

@@ -40,7 +40,7 @@ An experimental feature is a part of the specification that is not yet stable. A
 - The name of a feature is lower-case English words joined by `-`.
 - The rules of an experimental feature are written where they belong. Each item that belongs to one starts with "Experimental (`name`)." Within the section of a feature, an item without the mark applies always, and an item with the mark applies only when the feature is enabled.
 - Experimental features are outside the compatibility guarantees of this document. Any version MAY change or remove any of them. A Pome that enables one declares only the minimum compiler version in `[pome].emela`.
-- When an experimental feature becomes stable, its rules lose the mark, and its name is accepted in `[experimental]` and as a flag for at least one minor version, with a warning (W0206) that it has no effect. The name of a removed feature is accepted with the same warning.
+- When an experimental feature becomes stable, its rules lose the mark, and its name is accepted in `[experimental]` and as a flag for at least one minor version, with a warning (W2304) that it has no effect. The name of a removed feature is accepted with the same warning.
 - Diagnostics produced by an experimental feature carry the note ``= note: experimental feature `name` ``.
 
 | Name | Since | What it changes |

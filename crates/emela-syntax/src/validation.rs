@@ -6,13 +6,13 @@
 //! - Check the constraints beyond the spec 17.3 grammar that syntax alone decides (whether
 //!   `@external` is needed, empty enums, the shape of handler and impl fns).
 //! - Check the arguments of `@external` (spec 12.1, 12.3) and of `@export` (spec 12.7, 16.6.2).
-//! - Report the old impl and handler heads with the head to write instead (E0144, E0145), the
-//!   old effect clause `use` with the uses clause to write instead (E0147), and the old form of an
-//!   anonymous function with the closure to write instead (E0148).
+//! - Report the old impl and handler heads with the head to write instead (E1402, E1403), the
+//!   old effect clause `use` with the uses clause to write instead (E1404), and the old form of an
+//!   anonymous function with the closure to write instead (E1405).
 //! - Report an anonymous function written as a statement that is not the last of its block
-//!   (E0149).
-//! - Report what a local fn cannot have (E0150) and a local fn as the last statement of its
-//!   block (E0151).
+//!   (E1112).
+//! - Report what a local fn cannot have (E1212, E1213) and a local fn as the last statement of its
+//!   block (E1214).
 
 use rowan::{TextRange, TextSize};
 
@@ -64,7 +64,7 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 error(
                     out,
                     list.text_range(),
-                    DiagnosticCode::ExternalTypeWithArgs,
+                    DiagnosticCode::MalformedAttributeArgs,
                     "`@external` on a type takes no arguments",
                 );
             }
@@ -156,7 +156,7 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         LOCAL_FN => {
             local_fn_modifiers(node, out);
             // An attribute is already reported as one; what it would say on a top-level fn
-            // (E0146 for `@export`) is not added.
+            // (E1301 for `@export`) is not added.
             for child in node.children().filter(|c| c.kind() != ANNOTATION) {
                 walk(&child, out);
             }
@@ -165,13 +165,13 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         UNDERSCORE_EXPR => error(
             out,
             node.text_range(),
-            DiagnosticCode::UnderscoreOutsidePattern,
+            DiagnosticCode::PatternFormOutsidePattern,
             "`_` can only be used in patterns",
         ),
         REST_EXPR | SPREAD_ARG if node.first_child().is_none() => error(
             out,
             node.text_range(),
-            DiagnosticCode::BareRestOutsidePattern,
+            DiagnosticCode::PatternFormOutsidePattern,
             "`..` without an expression can only be used in patterns",
         ),
         _ => {}
@@ -189,7 +189,7 @@ fn old_lambda_head(node: &SyntaxNode) -> TextRange {
     TextRange::new(start, end)
 }
 
-/// E0149: the value of an anonymous function written as a statement before the last one is
+/// E1112: the value of an anonymous function written as a statement before the last one is
 /// discarded (`[fn.block]`). A line that starts with `||` starts such a function (`[lex.continuation]`),
 /// so the help names the way to continue a line with the logical or.
 fn unused_lambdas(block: &SyntaxNode, out: &mut Vec<Diagnostic>) {
@@ -208,31 +208,44 @@ fn unused_lambdas(block: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     }
 }
 
-/// E0150: what a top-level fn can have and a local fn cannot (`[fn.local]`). Each is reported
-/// where it is written.
+/// E1212 and E1213: what a top-level fn can have and a local fn cannot (`[fn.local]`). Each is
+/// reported where it is written; type parameters are E1213, which names type parameters where
+/// they cannot be written.
 fn local_fn_modifiers(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
-    let mut found: Vec<(TextRange, &str)> = Vec::new();
+    let mut found: Vec<(TextRange, DiagnosticCode, &str)> = Vec::new();
     for element in node.children_with_tokens() {
-        let what = match element.kind() {
-            ANNOTATION => "a local function cannot have attributes",
-            PUB_KW => "a local function cannot be `pub`",
-            SUSPEND_KW => "a local function cannot be `suspend`",
-            TYPE_PARAM_LIST => "a local function cannot have type parameters",
+        let (code, what) = match element.kind() {
+            ANNOTATION => (
+                DiagnosticCode::LocalFnModifier,
+                "a local function cannot have attributes",
+            ),
+            PUB_KW => (
+                DiagnosticCode::LocalFnModifier,
+                "a local function cannot be `pub`",
+            ),
+            SUSPEND_KW => (
+                DiagnosticCode::LocalFnModifier,
+                "a local function cannot be `suspend`",
+            ),
+            TYPE_PARAM_LIST => (
+                DiagnosticCode::MisplacedTypeParams,
+                "a local function cannot have type parameters",
+            ),
             _ => continue,
         };
-        found.push((element.text_range(), what));
+        found.push((element.text_range(), code, what));
     }
-    for (range, message) in found {
+    for (range, code, message) in found {
         out.push(Diagnostic {
             range,
-            code: DiagnosticCode::LocalFnModifier,
+            code,
             message: message.to_owned(),
             help: Some("remove it".to_owned()),
         });
     }
 }
 
-/// E0152: the right side of `x <- R` is not an effect name (`[grammar.lex]`). It is likely a
+/// E1113: the right side of `x <- R` is not an effect name (`[grammar.lex]`). It is likely a
 /// comparison with a negative value written without the space (`x <- 1` for `x < -1`), so the
 /// help shows that comparison built from what was written.
 fn effect_alias(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
@@ -266,7 +279,7 @@ fn effect_alias(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     });
 }
 
-/// E0151: a local fn as the last statement of its block is visible to nothing after it, so it
+/// E1214: a local fn as the last statement of its block is visible to nothing after it, so it
 /// can never be called (`[fn.local]`).
 fn unused_local_fn(block: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     let Some(last) = block.children().filter(|n| n.kind() != ERROR).last() else {
@@ -436,7 +449,7 @@ fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             error(
                 out,
                 annotation.text_range(),
-                DiagnosticCode::MalformedExternal,
+                DiagnosticCode::MalformedAttributeArgs,
                 "`@external` on a function needs a language and a name: `@external(js, \"name\")`",
             );
             continue;
@@ -445,7 +458,7 @@ fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             error(
                 out,
                 first.text_range(),
-                DiagnosticCode::MalformedExternal,
+                DiagnosticCode::MalformedAttributeArgs,
                 "the first argument of `@external` must be a language name such as `js`",
             );
             continue;
@@ -478,7 +491,7 @@ fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             error(
                 out,
                 arg.text_range(),
-                DiagnosticCode::MalformedExternal,
+                DiagnosticCode::MalformedAttributeArgs,
                 message,
             );
         }
@@ -486,7 +499,7 @@ fn fn_externals(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             error(
                 out,
                 annotation.text_range(),
-                DiagnosticCode::MalformedExternal,
+                DiagnosticCode::MalformedAttributeArgs,
                 &format!(
                     "`@external` takes one or two strings after the language, found {}",
                     rest.len()
@@ -510,7 +523,7 @@ fn export(annotation: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         error(
             out,
             annotation.text_range(),
-            DiagnosticCode::MalformedExport,
+            DiagnosticCode::MalformedAttributeArgs,
             "`@export` is written on a top-level fn with a body",
         );
         return;
@@ -530,7 +543,7 @@ fn export(annotation: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         error(
             out,
             range,
-            DiagnosticCode::MalformedExport,
+            DiagnosticCode::MalformedAttributeArgs,
             "expected `@export(target, \"name\")`",
         );
     };
@@ -559,7 +572,7 @@ fn export(annotation: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                 error(
                     out,
                     arg.text_range(),
-                    DiagnosticCode::MalformedExport,
+                    DiagnosticCode::MalformedAttributeArgs,
                     "string interpolation is not allowed in `@export`",
                 );
             }
@@ -576,7 +589,7 @@ fn export(annotation: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         error(
             out,
             annotation.text_range(),
-            DiagnosticCode::MalformedExport,
+            DiagnosticCode::MalformedAttributeArgs,
             "on the native target, `@export` takes one name: `@export(c, \"name\")`",
         );
     } else if strings
@@ -589,7 +602,7 @@ fn export(annotation: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         error(
             out,
             name.text_range(),
-            DiagnosticCode::MalformedExport,
+            DiagnosticCode::MalformedAttributeArgs,
             "on target `js`, the name `\"default\"` is the default export: write `@export(js, \"default\", \"name\")`",
         );
     } else if strings
@@ -600,7 +613,7 @@ fn export(annotation: &SyntaxNode, out: &mut Vec<Diagnostic>) {
         error(
             out,
             interface.text_range(),
-            DiagnosticCode::MalformedExport,
+            DiagnosticCode::MalformedAttributeArgs,
             "on target `js`, the middle argument of `@export` must be `\"default\"`",
         );
     }

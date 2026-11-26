@@ -333,7 +333,7 @@ fn new_pome(name: &str, lib: bool) -> ExitCode {
 
 /// Takes the flags `--experimental-<name>` out of the arguments of `check`, `build`, `run` and
 /// `test`, and returns the rest with the names. The names are taken before clap sees them, so
-/// that a flag of a feature this compiler does not know is the warning W0206 instead of an
+/// that a flag of a feature this compiler does not know is the warning W2304 instead of an
 /// unknown-argument error (`[cmd.build]`); the pipeline reports it. Arguments after `--` belong
 /// to the program, and the other commands do not take the flags.
 fn take_experimental_flags(args: Vec<OsString>) -> (Vec<OsString>, Vec<String>) {
@@ -405,7 +405,7 @@ fn check(path: &Path, experimental: Vec<String>) -> ExitCode {
     };
     let (mut analysis, _) = emela_driver::check(&OsFs, &input, &mut Typecheck::default());
     // `[build].target` is the default target of `check` too (spec 4.7), so an unknown one is
-    // E0232 here, reported together with the other diagnostics.
+    // E2302 here, reported together with the other diagnostics.
     if let Err(diagnostic) = emela_driver::project_target(&OsFs, &input) {
         analysis.diagnostics.insert(0, diagnostic);
     }
@@ -413,8 +413,8 @@ fn check(path: &Path, experimental: Vec<String>) -> ExitCode {
 }
 
 /// The target: `--target`, else `[build].target` of Pome.toml (spec 4.7), else `default`. `None`
-/// after printing E0232 for an unknown target in Pome.toml.
-/// Also `None` after printing E0238 when a dependency does not support the target (spec 4.7).
+/// after printing E2302 for an unknown target in Pome.toml.
+/// Also `None` after printing E2307 when a dependency does not support the target (spec 4.7).
 fn resolve_target(input: &Input, flag: Option<TargetArg>, default: Target) -> Option<Target> {
     let target = match flag {
         Some(flag) => flag.select(),
@@ -765,7 +765,7 @@ fn fmt_stdin(check: bool) -> ExitCode {
     }
 }
 
-/// The command of the JS host (`[cmd.build]`). W0902 is reported here when `EMELA_NODE` was read
+/// The command of the JS host (`[cmd.build]`). W9101 is reported here when `EMELA_NODE` was read
 /// and `target` runs on the JS host, before the diagnostics of the program.
 fn js_host(target: Target) -> PathBuf {
     let host = emela_driver::js_host();

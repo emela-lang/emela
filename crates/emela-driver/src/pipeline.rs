@@ -180,7 +180,7 @@ impl Input {
     ///   falling back to `src/lib.emel` for a library-only project.
     /// - A file without `Pome.toml` is a single file, rooted at the file's directory.
     /// - With `Pome.toml`, a file outside `<project>/src` and `<project>/test`, or a directory
-    ///   that is neither the project directory nor under one of them, is an error (E0208).
+    ///   that is neither the project directory nor under one of them, is an error (E2006).
     pub fn resolve(fs: &dyn FileSystem, path: &Path) -> Result<Input, Diagnostic> {
         let not_found = || {
             Diagnostic::error(format!("`{}` not found", path.display()))
@@ -230,7 +230,7 @@ impl Input {
                     } else {
                         // A library-only project still has an entry module for checking and
                         // test discovery. It is not an executable entry, even if it defines
-                        // a fn named `main`; `run` will report E0230.
+                        // a fn named `main`; `run` will report E2009.
                         let library = root.join("lib.emel");
                         fs.is_file(&library).then_some(library)
                     }
@@ -353,14 +353,14 @@ pub trait Frontend {
     }
 
     /// Whether the entry module had a fn named `main` in the last [`Frontend::check`] (spec 8.3).
-    /// `emela run` uses it for E0230. `None` for frontends that cannot tell and when there is no
+    /// `emela run` uses it for E2009. `None` for frontends that cannot tell and when there is no
     /// entry (`run` then proceeds without checking).
     fn has_entry_main(&self) -> Option<bool> {
         None
     }
 
     /// Whether the program is an HTTP service in the last [`Frontend::check`]
-    /// (`[lib.http-service]`). `emela run` does not ask it for `main` (E0230).
+    /// (`[lib.http-service]`). `emela run` does not ask it for `main` (E2009).
     fn is_http_service(&self) -> bool {
         false
     }
@@ -567,9 +567,7 @@ pub struct NoJsBackend;
 
 impl<P> Backend<P> for NoJsBackend {
     fn emit(&mut self, _: &P, _: &Analysis) -> Result<BuildOutput, Vec<Diagnostic>> {
-        Err(vec![
-            Diagnostic::error("JS output is not implemented yet").with_code(code::NO_JS_BACKEND),
-        ])
+        Err(vec![Diagnostic::error("JS output is not implemented yet")])
     }
 }
 
@@ -854,7 +852,7 @@ pub fn build<F: Frontend, B: Backend<F::Program>>(
     build_with(fs, input, frontend, backend, out_dir, false)
 }
 
-/// With `require_main`, a missing main in the entry is E0230 and nothing is emitted
+/// With `require_main`, a missing main in the entry is E2009 and nothing is emitted
 /// (`emela run`, spec 8.3).
 fn build_with<F: Frontend, B: Backend<F::Program>>(
     fs: &dyn FileSystem,
@@ -940,7 +938,7 @@ pub struct RunOptions {
 }
 
 /// The `emela run` stage: builds and runs the entry (on the JS host for JS, the executable for C). Without main in the entry,
-/// reports E0230 and does not start the program (spec 8.3).
+/// reports E2009 and does not start the program (spec 8.3).
 ///
 /// `before_start` is called once after the build and before the program starts (even if the
 /// build fails), with the command that will start it (`None` if there is none). The CLI prints

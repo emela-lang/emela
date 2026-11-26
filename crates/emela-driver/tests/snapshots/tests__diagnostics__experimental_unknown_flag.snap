@@ -2,6 +2,6 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-warning[W0206]: unknown experimental feature `from-the-future`
+warning[W2304]: unknown experimental feature `from-the-future`
 
 1 warning

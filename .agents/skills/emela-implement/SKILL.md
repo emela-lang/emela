@@ -65,8 +65,8 @@ Follow the order of the pipeline, and make the tests of each crate pass before t
 Skip the crates the change does not reach, but check each one: new syntax almost always reaches `emela-fmt` and `emela-lsp`.
 
 - Diagnostics:
-  - A diagnostic marked "code to be assigned" gets the next free code of its stage (E01xx parsing, E02xx modules and names, E03xx types, E04xx effects; W for warnings). A number is never reused.
-  - Add it to the table in `spec/diagnostics.md` (`[diag.list]`) with its message, help and the section, and to the copy in the code (`crates/emela-driver/src/code.rs`, or `DiagnosticCode` in `emela-syntax` for E01xx).
+  - A diagnostic marked "code to be assigned" gets the next free code of its subject band (`[diag.bands]`: E1xxx parsing, E2xxx modules and names, E3xxx types, E4xxx effects, E5xxx external functions and targets, E9xxx tools; W for warnings). A number is never reused. A form of a mistake that is fixed in the same way as an existing code gets that code (`[diag]`).
+  - Add it to the table in `spec/diagnostics.md` (`[diag.list]`) with its message, help and the section, and to the copy in the code (`crates/emela-driver/src/code.rs`, or `DiagnosticCode` in `emela-syntax` for E1xxx).
   - Write the code back into the proposal's "Diagnostics" in place of "code to be assigned", and tick the item.
 - Decisions inside the implementation (a data structure, an approximation, an order that the specification leaves open) are written as rustdoc or comments in English where they are made. Refer to sections by name (`[effect.with]`). Observable behavior belongs in `spec/`, not only in the code.
 - Do not explain by analogy with other languages in comments either. Name the concept.

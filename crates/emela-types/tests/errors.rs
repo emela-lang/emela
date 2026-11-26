@@ -183,8 +183,8 @@ fn bad_callback(f: fn(fn() -> Int) -> Int) -> Int {
     ));
 }
 
-/// W0302 when an `escape` arm catches an error that cannot occur, unless a set with unknown
-/// contents is present. Redundant arms for the same error are W0301.
+/// W3201 when an `escape` arm catches an error that cannot occur, unless a set with unknown
+/// contents is present. Redundant arms for the same error are W3101.
 #[test]
 fn escape_warnings() {
     insta::assert_snapshot!(render_errors(
@@ -286,9 +286,9 @@ fn hidden_caller() {
     ));
 }
 
-/// Warnings and errors around an arm `_` (`[error.escape]`, `[diag.list]`): W0302 on `_` when
-/// the original expression raises nothing; W0301 on every arm below `_`, also when E has an opaque
-/// set variable, and no W0302 in addition; E0320 for a variable or a guarded `_`, without E0318.
+/// Warnings and errors around an arm `_` (`[error.escape]`, `[diag.list]`): W3201 on `_` when
+/// the original expression raises nothing; W3101 on every arm below `_`, also when E has an opaque
+/// set variable, and no W3201 in addition; E3203 for a variable or a guarded `_`, without E3201.
 #[test]
 fn escape_wildcard_diagnostics() {
     insta::assert_snapshot!(render_errors(
@@ -420,7 +420,7 @@ fn use_raise() {
 }
 
 /// `[effect.with]`, `[type.rules]`: the E of the arguments of init goes into the E of the `with`,
-/// except for a handler a later item overrides. In a layer, the arguments cannot fail (E0318,
+/// except for a handler a later item overrides. In a layer, the arguments cannot fail (E3201,
 /// `[effect.layer]`).
 #[test]
 fn init_argument_errors_join_the_with() {
@@ -459,7 +459,7 @@ layer Failing {
 }
 
 /// A local fn encloses its body's E in its type, and the E surfaces where it is called. Its
-/// written `-> T` and `fails` are enforced as for a top-level fn (E0318). The E of a function
+/// written `-> T` and `fails` are enforced as for a top-level fn (E3201). The E of a function
 /// parameter whose `fails` is omitted is part of its E, and calls that pass functions with
 /// different errors give the union (`[fn.local]`, `[type.inference]`).
 #[test]

@@ -75,7 +75,7 @@ pub(crate) struct BodyTypes {
     /// Handler members opened inside an init through a handler that a `with` inside the init
     /// provides → that `with`: they are released at its end (`[effect.handler]`).
     pub(crate) member_open_withs: SparseMap<ExprId, ExprId>,
-    /// The `use E` expressions (W0403) and the effect aliases written as a value (E0453) for
+    /// The `use E` expressions (W4401) and the effect aliases written as a value (E4404) for
     /// which a bound item would send the other uses of E by name in the body of the `with` that
     /// provides E to an outer handler (`[effect.with]`): their help does not suggest one.
     pub(crate) bound_item_redirects: Vec<Span>,
@@ -117,9 +117,9 @@ struct HandlerBody {
     /// A suspend fn implementation that uses `resume` other than by calling it directly (spec
     /// 8.7). Async is added to the dependencies.
     resume_later: bool,
-    /// Whether it implements a suspend fn. fn operation bodies cannot suspend (E0417).
+    /// Whether it implements a suspend fn. fn operation bodies cannot suspend (E4303).
     suspend: bool,
-    /// The `resume` parameter of a suspend fn implementation, for E0461.
+    /// The `resume` parameter of a suspend fn implementation, for E4305.
     resume: Option<LocalId>,
 }
 
@@ -141,11 +141,11 @@ struct LocalFnInfo {
     fails: Row,
     uses: Row,
     /// Whether its E is declared (`-> T` is written, with or without `fails`). Then the E of the
-    /// body is checked against it (E0318); otherwise it is a set variable.
+    /// body is checked against it (E3201); otherwise it is a set variable.
     fails_declared: bool,
-    /// Whether `fails` is written, for the message of E0318.
+    /// Whether `fails` is written, for the message of E3201.
     fails_written: bool,
-    /// Whether `uses` is written. Then the R of the body is checked against it (E0402).
+    /// Whether `uses` is written. Then the R of the body is checked against it (E4301).
     uses_written: bool,
 }
 
@@ -203,7 +203,7 @@ pub(crate) struct BodyInfer<'a> {
     handler_bodies: Vec<HandlerBody>,
     handler_parts: Vec<HandlerPart>,
     /// The handler whose init is being inferred. A handler value's constructor can only be used
-    /// in its own init (E0418).
+    /// in its own init (E4005).
     in_init: Option<DefId>,
     /// The value each local variable bound by `x = value` was bound to: a capability in a field
     /// of a handler stays one through such a binding (`p = self.pool`,
@@ -259,9 +259,9 @@ pub(crate) struct BodyInfer<'a> {
     /// tags caught by `escape` or provided by `with`, and the capabilities whose root or binding
     /// ends (`[effect.use]`). A tag removes only the same tag, not a capability of that effect.
     row_diffs: Vec<(RowVar, RowVar, Vec<RowElem>)>,
-    /// Where each capability first entered each set variable, for E0455 (`[effect.escape]`).
+    /// Where each capability first entered each set variable, for E4405 (`[effect.escape]`).
     cap_provenance: FxHashMap<(RowVar, crate::row::CapId), Option<Span>>,
-    /// `escape` inner expressions, the errors their arms catch and their arm `_`, for the W0302
+    /// `escape` inner expressions, the errors their arms catch and their arm `_`, for the W3201
     /// check.
     escapes: Vec<errors::Escape>,
     /// The call on the right side of a pipe `x |> f(a)` → the pipe expression, where its
@@ -625,7 +625,7 @@ impl<'a> BodyInfer<'a> {
 
     /// `declared` is the fn's type. An impl's function (`in_impl`) may write parameter types; they
     /// must be the trait's (spec 10.2). A parameter beyond the declared ones has a broken type
-    /// (E0332 is reported with the impl).
+    /// (E3101 is reported with the impl).
     fn infer_fn(&mut self, params: &[Param], body: Option<ExprId>, declared: &Ty, in_impl: bool) {
         let Ty::Fn(f) = declared else {
             return;
@@ -648,7 +648,7 @@ impl<'a> BodyInfer<'a> {
 
     /// Infers a handler's init, release and operation bodies (spec 8.4).
     ///
-    /// - init's value is the handler value. If the handler has fields, init is required (E0419).
+    /// - init's value is the handler value. If the handler has fields, init is required (E4006).
     /// - `self` in release and operation bodies is the handler value. release's value is dropped.
     /// - Operation parameter and return types come from the effect operation's declaration. A
     ///   suspend fn implementation takes `resume` as its last parameter: a function taking a value
@@ -697,7 +697,7 @@ impl<'a> BodyInfer<'a> {
                 });
                 return;
             }
-            // A handler of a label is E0433 (signatures); its operations are not looked up.
+            // A handler of a label is E4003 (signatures); its operations are not looked up.
             if crate::signature::is_label(program, effect) {
                 return;
             }
@@ -721,7 +721,7 @@ impl<'a> BodyInfer<'a> {
                 }
                 self.in_init = Some(def);
                 // The sets of the fields are decided by what the init gives them; the fields
-                // given cannot record a capability of a with inside the init (E0455).
+                // given cannot record a capability of a with inside the init (E4405).
                 let made = self.fresh_hidden_caps(def, &handler_ty);
                 self.check_expr(init, &made);
                 self.in_init = None;
@@ -749,7 +749,7 @@ impl<'a> BodyInfer<'a> {
             });
         }
         // The operations of every listed effect, in the order of the effects
-        // (`[effect.handler]`). A missing handler member is E0404 too, listed after the
+        // (`[effect.handler]`). A missing handler member is E4001 too, listed after the
         // operations.
         let inner_member = |inner: DefId| match program.item(inner) {
             Some(Item::Handler(h)) => h.member,
@@ -767,7 +767,7 @@ impl<'a> BodyInfer<'a> {
                 .collect()
         };
         let (ops, members) = (declared(false), declared(true));
-        // An operation whose name another listed effect has too is E0450
+        // An operation whose name another listed effect has too is E4012
         // (`check_listed_effect`), not missing.
         let missing: Vec<SmolStr> = ops
             .iter()
@@ -834,7 +834,7 @@ impl<'a> BodyInfer<'a> {
                 // Name resolution has reported this.
                 _ => None,
             };
-            // If the implementation's `suspend` differs from the effect's declaration, E0415. The
+            // If the implementation's `suspend` differs from the effect's declaration, E4004. The
             // parameters and body are checked as the implementation is written, so errors do not
             // cascade.
             let declared_suspend =
@@ -1004,7 +1004,7 @@ impl<'a> BodyInfer<'a> {
 
     /// An inner handler implements the handler member of its name (`[effect.handler]`): it
     /// implements the effect the member declares, and its init takes the member's parameters with
-    /// the same names and types (E0449).
+    /// the same names and types (E4011).
     fn check_inner_handler(&mut self, def: DefId, member: DefId, item: &HandlerItem) {
         let program = self.program;
         let Some(f) = self.inner_member_ty(def, member) else {
@@ -1225,7 +1225,7 @@ impl<'a> BodyInfer<'a> {
     /// Finishes inference: checks numeric types, generalizes definitions without declared types,
     /// and returns the types with bindings followed.
     ///
-    /// Trait constraints and undetermined `Self` (E0326, E0333) are checked after numeric types,
+    /// Trait constraints and undetermined `Self` (E3302, E3307) are checked after numeric types,
     /// so an integer literal left open counts as Int, and before generalization, so a `Self`
     /// still open is reported rather than quantified.
     pub(crate) fn finish(mut self) -> BodyTypes {
@@ -1497,7 +1497,7 @@ impl<'a> BodyInfer<'a> {
                 Ty::cap([tag], caps)
             }
             // Effects with type parameters need their type arguments (`use State[Int]`, spec 8.1);
-            // omitting them is E0423.
+            // omitting them is E4008.
             ExprKind::Use {
                 effect: Res::Def(effect),
                 args,
@@ -1582,7 +1582,7 @@ impl<'a> BodyInfer<'a> {
                 if crate::layer::is_member_item(program, item) {
                     return items::ItemInst::default();
                 }
-                // A label left of `by` takes no type arguments (E0304).
+                // A label left of `by` takes no type arguments (E3101).
                 if item.by.is_some() && !item.ty_args.is_empty() {
                     self.instantiate_item(item.res, &item.ty_args, item.span, false);
                 }
@@ -1633,7 +1633,7 @@ impl<'a> BodyInfer<'a> {
                             )
                         }
                         // A member whose init takes parameters needs them, as a handler does
-                        // (E0434, `[effect.with]`).
+                        // (E4104, `[effect.with]`).
                         None => {
                             if !f.params.is_empty() {
                                 let labels = self.sigs.get(member).map(|s| s.labels.clone());
@@ -1755,7 +1755,7 @@ impl<'a> BodyInfer<'a> {
     /// For an item of `with` that opens a handler member, the type of opening it
     /// (`[type.rules]`): the parameters of the init, the capability opened, the member's E, and
     /// the R that names the effect (`Files`) or the capability (`fs`). An item without `x =` is
-    /// E0447.
+    /// E4105.
     fn infer_member_item(&mut self, item: &WithItem) -> Option<(crate::ty::FnTy, DefId)> {
         let program = self.program;
         let (ty, member) = match (item.res, &item.cap) {
@@ -1822,7 +1822,7 @@ impl<'a> BodyInfer<'a> {
     /// Checks the arguments written after `target` (`WorkerKv(binding: "KV")`) against the
     /// parameters of its init, as the arguments of a call (`[effect.handler]`, spec 6.2), and
     /// returns them reordered by parameter. A handler whose init takes parameters needs them
-    /// (E0434); anything else takes none (E0435). `span` is where `target` is written.
+    /// (E4104); anything else takes none (E4104). `span` is where `target` is written.
     ///
     /// For a handler with type parameters, the types of the parameters are instantiated with
     /// `ty_args`, the type arguments of the item (`[effect.with]`).
@@ -1899,7 +1899,7 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// A handler value's constructor can only be used inside that handler's init (E0418, spec
+    /// A handler value's constructor can only be used inside that handler's init (E4005, spec
     /// 8.4), since constructing it elsewhere would skip init and release.
     fn check_handler_ctor(&mut self, def: DefId, span: Span) {
         let program = self.program;
@@ -1918,7 +1918,7 @@ impl<'a> BodyInfer<'a> {
     }
 
     /// A value of a capability-bound type of E can be constructed only inside a handler of E
-    /// (E0458, `[type.rules]`). Returns the capability the value records: the handler's `self`.
+    /// (E4407, `[type.rules]`). Returns the capability the value records: the handler's `self`.
     fn check_bound_ctor(&mut self, def: DefId, span: Span) -> Option<CapElem> {
         let program = self.program;
         let owner = match program.item(def) {
@@ -2071,7 +2071,7 @@ impl<'a> BodyInfer<'a> {
     /// being inferred and is not generalized (`[type.rules]`).
     ///
     /// The signature follows `[type.inference]` as for a top-level fn: parameter types are
-    /// written (E0316), an omitted return type is inferred with E, an omitted `fails` with a
+    /// written (E3006), an omitted return type is inferred with E, an omitted `fails` with a
     /// return type means no errors, and an omitted `uses` is inferred. The E and R of function
     /// types in the parameters whose clauses are omitted are set variables shared by every use,
     /// and those the body can call are part of the declared E and R. The E and R of the body are
@@ -2322,7 +2322,7 @@ impl<'a> BodyInfer<'a> {
 
     /// Remembers the `Self` of a trait function whose parameters do not mention `Self`
     /// (`Parse.parse`): only the result type picks the impl, so it must be known once the group is
-    /// inferred (E0333, spec 10.3).
+    /// inferred (E3307, spec 10.3).
     fn require_known_self(&mut self, def: DefId, scheme: &crate::Scheme, tys: &[Ty], span: Span) {
         let program = self.program;
         if program.defs[def].kind != DefKind::TraitFn {
@@ -2346,7 +2346,7 @@ impl<'a> BodyInfer<'a> {
         });
     }
 
-    /// Reports the `Self` of trait functions left undetermined (E0333, spec 10.3). No type is
+    /// Reports the `Self` of trait functions left undetermined (E3307, spec 10.3). No type is
     /// chosen by default.
     fn check_known_selves(&mut self) {
         let program = self.program;
@@ -2362,7 +2362,7 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// Checks the trait constraints remembered at references (E0326, spec 10.3). A type
+    /// Checks the trait constraints remembered at references (E3302, spec 10.3). A type
     /// parameter of the definition with the reference satisfies what its own constraints imply,
     /// supertraits included.
     fn check_traits(&mut self) {
@@ -2488,7 +2488,7 @@ impl<'a> BodyInfer<'a> {
     }
 
     /// Assigns `args` to the parameters `params` ([`Self::assign_args`]), reports a wrong number
-    /// of them at `span` (E0305), checks each argument against its parameter's type and infers
+    /// of them at `span` (E3101), checks each argument against its parameter's type and infers
     /// the extra ones (spec 6.2). Returns the arguments in parameter order. Shared by calls and
     /// the arguments of init (`[effect.handler]`).
     fn check_args(
@@ -2551,7 +2551,7 @@ impl<'a> BodyInfer<'a> {
     /// capability of `use E1 + ... + En` can be passed when every Fi is one of the Ej; when the
     /// parameter has fewer effects, the argument is recorded in `narrowings`, and only the
     /// operations of the Fi can be called through the parameter. A capability without some Fi is
-    /// E0452. Anything else is checked against the parameter type as usual.
+    /// E4403. Anything else is checked against the parameter type as usual.
     fn check_cap_arg(&mut self, arg: ExprId, wanted: &[Tag], param_ty: &Ty) {
         let actual = self.infer_expr(arg);
         let actual = self.self_as_capability(arg, actual);
@@ -2972,7 +2972,7 @@ impl<'a> BodyInfer<'a> {
         // `with` around the handler's, or to a handler member its init opened (`[effect.use]`,
         // `[effect.handler]`). It is not a requirement of the handler: its element is the
         // handler's `self`, which the end of the body removes. It still counts as its effect for
-        // whether the body may suspend (E0417). In release, a suspend fn called that way makes
+        // whether the body may suspend (E4303). In release, a suspend fn called that way makes
         // Async a requirement, so that leaving the `with` shows that it may suspend. The field
         // may have been bound to a local variable first (`p = self.pool`): its set is still the
         // field's (#866).
@@ -3065,7 +3065,7 @@ impl<'a> BodyInfer<'a> {
     }
 
     /// Opening a handler member is written only as an item of `with` and, as a call, inside an
-    /// init (E0448, `[effect.use]`, `[effect.handler]`). Records the opening.
+    /// init (E4106, `[effect.use]`, `[effect.handler]`). Records the opening.
     fn check_member_open(&mut self, expr: ExprId, member: DefId, span: Span) {
         self.member_opens.insert(expr, member);
         if self.in_init.is_none() || !self.member_callees.contains(&expr) {
@@ -3395,7 +3395,7 @@ impl<'a> BodyInfer<'a> {
     /// whole has the inner expression's type. Caught tags and E are handled when the body's E is
     /// computed (`body/errors.rs`). Arms need not be exhaustive.
     ///
-    /// Every arm below an arm `_` without a guard is unreachable (W0301), whatever the E of the
+    /// Every arm below an arm `_` without a guard is unreachable (W3101), whatever the E of the
     /// inner expression. Such arms are reported here and left out of the per-error groups, so an arm
     /// both below `_` and covered by an arm of its error is reported once.
     fn infer_escape(&mut self, inner: ExprId, arms: &[Arm]) -> Ty {
@@ -3564,7 +3564,7 @@ impl<'a> BodyInfer<'a> {
 
     /// Constructor patterns: instantiates the constructor's type, checks the constructed type
     /// against `ty`, and passes types to the fields. Fields are reordered like call arguments;
-    /// omitting fields without `..` is E0308 (spec 6.5).
+    /// omitting fields without `..` is E3105 (spec 6.5).
     fn bind_ctor_pat(
         &mut self,
         pat: PatId,
@@ -3940,7 +3940,7 @@ struct TraitObligation {
     float_ok: bool,
 }
 
-/// The `Self` of a trait function determined only by its result type (E0333).
+/// The `Self` of a trait function determined only by its result type (E3307).
 struct SelfObligation {
     ty: Ty,
     trait_def: DefId,

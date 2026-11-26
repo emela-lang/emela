@@ -252,18 +252,18 @@ ROOT@0..358
     TYPE_NAME@352..356 "Json"
     R_BRACE@356..357 "}"
     NEWLINE@357..358 "\n"
-error[E0122]@45..46: expected newline after declaration
-error[E0110]@64..65: expected `:`
-error[E0110]@71..74: expected `:`
-error[E0111]@103..104: expected type
-error[E0122]@141..142: expected newline or `}` after item
-error[E0110]@190..197: expected `init`, `release`, operation (`fn`) or inner handler (`handler`)
-error[E0126]@209..213: expected declaration
-error[E0126]@244..245: expected declaration
-error[E0130]@249..250: a function without a body must be `@external`
-error[E0122]@270..271: expected newline after declaration
-error[E0111]@309..310: expected type
-error[E0127]@325..331: imports must come before declarations
-error[E0122]@336..337: expected newline after declaration
-error[E0127]@338..344: imports must come before declarations
-error[E0122]@350..351: expected newline after declaration
+error[E1109]@45..46: expected newline after declaration
+error[E1101]@64..65: expected `:`
+error[E1101]@71..74: expected `:`
+error[E1102]@103..104: expected type
+error[E1109]@141..142: expected newline or `}` after item
+error[E1101]@190..197: expected `init`, `release`, operation (`fn`) or inner handler (`handler`)
+error[E1102]@209..213: expected declaration
+error[E1102]@244..245: expected declaration
+error[E1204]@249..250: a function without a body must be `@external`
+error[E1109]@270..271: expected newline after declaration
+error[E1102]@309..310: expected type
+error[E1201]@325..331: imports must come before declarations
+error[E1109]@336..337: expected newline after declaration
+error[E1201]@338..344: imports must come before declarations
+error[E1109]@350..351: expected newline after declaration

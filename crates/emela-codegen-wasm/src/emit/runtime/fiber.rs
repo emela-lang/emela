@@ -5268,7 +5268,7 @@ fn root_interrupt(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.end();
     ins.end();
     // The live waits of fibers' main continuations, newest first: their continuations unwind
-    // with their releases. An implementation waits only before it resumes (E0461), and is
+    // with their releases. An implementation waits only before it resumes (E4305), and is
     // unwound by dropping its caller (`fb_drop_wait`).
     i32_const_cell(b, ins, |p| p.wtail);
     ins.i32_load(mem(0, 4));

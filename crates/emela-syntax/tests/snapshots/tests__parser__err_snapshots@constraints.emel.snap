@@ -519,19 +519,19 @@ ROOT@0..716
       NEWLINE@713..714 "\n"
       R_BRACE@714..715 "}"
   NEWLINE@715..716 "\n"
-error[E0130]@3..10: a function without a body must be `@external`
-error[E0130]@37..40: a top-level `suspend fn` must be `@external`
-error[E0130]@54..63: a type without fields must be `@external`
-error[E0132]@69..74: an enum needs at least one variant
-error[E0131]@78..84: `opaque` must follow `pub`
-error[E0131]@109..115: `opaque` can only be used on `type` and `enum`
-error[E0133]@138..142: `impl` cannot have `pub` or annotations
-error[E0133]@185..189: `impl` cannot have `pub` or annotations
-error[E0134]@266..277: handler operation parameters take their types from the effect
-error[E0135]@290..297: this function needs a body
-error[E0136]@337..346: impl methods take their signature from the trait
-error[E0136]@347..354: impl methods take their signature from the trait
-error[E0136]@355..366: impl methods take their signature from the trait
-error[E0135]@379..385: this function needs a body
-error[E0137]@606..617: effect operations cannot have a `uses` clause
-error[E0137]@657..675: effect operations cannot have a `uses` clause
+error[E1204]@3..10: a function without a body must be `@external`
+error[E1204]@37..40: a top-level `suspend fn` must be `@external`
+error[E1204]@54..63: a type without fields must be `@external`
+error[E1206]@69..74: an enum needs at least one variant
+error[E1205]@78..84: `opaque` must follow `pub`
+error[E1205]@109..115: `opaque` can only be used on `type` and `enum`
+error[E1207]@138..142: `impl` cannot have `pub` or annotations
+error[E1207]@185..189: `impl` cannot have `pub` or annotations
+error[E1208]@266..277: handler operation parameters take their types from the effect
+error[E1209]@290..297: this function needs a body
+error[E1210]@337..346: impl methods take their signature from the trait
+error[E1210]@347..354: impl methods take their signature from the trait
+error[E1210]@355..366: impl methods take their signature from the trait
+error[E1209]@379..385: this function needs a body
+error[E1211]@606..617: effect operations cannot have a `uses` clause
+error[E1211]@657..675: effect operations cannot have a `uses` clause

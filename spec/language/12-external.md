@@ -21,10 +21,10 @@ suspend fn fetch_text(url: String) -> String
 ```
 
 - The parameter types and the return type are always written. The compiler cannot see inside the function, so it does not infer them.
-- A type parameter of an `@external` fn follows the rule of `[fn.decl]` for type parameters that do not appear in the type (W0305). Type parameters do not exist at run time, so one that does not appear in the type distinguishes nothing on the host side either.
+- A type parameter of an `@external` fn follows the rule of `[fn.decl]` for type parameters that do not appear in the type (W3002). Type parameters do not exist at run time, so one that does not appear in the type distinguishes nothing on the host side either.
 - An `@external` fn MAY be pub. Where another module refers to it, it has the External of the module that declares it, not of the referring module (`[effect.external]`), so one that adds External is called only inside the handlers of its module. Other modules reach the host through those handlers, or through an effect and a handler that the module declares for them. An external function declared with `uses {}` that is not a `suspend fn` can be called directly by other modules when it is pub.
-- One `@external` is written per language. A fn MAY have annotations for several languages. Two annotations for the same language on the same fn is a compile error (E0139).
-- The arguments of `@external` on a fn have the form `(language, "name")` or `(language, "file", "name")` only (E0138). The language names the language of the code that is linked with: `js`, `wasm` or `c` (E0140). The strings cannot contain interpolation.
+- One `@external` is written per language. A fn MAY have annotations for several languages. Two annotations for the same language on the same fn is a compile error (E1302).
+- The arguments of `@external` on a fn have the form `(language, "name")` or `(language, "file", "name")` only (E1301). The language names the language of the code that is linked with: `js`, `wasm` or `c` (E1303). The strings cannot contain interpolation.
 - Each build target uses one language. An annotation takes effect when its language is the language of the build target.
 
   | Build target | Language |
@@ -34,9 +34,9 @@ suspend fn fetch_text(url: String) -> String
   | `native` | `c` |
 
 - If the first argument of `@external` on a fn is not a name, the remaining arguments of that annotation are not checked. An annotation whose arguments could not be parsed (one with a syntax error) is not checked for the form of `@external`.
-- An unknown language name gives only E0140 and is not counted as a duplicate of the same language (E0139). For a duplicate, E0139 is reported on the language name of the second and later annotations.
+- An unknown language name gives only E1303 and is not counted as a duplicate of the same language (E1302). For a duplicate, E1302 is reported on the language name of the second and later annotations.
 - The strings of `@external` MAY be multiline strings.
-- A fn with no annotation for the language of the build target is a compile error (E0412) only when it is reachable from the entry point (main for `emela build` and `emela run`, the test functions for `emela test`). When a handler is written in a with, the fns called from the bodies of its init and release become reachable. A fn called from an operation body becomes reachable only when that operation is called or used as a value somewhere in reachable code (effects with different type arguments are different effects, as in `[effect.decl]`: calling `put` of `Store[String]` does not make the `put` of a handler for `Store[Int]` reachable). Unreachable fns are not checked, so even though the bundled `SystemConsole` has only a JS `@external`, reading it in a WASM build is not a compile error as long as it is not used. Writing `with Platform` still builds for a target that has no annotation for Http, as long as Http is not used.
+- A fn with no annotation for the language of the build target is a compile error (E5001) only when it is reachable from the entry point (main for `emela build` and `emela run`, the test functions for `emela test`). When a handler is written in a with, the fns called from the bodies of its init and release become reachable. A fn called from an operation body becomes reachable only when that operation is called or used as a value somewhere in reachable code (effects with different type arguments are different effects, as in `[effect.decl]`: calling `put` of `Store[String]` does not make the `put` of a handler for `Store[Int]` reachable). Unreachable fns are not checked, so even though the bundled `SystemConsole` has only a JS `@external`, reading it in a WASM build is not a compile error as long as it is not used. Writing `with Platform` still builds for a target that has no annotation for Http, as long as Http is not used.
 - In a library-only project (4.1), the external functions reachable from public functions are checked instead of those reachable from an entry point.
 - This check runs in build, run and test. `emela check` and the LSP do not choose a target, so they do not run this check.
 - An external function that is emitted without being reachable (copied out of a public fn) and has no annotation for the language of the build target is a defect when called.
@@ -60,10 +60,10 @@ suspend fn fetch_text(url: String) -> String
 - An external function declared with `uses {}` that is not a `suspend fn` adds nothing, and can be called anywhere.
 - An external function declared as `suspend fn` adds External and Async even when `uses {}` is written.
 - An external function declared as `suspend fn` corresponds to a function that returns a Promise in JS, and to an async import in WASI. The calling fiber suspends until completion.
-- In JS, the runtime adds an `AbortSignal` as the last argument of an external function declared as `suspend fn`. It aborts when the waiting fiber is interrupted. When an implementation of a suspend fn operation is waiting on an external function and the caller is interrupted before resume, the runtime also unwinds the implementation and aborts. After resume, the implementation does not wait (E0461). This is for stopping network requests and timers (without it, even if the result is discarded, the requests and timers stay in the host event loop and the process does not exit). A function that does not use the signal MAY ignore it. Interruption stops only waits of this form. A handler that resumes later from a callback is not stopped (discarded continuations in 14.5). The bundled handlers (including `sleep` of SystemClock) are written in this form.
+- In JS, the runtime adds an `AbortSignal` as the last argument of an external function declared as `suspend fn`. It aborts when the waiting fiber is interrupted. When an implementation of a suspend fn operation is waiting on an external function and the caller is interrupted before resume, the runtime also unwinds the implementation and aborts. After resume, the implementation does not wait (E4305). This is for stopping network requests and timers (without it, even if the result is discarded, the requests and timers stay in the host event loop and the process does not exit). A function that does not use the signal MAY ignore it. Interruption stops only waits of this form. A handler that resumes later from a callback is not stopped (discarded continuations in 14.5). The bundled handlers (including `sleep` of SystemClock) are written in this form.
 - In JS, a returned value that is not a Promise is treated as a resolved value. A rejected Promise is a defect, the same as an exception thrown by the call (12.5).
 - In C, an external function declared as `suspend fn` is written so that it reports completion later (12.6).
-- The uses clause of an external function contains only ProcessHost and PageHost, or nothing. Any other effect, including Async and a set type parameter, is a compile error (E0445). Suspension is declared with `suspend fn`, not with Async.
+- The uses clause of an external function contains only ProcessHost and PageHost, or nothing. Any other effect, including Async and a set type parameter, is a compile error (E5002). Suspension is declared with `suspend fn`, not with Async.
 
 ## 12.3 Host types `[ext.host-type]`
 
@@ -74,7 +74,7 @@ type Connection
 
 An `@external type` with no fields is an opaque type that represents a host object. The annotation takes no arguments. Emela can only pass its values around.
 
-- Writing an argument list on the annotation of an `@external type` is E0141, even an empty `()`. Two `@external` without arguments on the same type give no diagnostic.
+- Writing an argument list on the annotation of an `@external type` is E1301, even an empty `()`. Two `@external` without arguments on the same type give no diagnostic.
 - On the native target, a value of an `@external type` is a host pointer (`void *`). Emela neither frees nor inspects this value. Resources are freed from the release of a handler, by calling an external function that frees them (14.6).
 
 ## 12.4 Boundary types `[ext.boundary]`
@@ -88,7 +88,7 @@ Only the following types can be used for the parameters and the return value of 
 
 List and user-defined types cannot be passed directly. They are converted inside a handler.
 
-- The R of a function type in a boundary type (a callback) MUST NOT contain an effect other than the host effects (`[effect.host]`) and, for a function passed at a call of the external function, the External of the module of the external function (`[effect.external]`). A hidden set variable is taken as empty. Passing a function whose R contains an effect is a compile error (E0454). The R MUST NOT contain a capability either, since the host may keep the callback and call it after the with of the capability has ended (E0454). A parameter of an external function marked `@borrowed` (the host holds the callback only during the call) may take a callback whose R contains capabilities. `@borrowed` can be written only on a parameter of function type of an external function (E0457).
+- The R of a function type in a boundary type (a callback) MUST NOT contain an effect other than the host effects (`[effect.host]`) and, for a function passed at a call of the external function, the External of the module of the external function (`[effect.external]`). A hidden set variable is taken as empty. Passing a function whose R contains an effect is a compile error (E5003). The R MUST NOT contain a capability either, since the host may keep the callback and call it after the with of the capability has ended (E5003). A parameter of an external function marked `@borrowed` (the host holds the callback only during the call) may take a callback whose R contains capabilities. `@borrowed` can be written only on a parameter of function type of an external function (E5004).
 - The parameters and return value of a function passed as a callback are treated the same as the parameters and return value of an external function (a String received from the host is normalized as in 12.5).
 - An external function that returns `()` discards the host's return value and returns `()`.
 - A Bytes received from the host is copied when it crosses the boundary, so a later change to the host's buffer does not change the Bytes, and the Bytes does not keep the rest of a larger host buffer alive. A Bytes passed to the host MUST NOT be modified by the host; if it is, the behavior is unspecified. Whether the runtime passes its own buffer or a copy is implementation-defined.
@@ -106,7 +106,7 @@ For the language `c`, the types map to C types by the following table.
 | `()` | Not a parameter | `void` |
 | Bytes | `const uint8_t *data, size_t len` (two parameters) | `em_bytes` |
 | `@external type` | `void *` | `void *` |
-| Function type | None (E0427) | None (E0427) |
+| Function type | None (E5201) | None (E5201) |
 
 - A host function MUST be defined with external linkage. The emitted C declares host functions with the prototypes this table determines. Parameters are in the order of the declaration, and a function with no parameters takes `(void)` (`void host(void)`).
 - The emitted C includes only the runtime header, so a host function whose name is the same as a declaration in a standard C header does not cause conflicting declarations.
@@ -125,8 +125,8 @@ For the language `c`, the types map to C types by the following table.
 
 - A returned `em_bytes` is copied into a Bytes, and `data` is freed with `free` right after the copy. `data` is allocated with `malloc`, or is NULL when `len` is 0. A NULL `data` with a `len` greater than 0 is a defect, with the message ``external function `f` returned NULL``. A `len` greater than 2^31 - 1, the largest size of a Bytes, is a defect, with the message ``external function `f` returned more bytes than a Bytes can hold``; the runtime frees `data` in this case too.
 - A C type not in the table, such as `int` or `uint64_t`, is converted to a type in the table by a small function written on the C side. The compiler does not guess the width of integers.
-- The native target does not support parameters and return values of function types. When the build target is `native` and an external function reachable from the entry point takes or returns a callback, it is a compile error (E0427). The form of callbacks (a pair of a function pointer and a context) and how long the C side can keep them are decided in 18.1 #38.
-- The native target does not support Array at the boundary yet. When the build target is `native` and an external function reachable from the entry, or an exported fn, takes or returns a type that contains an Array (`Array[Bytes]` included), it is a compile error (E0443). The C form of an Array is decided together with callbacks (18.1 #38).
+- The native target does not support parameters and return values of function types. When the build target is `native` and an external function reachable from the entry point takes or returns a callback, it is a compile error (E5201). The form of callbacks (a pair of a function pointer and a context) and how long the C side can keep them are decided in 18.1 #38.
+- The native target does not support Array at the boundary yet. When the build target is `native` and an external function reachable from the entry, or an exported fn, takes or returns a type that contains an Array (`Array[Bytes]` included), it is a compile error (E5204). The C form of an Array is decided together with callbacks (18.1 #38).
 
 ## 12.5 Exceptions and failures `[ext.exception]`
 
@@ -195,18 +195,18 @@ pub fn on_tick() -> () { ... }
 pub fn add(a: Int, b: Int) -> Int { a + b }
 ```
 
-- `@export` is written on a top-level fn with a body. Writing it on any other declaration, or on a fn without a body, is E0146. Its arguments have the form `(language, "name")` or `(language, "interface", "name")`, as for `@external` (12.1). A fn MAY have several `@export` for the same language. Malformed arguments are E0146, and an unknown language is E0140. An `@export` takes effect when its language is the language of the build target.
+- `@export` is written on a top-level fn with a body. Writing it on any other declaration, or on a fn without a body, is E1301. Its arguments have the form `(language, "name")` or `(language, "interface", "name")`, as for `@external` (12.1). A fn MAY have several `@export` for the same language. Malformed arguments are E1301, and an unknown language is E1303. An `@export` takes effect when its language is the language of the build target.
 - An `@export` fn exposes itself to the host under each name. Each call by the host is one launch, as main is.
-- The parameters and the return value of an `@export` fn are boundary types (12.4) (E0436). Its E MUST be empty and its R MUST be empty except for Async (E0402). An exported fn is called by a host of a kind the program does not know, so it is given no other host effect (`[effect.host]`).
-- A hidden set variable of a parameter's function type is part of the fn's E and R (9.4), so a callback parameter of an `@export` fn is written with `fails {} uses {}` (`f: fn(Int) -> String fails {} uses {}`). Otherwise its E and R are not empty (E0402).
-- An `@export` fn that is not an entry adapter is allowed only in the entry module (E0437).
-- Two exports with the same name for the same language, from `@export`, `@entry` or the launcher of `main.mjs` (`[target.js.module]`), are a compile error (E0438).
+- The parameters and the return value of an `@export` fn are boundary types (12.4) (E5101). Its E MUST be empty and its R MUST be empty except for Async (E4301). An exported fn is called by a host of a kind the program does not know, so it is given no other host effect (`[effect.host]`).
+- A hidden set variable of a parameter's function type is part of the fn's E and R (9.4), so a callback parameter of an `@export` fn is written with `fails {} uses {}` (`f: fn(Int) -> String fails {} uses {}`). Otherwise its E and R are not empty (E4301).
+- An `@export` fn that is not an entry adapter is allowed only in the entry module (E5102).
+- Two exports with the same name for the same language, from `@export`, `@entry` or the launcher of `main.mjs` (`[target.js.module]`), are a compile error (E5103).
 - How each target exposes the fn is in `[target.js.module]`, `[target.native.export]` and `[target.wasm.external]`.
 
 ## 12.8 Entry adapters `[ext.entry]`
 
-- An `@export` fn whose first parameter has a function type is an entry adapter. An entry adapter is not exposed by itself, and MAY be in any module. Its first parameter need not be a boundary type; the other parameters and the return value are boundary types (E0436).
-- `@entry(T)` is written on a top-level fn `f` of the entry module. Writing it outside the entry module is E0437. Its one argument is a lower name (`serve`, a fn of the same module) or a `qualified` path (`Http.serve`) that names an entry adapter; anything else is E0439. `f` MUST be accepted as the first argument of `T` (E0440).
+- An `@export` fn whose first parameter has a function type is an entry adapter. An entry adapter is not exposed by itself, and MAY be in any module. Its first parameter need not be a boundary type; the other parameters and the return value are boundary types (E5101).
+- `@entry(T)` is written on a top-level fn `f` of the entry module. Writing it outside the entry module is E5102. Its one argument is a lower name (`serve`, a fn of the same module) or a `qualified` path (`Http.serve`) that names an entry adapter; anything else is E5104. `f` MUST be accepted as the first argument of `T` (E5105).
 - For each `@export` of `T`, the program exposes under the same name a fn that takes the remaining parameters of `T` and returns `T(f, ...)`. Each call is one launch.
 - `f` remains an ordinary fn. It can be called, including from tests.
 - The function type of the first parameter of an entry adapter MAY have one host effect other than Async in its uses (`[effect.host]`), and the R of the adapter MAY contain it. The host provides it for each launch through the adapter.

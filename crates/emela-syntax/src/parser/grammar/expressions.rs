@@ -68,7 +68,7 @@ pub(crate) fn stmt(p: &mut Parser<'_>) {
 ///
 /// The right side is read up to the end of the statement even when it is not an effect name, so
 /// that `x <- 1` or `x <- Int.abs(3)`, likely meant as a comparison `x < -1`, gets one diagnostic
-/// with a help (E0152, `validation.rs`). What follows the effect is kept in an ERROR node.
+/// with a help (E1113, `validation.rs`). What follows the effect is kept in an ERROR node.
 fn effect_alias(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump_kind(LOWER_NAME);
@@ -499,7 +499,7 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
             with_expr(p);
             WITH_EXPR
         }
-        // The old form `fn(params) { ... }` (E0148, reported by validation). It is read into the
+        // The old form `fn(params) { ... }` (E1405, reported by validation). It is read into the
         // node of an anonymous function, so the later passes need not tell the forms apart, and
         // the formatter rewrites it (`[fmt.closure]`).
         FN_KW => {
@@ -515,7 +515,7 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         _ => {
             m.abandon(p);
             p.err_recover(
-                DiagnosticCode::ExpectedExpression,
+                DiagnosticCode::ExpectedNode,
                 "expected expression",
                 RECOVERY,
             );
@@ -563,12 +563,12 @@ fn list_expr(p: &mut Parser<'_>) {
     let mut seen_rest = false;
     while !p.at(R_BRACK) && !p.at_eof() {
         if seen_rest {
-            p.error(DiagnosticCode::RestNotLast, "`..` must come last");
+            p.error(DiagnosticCode::MisplacedListRest, "`..` must come last");
         }
         if p.at(DOT2) {
             if !has_element {
                 p.error(
-                    DiagnosticCode::RestWithoutElements,
+                    DiagnosticCode::MisplacedListRest,
                     "`..` needs at least one element before it",
                 );
             }
@@ -609,7 +609,7 @@ fn arg_list(p: &mut Parser<'_>) {
     let mut seen_spread = false;
     while !p.at(R_PAREN) && !p.at_eof() {
         if seen_spread {
-            p.error(DiagnosticCode::RestNotLast, "`..` must come last");
+            p.error(DiagnosticCode::MisplacedListRest, "`..` must come last");
         }
         if p.at(LOWER_NAME) && p.nth(1) == COLON {
             let a = p.start();

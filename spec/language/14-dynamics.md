@@ -32,7 +32,7 @@ Evaluation is strict and proceeds from left to right, and the initialization on 
 - `fail e` ends the expressions being evaluated, one after another outward. When it reaches the innermost escape that has an arm matching the tag of e, that arm is evaluated, and its result is the value of the escape expression.
 - When a with is left on the way, step 3 of 14.2 runs.
 - When main ends normally, the program exits with exit code 0, and the return value is discarded without being shown. The exception is a main whose return type is `ExitCode` (`[api.std.process]`): the program exits with the exit code of the value. To see a value, use `dbg`.
-- The return type of main SHOULD be `()` or `ExitCode`. A main whose return type is none of `()`, `ExitCode` and Never is W0304; it still runs, and its value is discarded as above.
+- The return type of main SHOULD be `()` or `ExitCode`. A main whose return type is none of `()`, `ExitCode` and Never is W3001; it still runs, and its value is discarded as above.
 - The exit code chosen by an `ExitCode` MAY be 1, 101 or 130. The exit code alone then does not tell it apart from an error, a defect or an interruption; only the line written to standard error does.
 - An error that reaches main is an abnormal termination of the program. One line `error: <the error value shown>` is printed to standard error, and the program exits with exit code 1. If the type of the error satisfies Show, it is shown the same way as by inspect (10.6) (for `error DbError(message: String) derive Show`, `error: DbError(message: "down")`). Otherwise only the name of the error is shown (`error: Retry`). The E of main does not require Show. The exit code tells it apart from a defect (exit code 101, 7.5). The E of main MAY be non-empty.
 
@@ -50,7 +50,7 @@ Evaluation is strict and proceeds from left to right, and the initialization on 
 
 1. Calling a suspending operation captures the rest of the caller's computation as a continuation, and runs the operation body of the handler.
 2. When the handler calls `resume(v)`, the continuation resumes, and the value of the operation call expression is v.
-3. When the operation body resumes on the spot, the caller continues without suspending. If the operation body has more to run after the resume, that part does not suspend (E0461, 8.4); it runs to the end first, and then the caller continues.
+3. When the operation body resumes on the spot, the caller continues without suspending. If the operation body has more to run after the resume, that part does not suspend (E4305, 8.4); it runs to the end first, and then the caller continues.
 4. When the operation body resumes later, the caller resumes inside that call of resume, and resume returns (with the value `()`) when the caller next suspends or ends. The rest of the operation body then runs to the end without suspending.
 
 - A continuation can be resumed at most once. A second resume is a defect. The message says which operation of which handler it happened in. Mistakes visible by reading the code, such as calling resume twice on the same path or calling it inside a loop or recursion, get a warning from the linter. The types give no guarantee (adding one later would still accept every correct program).

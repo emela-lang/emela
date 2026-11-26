@@ -62,7 +62,7 @@ fn param_list(p: &mut Parser<'_>) {
     m.complete(p, PARAM_LIST);
 }
 
-/// The parameters of the old form of an anonymous function, `fn(x) { ... }` (E0148, reported by
+/// The parameters of the old form of an anonymous function, `fn(x) { ... }` (E1405, reported by
 /// validation): `"(" [ lambda_param { "," lambda_param } ] ")"`. It is still read so that the
 /// formatter and the quick fix can rewrite it (`[fmt.closure]`).
 fn old_lambda_param_list(p: &mut Parser<'_>) {

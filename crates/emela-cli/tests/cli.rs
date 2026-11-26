@@ -252,7 +252,7 @@ fn incomplete_impl_is_rejected_by_every_command_and_target() {
     assert!(
         check
             .stderr
-            .contains("error[E0325]: incomplete impl: missing methods `label`, `merge`")
+            .contains("error[E3301]: incomplete impl: missing methods `label`, `merge`")
     );
     assert!(!check.stderr.contains("`default`"));
     for command in ["build", "run", "test"] {
@@ -302,8 +302,8 @@ fn check_clean_project() {
 }
 
 /// `[intro.experimental]`, `[effect.escape]`: `capture-checking` was removed in 0.29. A value
-/// that leaves the `with` that made the capability it holds is E0455 without any flag, and the
-/// name is accepted with W0206. `--help` no longer lists the flag.
+/// that leaves the `with` that made the capability it holds is E4405 without any flag, and the
+/// name is accepted with W2304. `--help` no longer lists the flag.
 #[test]
 fn capture_checking_flag() {
     let project = Project::new(
@@ -318,11 +318,11 @@ fn capture_checking_flag() {
     );
     let run = project.emela(&["check", "app"]);
     assert_eq!(run.code, Some(1), "{run:?}");
-    assert!(run.stderr.contains("error[E0455]"), "{run:?}");
+    assert!(run.stderr.contains("error[E4405]"), "{run:?}");
     let run = project.emela(&["check", "--experimental-capture-checking", "app"]);
     assert_eq!(run.code, Some(1), "{run:?}");
-    assert!(run.stderr.contains("warning[W0206]"), "{run:?}");
-    assert!(run.stderr.contains("error[E0455]"), "{run:?}");
+    assert!(run.stderr.contains("warning[W2304]"), "{run:?}");
+    assert!(run.stderr.contains("error[E4405]"), "{run:?}");
     let help = project.emela(&["check", "--help"]);
     assert!(
         !help.stdout.contains("--experimental-capture-checking"),
@@ -331,7 +331,7 @@ fn capture_checking_flag() {
 }
 
 /// `[cmd.build]`, `[cmd.test]`: `check`, `build`, `run` and `test` take `--experimental-<name>`.
-/// A name of no known experimental feature is the warning W0206, not an unknown-argument error,
+/// A name of no known experimental feature is the warning W2304, not an unknown-argument error,
 /// and the command goes on. Arguments after `--` are the program's.
 #[test]
 fn experimental_flags_of_an_unknown_feature_are_warnings() {
@@ -347,7 +347,7 @@ fn experimental_flags_of_an_unknown_feature_are_warnings() {
     let run = project.emela(&["check", "--experimental-from-the-future", "app"]);
     assert_eq!(run.code, Some(0), "{run:?}");
     insta::assert_snapshot!(run.stderr, @r"
-    warning[W0206]: unknown experimental feature `from-the-future`
+    warning[W2304]: unknown experimental feature `from-the-future`
 
     1 warning
     ");
@@ -366,7 +366,7 @@ fn experimental_flags_of_an_unknown_feature_are_warnings() {
         assert_eq!(run.code, Some(0), "{args:?}: {run:?}");
         assert!(
             run.stderr
-                .contains("warning[W0206]: unknown experimental feature `from-the-future`"),
+                .contains("warning[W2304]: unknown experimental feature `from-the-future`"),
             "{args:?}: {run:?}"
         );
     }
@@ -377,7 +377,7 @@ fn experimental_flags_of_an_unknown_feature_are_warnings() {
         "--experimental-from-the-future",
     ]);
     assert_eq!(run.code, Some(0), "{run:?}");
-    assert!(!run.stderr.contains("W0206"), "{run:?}");
+    assert!(!run.stderr.contains("W2304"), "{run:?}");
     // Only `check`, `build`, `run` and `test` take the flags.
     let run = project.emela(&["fmt", "--check", "--experimental-from-the-future", "app"]);
     assert_eq!(run.code, Some(2), "{run:?}");
@@ -389,7 +389,7 @@ fn check_missing_path() {
     let run = project.emela(&["check", "nowhere.emel"]);
     assert_eq!(run.code, Some(1));
     insta::assert_snapshot!(run.stderr, @"
-    error[E0901]: `nowhere.emel` not found
+    error[E9001]: `nowhere.emel` not found
 
     1 error
     ");
@@ -440,7 +440,7 @@ fn library_only_project_uses_lib_as_entry_for_check_and_test() {
                 assert_eq!((run.code, run.stdout.as_str()), (Some(1), ""));
                 assert!(
                     run.stderr
-                        .starts_with("error[E0230]: entry `src/lib.emel` has no `main` function"),
+                        .starts_with("error[E2009]: entry `src/lib.emel` has no `main` function"),
                     "{}",
                     run.stderr
                 );
@@ -519,10 +519,10 @@ fn library_type_errors_are_reported_by_all_commands() {
         let run = project.emela(&[command]);
         assert_eq!(run.code, Some(1), "{command}: {run:?}");
         assert!(
-            run.stderr.starts_with("error[E0301]:"),
+            run.stderr.starts_with("error[E3001]:"),
             "{command}: {run:?}"
         );
-        assert!(!run.stderr.contains("E0230"), "{command}: {run:?}");
+        assert!(!run.stderr.contains("E2009"), "{command}: {run:?}");
         assert!(!run.stderr.contains("internal error"), "{command}: {run:?}");
         assert!(!project.path().join("target").exists());
     }
@@ -536,7 +536,7 @@ fn build_reports_missing_entry() {
         assert_eq!(run.code, Some(1));
         assert_eq!(
             run.stderr,
-            "error[E0209]: the entry `src/main.emel` does not exist\n\n1 error\n"
+            "error[E2007]: the entry `src/main.emel` does not exist\n\n1 error\n"
         );
     }
     assert!(!project.path().join("target").exists());
@@ -557,7 +557,7 @@ fn run_without_main_is_an_error() {
     let run = project.emela(&["run"]);
     assert_eq!((run.code, run.stdout.as_str()), (Some(1), ""));
     insta::assert_snapshot!(run.stderr, @"
-    error[E0230]: entry `src/main.emel` has no `main` function
+    error[E2009]: entry `src/main.emel` has no `main` function
        ─[ src/main.emel ]
 
     1 error
@@ -573,7 +573,7 @@ fn run_single_file_without_main_is_an_error() {
     let run = project.emela(&["run", "lone.emel"]);
     assert_eq!((run.code, run.stdout.as_str()), (Some(1), ""));
     insta::assert_snapshot!(run.stderr, @"
-    error[E0230]: entry `lone.emel` has no `main` function
+    error[E2009]: entry `lone.emel` has no `main` function
        ─[ lone.emel ]
 
     1 error
@@ -629,7 +629,7 @@ fn file_outside_source_root() {
     assert_eq!(run.code, Some(1));
     assert!(
         run.stderr
-            .starts_with("error[E0208]: file `scripts/x.emel` is outside the source root `src`"),
+            .starts_with("error[E2006]: file `scripts/x.emel` is outside the source root `src`"),
         "{}",
         run.stderr
     );
@@ -654,7 +654,7 @@ fn directory_outside_source_root() {
         assert_eq!(run.code, Some(1), "{command}: {}", run.stderr);
         assert!(
             run.stderr
-                .starts_with("error[E0208]: directory `scripts` is outside the source root `src`"),
+                .starts_with("error[E2006]: directory `scripts` is outside the source root `src`"),
             "{command}: {}",
             run.stderr
         );
@@ -768,7 +768,7 @@ fn lsp_over_stdio() {
         published.contains("textDocument/publishDiagnostics"),
         "{published}"
     );
-    assert!(published.contains(r#""code":"E0105""#), "{published}");
+    assert!(published.contains(r#""code":"E1005""#), "{published}");
     assert!(published.contains("src/main.emel"), "{published}");
     send(r#"{"jsonrpc":"2.0","id":2,"method":"shutdown"}"#.to_owned());
     assert!(recv().contains(r#""id":2"#));
@@ -1191,7 +1191,7 @@ fn main() {
 }
 
 /// Referring to a const while it is being evaluated is a defect, and consts that refer to each
-/// other by name only are an error at compile time (E0231, spec 5.6).
+/// other by name only are an error at compile time (E2113, spec 5.6).
 #[test]
 fn const_cycles() {
     let project = Project::new(
@@ -1228,7 +1228,7 @@ fn const_cycles() {
     assert_eq!(run.code, Some(1));
     assert!(
         run.stderr
-            .contains("error[E0231]: constants refer to each other: `A` -> `B` -> `A`"),
+            .contains("error[E2113]: constants refer to each other: `A` -> `B` -> `A`"),
         "{run:?}"
     );
 }
@@ -1319,7 +1319,7 @@ fn fake_js_host(project: &Project, version: &str) -> PathBuf {
     path
 }
 
-/// `emela run` and `emela test` on JS stop with E0904 before starting a JS host older than the
+/// `emela run` and `emela test` on JS stop with E9101 before starting a JS host older than the
 /// version `[target]` requires for that host (`[cmd.build]`). The `running` line is not written.
 #[cfg(unix)]
 #[test]
@@ -1342,7 +1342,7 @@ fn run_and_test_stop_on_a_js_host_that_is_too_old() {
         ),
     ] {
         let host = fake_js_host(&project, version);
-        let expected = format!("error[E0904]: `{}` {message}", host.display());
+        let expected = format!("error[E9101]: `{}` {message}", host.display());
         for command in ["run", "test"] {
             let run =
                 project.emela_with_env(&[command, "--target", "js"], &[("EMELA_JS_HOST", &host)]);
@@ -1388,10 +1388,10 @@ fn run_starts_a_js_host_that_is_new_enough_or_whose_version_is_unknown() {
     }
 }
 
-const W0902: &str = "warning[W0902]: EMELA_NODE is deprecated; use EMELA_JS_HOST";
+const W9101: &str = "warning[W9101]: EMELA_NODE is deprecated; use EMELA_JS_HOST";
 
-/// `EMELA_NODE` is still read when `EMELA_JS_HOST` is empty, with W0902; when `EMELA_JS_HOST` is
-/// set, it takes precedence and W0902 is still reported (`[cmd.build]`). The warning does not
+/// `EMELA_NODE` is still read when `EMELA_JS_HOST` is empty, with W9101; when `EMELA_JS_HOST` is
+/// set, it takes precedence and W9101 is still reported (`[cmd.build]`). The warning does not
 /// change the exit code.
 #[cfg(unix)]
 #[test]
@@ -1411,7 +1411,7 @@ fn emela_node_is_read_with_a_warning() {
             &[("EMELA_JS_HOST", empty), ("EMELA_NODE", &host)],
         );
         assert!(run.stdout.contains("started"), "{command}: {run:?}");
-        assert!(run.stderr.contains(W0902), "{command}: {run:?}");
+        assert!(run.stderr.contains(W9101), "{command}: {run:?}");
     }
 
     let missing = project.path().join("missing-node");
@@ -1424,7 +1424,7 @@ fn emela_node_is_read_with_a_warning() {
         (Some(0), "started\n"),
         "{run:?}"
     );
-    assert_eq!(run.stderr.matches(W0902).count(), 1, "{run:?}");
+    assert_eq!(run.stderr.matches(W9101).count(), 1, "{run:?}");
     let prefix = format!("running `{} ", host.display());
     assert!(
         run.command
@@ -1434,7 +1434,7 @@ fn emela_node_is_read_with_a_warning() {
     );
 }
 
-/// W0902 is reported only by the commands that use the JS host: not by `emela check`, nor by a run
+/// W9101 is reported only by the commands that use the JS host: not by `emela check`, nor by a run
 /// on another target.
 #[cfg(unix)]
 #[test]
@@ -1448,7 +1448,7 @@ fn emela_node_is_not_reported_when_the_js_host_is_not_used() {
     let env = [("EMELA_JS_HOST", empty), ("EMELA_NODE", host.as_path())];
     let check = project.emela_with_env(&["check"], &env);
     assert_eq!(check.code, Some(0), "{check:?}");
-    assert!(!check.stderr.contains("W0902"), "{check:?}");
+    assert!(!check.stderr.contains("W9101"), "{check:?}");
     let wasm = project.emela_with_env(
         &["run", "--target", "wasm"],
         &[
@@ -1457,10 +1457,10 @@ fn emela_node_is_not_reported_when_the_js_host_is_not_used() {
             ("EMELA_WASMTIME", Path::new("/nonexistent/wasmtime")),
         ],
     );
-    assert!(!wasm.stderr.contains("W0902"), "{wasm:?}");
+    assert!(!wasm.stderr.contains("W9101"), "{wasm:?}");
 }
 
-/// `emela doctor` resolves the JS host by the same rule, so it reports W0902 too. The JS host is
+/// `emela doctor` resolves the JS host by the same rule, so it reports W9101 too. The JS host is
 /// named by what it wrote (`[cmd.doctor]`).
 #[cfg(unix)]
 #[test]
@@ -1473,12 +1473,12 @@ fn doctor_names_the_js_host_and_reports_emela_node() {
         &[("EMELA_JS_HOST", empty), ("EMELA_NODE", &host)],
     );
     assert_eq!(run.code, Some(0), "{run:?}");
-    assert!(run.stderr.contains(W0902), "{run:?}");
+    assert!(run.stderr.contains(W9101), "{run:?}");
     assert!(
         run.stdout
             .contains(&format!("  ok       bun 1.4.4 ({})", host.display())),
         "{run:?}"
     );
     let run = project.emela_with_env(&["doctor", "--target", "js"], &[("EMELA_JS_HOST", &host)]);
-    assert!(!run.stderr.contains("W0902"), "{run:?}");
+    assert!(!run.stderr.contains("W9101"), "{run:?}");
 }

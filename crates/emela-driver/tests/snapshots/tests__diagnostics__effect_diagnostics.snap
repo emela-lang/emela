@@ -3,7 +3,7 @@ source: crates/emela-driver/tests/diagnostics.rs
 assertion_line: 606
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-error[E0404]: handler `Half` does not implement operation `warn`
+error[E4001]: handler `Half` does not implement operation `warn`
     ╭─[ main.emel:10:9 ]
     │
  10 │ handler Half: Logger {
@@ -11,7 +11,7 @@ error[E0404]: handler `Half` does not implement operation `warn`
     │           ╰─── 
 ────╯
 
-error[E0405]: operation `info` is implemented more than once
+error[E4002]: operation `info` is implemented more than once
     ╭─[ main.emel:12:6 ]
     │
  12 │   fn info(msg) { () }
@@ -19,7 +19,7 @@ error[E0405]: operation `info` is implemented more than once
     │        ╰─── 
 ────╯
 
-error[E0406]: wrong number of parameters: operation `info` takes 1, found 2
+error[E3101]: wrong number of parameters: operation `info` takes 1, found 2
     ╭─[ main.emel:16:6 ]
     │
  16 │   fn info(a, b) { (use Clock).now()
@@ -27,7 +27,7 @@ error[E0406]: wrong number of parameters: operation `info` takes 1, found 2
     │        ╰─── 
 ────╯
 
-error[E0402]: effect `Logger` is not declared in `uses`
+error[E4301]: effect `Logger` is not declared in `uses`
     ╭─[ main.emel:30:4 ]
     │
  30 │   (use Logger).infoo("x")
@@ -36,7 +36,7 @@ error[E0402]: effect `Logger` is not declared in `uses`
 ────╯
    = help: add it to `uses` or provide it with `with`
 
-error[E0401]: effect `Logger` has no operation `infoo`
+error[E4401]: effect `Logger` has no operation `infoo`
     ╭─[ main.emel:30:16 ]
     │
  30 │   (use Logger).infoo("x")
@@ -44,7 +44,7 @@ error[E0401]: effect `Logger` has no operation `infoo`
     │                  ╰──── 
 ────╯
 
-error[E0403]: effect set mismatch: expected `uses {}`, found `uses { Logger }`
+error[E4301]: effect set mismatch: expected `uses {}`, found `uses { Logger }`
     ╭─[ main.emel:36:8 ]
     │
  36 │   only(|| log.info("x"))
@@ -52,7 +52,7 @@ error[E0403]: effect set mismatch: expected `uses {}`, found `uses { Logger }`
     │                ╰───────── 
 ────╯
 
-error[E0411]: handlers depend on each other: `Stamped` -> `Ticking` -> `Stamped`
+error[E4101]: handlers depend on each other: `Stamped` -> `Ticking` -> `Stamped`
     ╭─[ main.emel:40:8 ]
     │
  40 │   with Stamped, Ticking { () }
@@ -60,7 +60,7 @@ error[E0411]: handlers depend on each other: `Stamped` -> `Ticking` -> `Stamped`
     │           ╰───── 
 ────╯
 
-warning[W0304]: the value of type `Int` returned by `main` is discarded
+warning[W3001]: the value of type `Int` returned by `main` is discarded
     ╭─[ main.emel:44:4 ]
     │
  44 │ fn main() {
@@ -69,7 +69,7 @@ warning[W0304]: the value of type `Int` returned by `main` is discarded
 ────╯
    = help: return `()`, or return an `ExitCode` to choose the exit code
 
-error[E0402]: effect `Clock` is not provided in `main`
+error[E4301]: effect `Clock` is not provided in `main`
     ╭─[ main.emel:45:4 ]
     │
  45 │   (use Clock).now()
@@ -78,7 +78,7 @@ error[E0402]: effect `Clock` is not provided in `main`
 ────╯
    = help: provide it with `with`
 
-error[E0402]: effect `Logger` is not provided in test function `logs`
+error[E4301]: effect `Logger` is not provided in test function `logs`
     ╭─[ main.emel:50:4 ]
     │
  50 │   (use Logger).info("t")

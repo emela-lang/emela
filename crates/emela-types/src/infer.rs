@@ -59,7 +59,7 @@ pub(crate) enum Origin {
     Instance,
     /// The E (R) of the body of a local fn is contained in the E (R) of its type
     /// (`[fn.local]`). Always holds when that E (R) is inferred; when it is declared, a missing
-    /// error is E0318 and a missing effect E0402, as for a top-level fn.
+    /// error is E3201 and a missing effect E4301, as for a top-level fn.
     LocalFn(LocalId),
     /// The E (R) of an argument `arg` of the `member`-th item of a layer is empty
     /// (`[effect.layer]`).

@@ -431,7 +431,7 @@ impl Lowerer<'_> {
                 .map(|(_, cell)| *cell)
         });
         let Some((cell, suspends)) = in_with.or(self.opened_cell) else {
-            // The type checker allows it only inside an init (E0448).
+            // The type checker allows it only inside an init (E4106).
             return call;
         };
         let pair = self.module.local("opened", op.ret);
@@ -508,7 +508,7 @@ pub(super) fn member_suspends(hir: &emela_resolve::hir::Program, member: DefId) 
 }
 
 /// Whether an inner handler implements a handler member without `suspend`: then its init and
-/// release do not suspend (E0417).
+/// release do not suspend (E4303).
 pub(super) fn implements_plain_member(hir: &emela_resolve::hir::Program, h: &HandlerItem) -> bool {
     matches!(h.member, Some(Res::Def(m)) if !member_suspends(hir, m))
 }

@@ -3,7 +3,7 @@
  *
  * Only the registry is here so far. The init and the release of SystemTcp are reached by every
  * `with Process` (`[ext.decl]`), so they need a C binding even before the operations have one; the
- * operations have no `c` binding yet, and calling them on native is E0412. A registry therefore
+ * operations have no `c` binding yet, and calling them on native is E5001. A registry therefore
  * never holds a connection, and its release only frees it. */
 #include <stdio.h>
 #include <stdlib.h>

@@ -1,4 +1,4 @@
-# E0150: 型パラメータ，属性，pub，suspend
+# E1212, E1213: 型パラメータ，属性，pub，suspend
 fn modifiers() -> Int {
   fn generic[A](x: A) -> A { x }
   @test
@@ -8,7 +8,7 @@ fn modifiers() -> Int {
   1
 }
 
-# E0151: ブロックの最後の文
+# E1214: ブロックの最後の文
 fn last() {
   fn go(n: Int) -> Int { n }
 }

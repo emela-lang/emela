@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-warning[W0305]: type parameter `A` of `f` does not appear in its signature
+warning[W3002]: type parameter `A` of `f` does not appear in its signature
    ╭─[ main.emel:1:6 ]
    │
  1 │ fn f[A]() -> Int { 1 }
@@ -11,7 +11,7 @@ warning[W0305]: type parameter `A` of `f` does not appear in its signature
 ───╯
    = help: a call cannot determine `A`; remove it, or use it in a parameter, the return type, `fails` or `uses`
 
-warning[W0305]: type parameter `A` of `g` does not appear in its signature
+warning[W3002]: type parameter `A` of `g` does not appear in its signature
    ╭─[ main.emel:3:6 ]
    │
  3 │ fn g[A](x: Int) -> Int {
@@ -20,7 +20,7 @@ warning[W0305]: type parameter `A` of `g` does not appear in its signature
 ───╯
    = help: a call cannot determine `A`; remove it, or use it in a parameter, the return type, `fails` or `uses`
 
-warning[W0305]: type parameter `A` of `h` does not appear in its signature
+warning[W3002]: type parameter `A` of `h` does not appear in its signature
    ╭─[ main.emel:8:6 ]
    │
  8 │ fn h[A: Show]() -> Int { 1 }
@@ -29,7 +29,7 @@ warning[W0305]: type parameter `A` of `h` does not appear in its signature
 ───╯
    = help: a call cannot determine `A`; remove it, or use it in a parameter, the return type, `fails` or `uses`
 
-warning[W0305]: type parameter `E` of `e` does not appear in its signature
+warning[W3002]: type parameter `E` of `e` does not appear in its signature
     ╭─[ main.emel:10:6 ]
     │
  10 │ fn e[E, R](x: Int) -> Int { x }
@@ -38,7 +38,7 @@ warning[W0305]: type parameter `E` of `e` does not appear in its signature
 ────╯
    = help: a call cannot determine `E`; remove it, or use it in a parameter, the return type, `fails` or `uses`
 
-warning[W0305]: type parameter `R` of `e` does not appear in its signature
+warning[W3002]: type parameter `R` of `e` does not appear in its signature
     ╭─[ main.emel:10:9 ]
     │
  10 │ fn e[E, R](x: Int) -> Int { x }
@@ -47,7 +47,7 @@ warning[W0305]: type parameter `R` of `e` does not appear in its signature
 ────╯
    = help: a call cannot determine `R`; remove it, or use it in a parameter, the return type, `fails` or `uses`
 
-warning[W0305]: type parameter `B` of `kept` does not appear in its signature
+warning[W3002]: type parameter `B` of `kept` does not appear in its signature
     ╭─[ main.emel:12:12 ]
     │
  12 │ fn kept[A, B](x: A) -> A { x }
@@ -56,7 +56,7 @@ warning[W0305]: type parameter `B` of `kept` does not appear in its signature
 ────╯
    = help: a call cannot determine `B`; remove it, or use it in a parameter, the return type, `fails` or `uses`
 
-warning[W0305]: type parameter `A` of `describe` does not appear in its signature
+warning[W3002]: type parameter `A` of `describe` does not appear in its signature
     ╭─[ main.emel:15:15 ]
     │
  15 │   fn describe[A](self) -> String
@@ -65,7 +65,7 @@ warning[W0305]: type parameter `A` of `describe` does not appear in its signatur
 ────╯
    = help: a call cannot determine `A`; remove it, or use it in a parameter, the return type, `fails` or `uses`
 
-warning[W0305]: type parameter `A` of `ext` does not appear in its signature
+warning[W3002]: type parameter `A` of `ext` does not appear in its signature
     ╭─[ main.emel:25:8 ]
     │
  25 │ fn ext[A](x: Int) -> Int uses {}

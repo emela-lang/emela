@@ -2564,7 +2564,7 @@ impl<'m> Emitter<'m> {
 
     /// `verb` is `takes` or `returns`.
     fn export_type_error(&mut self, function: &str, ty: TypeId, verb: &str) {
-        // Arrays are E0443 for exported fns too (`[ext.boundary]`).
+        // Arrays are E5204 for exported fns too (`[ext.boundary]`).
         if matches!(self.core().ty(ty), Type::Array(_)) {
             let name = emela_lir::core_ty(self.core(), ty);
             self.errors.push(CError::new(
@@ -2575,7 +2575,7 @@ impl<'m> Emitter<'m> {
             ));
             return;
         }
-        // Not E0427, which is about external functions: an exported fn with a callback has no
+        // Not E5201, which is about external functions: an exported fn with a callback has no
         // code of its own yet (the form of callbacks in C is open, 18.1 #38).
         let what = if matches!(self.core().ty(ty), Type::Fn(_)) {
             format!(

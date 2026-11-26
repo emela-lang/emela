@@ -13,7 +13,7 @@ use crate::doctor::Version;
 /// The environment variable that names the JS host (`[cmd.build]`).
 pub const JS_HOST_ENV: &str = "EMELA_JS_HOST";
 /// The deprecated environment variable that named the JS host before [`JS_HOST_ENV`]. It is read
-/// after [`JS_HOST_ENV`], and reading it reports W0902 (`[cmd.build]`).
+/// after [`JS_HOST_ENV`], and reading it reports W9101 (`[cmd.build]`).
 pub const NODE_ENV: &str = "EMELA_NODE";
 
 /// The JS host chosen from the environment (`[cmd.build]`).
@@ -21,7 +21,7 @@ pub const NODE_ENV: &str = "EMELA_NODE";
 pub struct JsHost {
     /// The command that runs the JS output.
     pub program: PathBuf,
-    /// W0902 when `EMELA_NODE` was read. The caller reports it when it uses the JS host.
+    /// W9101 when `EMELA_NODE` was read. The caller reports it when it uses the JS host.
     pub warning: Option<Diagnostic>,
 }
 
@@ -149,7 +149,7 @@ pub(crate) fn probe(program: &Path) -> io::Result<Option<Probed>> {
     Ok(parse(&String::from_utf8_lossy(&out.stdout)))
 }
 
-/// E0904 when the JS host is older than the minimum of its host (`[cmd.build]`). Nothing is
+/// E9101 when the JS host is older than the minimum of its host (`[cmd.build]`). Nothing is
 /// reported when the version cannot be read: a host that does not start is reported by the run
 /// itself.
 pub(crate) fn check_version(program: &Path) -> Result<(), Diagnostic> {
@@ -160,7 +160,7 @@ pub(crate) fn check_version(program: &Path) -> Result<(), Diagnostic> {
             probed.describe(),
             probed.kind.minimum_text(),
         ))
-        .with_code(code::NODE_UNAVAILABLE)
+        .with_code(code::TOOL_UNAVAILABLE)
         .with_note(too_old_help())),
         _ => Ok(()),
     }
@@ -171,21 +171,21 @@ pub(crate) fn spawn_error(program: &Path, err: &io::Error) -> Diagnostic {
     match err.kind() {
         io::ErrorKind::TimedOut => Diagnostic::error(format!("`{}` {err}", program.display())),
         io::ErrorKind::NotFound => Diagnostic::error(format!("`{}` not found", program.display()))
-            .with_code(code::NODE_UNAVAILABLE)
+            .with_code(code::TOOL_UNAVAILABLE)
             .with_note(missing_help()),
         _ => Diagnostic::error(format!("cannot start `{}`: {err}", program.display()))
-            .with_code(code::NODE_UNAVAILABLE),
+            .with_code(code::TOOL_UNAVAILABLE),
     }
 }
 
-/// The note of E0904 when the JS host is not found.
+/// The note of E9101 when the JS host is not found.
 pub(crate) fn missing_help() -> String {
     format!(
         "install Node.js 22 or later or Bun 1.4.3 or later and add it to PATH, or set {JS_HOST_ENV} to the JS host"
     )
 }
 
-/// The note of E0904 when the JS host is too old (`[cmd.build]`).
+/// The note of E9101 when the JS host is too old (`[cmd.build]`).
 pub(crate) fn too_old_help() -> String {
     format!(
         "install Node.js 22 or later or Bun 1.4.3 or later, or set {JS_HOST_ENV} to a newer JS host"
@@ -215,7 +215,7 @@ mod tests {
     fn warned() -> Option<(String, Option<String>)> {
         Some((
             "EMELA_NODE is deprecated; use EMELA_JS_HOST".to_owned(),
-            Some("W0902".to_owned()),
+            Some("W9101".to_owned()),
         ))
     }
 
@@ -367,7 +367,7 @@ mod process_tests {
         let dir = tempfile::tempdir().unwrap();
         let node = host(dir.path(), "node 20.11.1");
         let err = check_version(&node).unwrap_err();
-        assert_eq!(err.code, Some("E0904"));
+        assert_eq!(err.code, Some("E9101"));
         assert_eq!(
             err.message,
             format!(

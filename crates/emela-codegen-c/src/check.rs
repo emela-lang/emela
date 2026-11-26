@@ -41,7 +41,7 @@ impl Found {
     }
 }
 
-/// An external function with `@external(c, ...)`: E0427 for callbacks and E0443 for Arrays,
+/// An external function with `@external(c, ...)`: E5201 for callbacks and E5204 for Arrays,
 /// whose C form is not decided yet (`[ext.boundary]`). A `suspend fn` external function completes
 /// its task later (spec 12.6).
 fn external(m: &Module, f: &Function, found: &mut Found) {

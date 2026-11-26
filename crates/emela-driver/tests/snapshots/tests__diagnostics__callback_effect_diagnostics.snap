@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-error[E0454]: effect `Greeter` cannot be in the `uses` of a callback: the host calls it without handlers
+error[E5003]: effect `Greeter` cannot be in the `uses` of a callback: the host calls it without handlers
     ╭─[ main.emel:13:16 ]
     │
  13 │ fn declared(f: fn() -> () uses { Greeter }) -> () uses {}
@@ -11,7 +11,7 @@ error[E0454]: effect `Greeter` cannot be in the `uses` of a callback: the host c
 ────╯
    = help: capture the capability of a named item (`with g = H { ... }`) and call its operations
 
-error[E0454]: effect `Greeter` cannot be used by a callback of external function `later`: the host calls it without handlers
+error[E5003]: effect `Greeter` cannot be used by a callback of external function `later`: the host calls it without handlers
     ╭─[ main.emel:17:5 ]
     │
  17 │     later(|| {
@@ -20,7 +20,7 @@ error[E0454]: effect `Greeter` cannot be used by a callback of external function
 ────╯
    = help: capture the capability of a named item (`with g = H { ... }`) and call its operations
 
-error[E0454]: capability `g` cannot be used by a callback of external function `later`: the host may call it after `g` has ended
+error[E5003]: capability `g` cannot be used by a callback of external function `later`: the host may call it after `g` has ended
     ╭─[ main.emel:23:5 ]
     │
  23 │     later(|| {

@@ -2,7 +2,7 @@
 source: crates/emela-cli/tests/cli.rs
 expression: run.stderr
 ---
-error[E0111]: expected type
+error[E1102]: expected type
    ╭─[ src/json.emel:3:10 ]
    │
  3 │ const Z: = 1
@@ -10,7 +10,7 @@ error[E0111]: expected type
    │          ╰── 
 ───╯
 
-error[E0118]: expected expression
+error[E1102]: expected expression
    ╭─[ src/main.emel:6:1 ]
    │
  6 │ }
@@ -18,7 +18,7 @@ error[E0118]: expected expression
    │ ╰── 
 ───╯
 
-error[E0110]: expected `)`
+error[E1101]: expected `)`
    ╭─[ src/main.emel:6:1 ]
    │
  6 │ }
@@ -26,7 +26,7 @@ error[E0110]: expected `)`
    │ ╰── 
 ───╯
 
-error[E0206]: import cycle: Http.Client → Json → Http.Client
+error[E2005]: import cycle: Http.Client → Json → Http.Client
    ╭─[ src/http/client.emel:1:8 ]
    │
  1 │ import Json
@@ -34,7 +34,7 @@ error[E0206]: import cycle: Http.Client → Json → Http.Client
    │          ╰─── 
 ───╯
 
-error[E0205]: undefined module `Missing`
+error[E2004]: undefined module `Missing`
    ╭─[ src/main.emel:2:8 ]
    │
  2 │ import Missing

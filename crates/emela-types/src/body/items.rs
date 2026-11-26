@@ -8,7 +8,7 @@
 //! other items of the same `with` unify with the effects the item provides when they are
 //! removed (`BodyInfer::subtract`), as for `State.run`.
 //!
-//! Where inference cannot decide, the type arguments are written (E0459):
+//! Where inference cannot decide, the type arguments are written (E4107):
 //!
 //! - an item whose type arguments are neither written nor determined by the arguments of init,
 //!   and one of whose effects unifies with an effect another item of the same `with` provides,
@@ -35,7 +35,7 @@ pub(crate) struct ItemInst {
     /// Type variables of the group, unified with what determines them. Empty for an item that
     /// does not name a handler with type parameters.
     pub(crate) args: Vec<Ty>,
-    /// The handler, for E0459.
+    /// The handler, for E4107.
     pub(crate) handler: Option<DefId>,
     pub(crate) span: Option<Span>,
     /// Whether the type arguments are written or determined by the arguments of init. Only such
@@ -45,15 +45,15 @@ pub(crate) struct ItemInst {
     pub(crate) owner: Option<DefId>,
     /// An item of a layer, which infers its type arguments only from the arguments of init.
     pub(crate) in_layer: bool,
-    /// E0459 has been reported for it.
+    /// E4107 has been reported for it.
     pub(crate) reported: bool,
 }
 
 impl BodyInfer<'_> {
     /// Instantiates the handler named by `target` at an item, and unifies its type arguments with
     /// those written (`written`). Type arguments written for anything other than a handler with
-    /// type parameters, or a wrong number of them, are E0304; the bounds of the type parameters
-    /// are checked once types are settled (E0326).
+    /// type parameters, or a wrong number of them, are E3101; the bounds of the type parameters
+    /// are checked once types are settled (E3302).
     pub(super) fn instantiate_item(
         &mut self,
         target: Res,
@@ -246,7 +246,7 @@ impl BodyInfer<'_> {
         })
     }
 
-    /// E0459 for an unbound item whose type arguments are neither written nor determined
+    /// E4107 for an unbound item whose type arguments are neither written nor determined
     /// by the arguments of init, when one of its effects unifies with an effect another unbound
     /// item of the same `with` provides (`[effect.with]`): whether one overrides the
     /// other would depend on what inference picks. The other items include the handlers of a
@@ -289,7 +289,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// E0459 for an unbound item none of whose type arguments the arguments of init
+    /// E4107 for an unbound item none of whose type arguments the arguments of init
     /// determine, when two or more effects of `candidates` (the R of the body and the
     /// requirements of the other items) fit an effect it provides (`[effect.with]`). The item
     /// does not pick one.
@@ -339,7 +339,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// E0459 for the type variables left in the type arguments of items once the group is
+    /// E4107 for the type variables left in the type arguments of items once the group is
     /// inferred and its definitions generalized (`[effect.with]`): one that appears in the type
     /// of the enclosing declaration is generalized with it (`generalized`), the others are not
     /// determined. A layer has nothing to generalize into.
@@ -383,7 +383,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// Reports E0459 for the `i`-th item of the `with` `expr`, once.
+    /// Reports E4107 for the `i`-th item of the `with` `expr`, once.
     fn report_item(&mut self, expr: ExprId, i: usize, reason: HandlerArgsReason) {
         let Some(inst) = self.item_insts.get_mut(expr).and_then(|v| v.get_mut(i)) else {
             return;
@@ -425,7 +425,7 @@ impl BodyInfer<'_> {
 /// arguments of init or the label left of `by` determine are already the types they resolve to
 /// ([`BodyInfer::freeze`]), so that whether an item overrides another compares them as types.
 /// Those left as type variables differ from every other type, and an item with them does not
-/// override another (E0459 when it could, [`BodyInfer::check_item_overrides`]); the effects
+/// override another (E4107 when it could, [`BodyInfer::check_item_overrides`]); the effects
 /// they give unify with others where effects are removed, as for `State.run`.
 #[derive(Clone, Copy)]
 pub(crate) struct ItemsInsts<'a> {
@@ -469,7 +469,7 @@ pub(crate) fn handler_with_params(
 
 /// Whether the `origin`-th item of a `with` is bound to a name: its entries provide nothing by
 /// name ([`Entry::named`]). Such an item neither overrides nor is overridden, and its type
-/// arguments are not inferred from the R of the body (`[effect.with]`), so the checks of E0459
+/// arguments are not inferred from the R of the body (`[effect.with]`), so the checks of E4107
 /// for unbound items skip it.
 fn bound_item(entries: &[Entry], origin: usize) -> bool {
     entries.iter().any(|e| e.origin == origin && !e.named)

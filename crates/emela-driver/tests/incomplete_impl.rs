@@ -87,7 +87,7 @@ fn hash_is_not_a_prelude_trait() {
         .collect();
     assert_eq!(
         found,
-        [(Some("E0211"), "cannot find trait `Hash` in this scope")]
+        [(Some("E2101"), "cannot find trait `Hash` in this scope")]
     );
 }
 

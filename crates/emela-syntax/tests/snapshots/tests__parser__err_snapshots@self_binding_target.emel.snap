@@ -83,5 +83,5 @@ ROOT@0..184
       NEWLINE@181..182 "\n"
       R_BRACE@182..183 "}"
   NEWLINE@183..184 "\n"
-error[E0125]@137..141: invalid left-hand side of binding: expected a pattern
-error[E0125]@150..158: invalid left-hand side of binding: expected a pattern
+error[E1111]@137..141: invalid left-hand side of binding: expected a pattern
+error[E1111]@150..158: invalid left-hand side of binding: expected a pattern

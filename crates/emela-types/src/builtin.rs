@@ -2,7 +2,7 @@
 //!
 //! A built-in effect is an `@intrinsic effect` of the bundled sources (`TaskGroup`, `Deferred`).
 //! Its provider is the built-in handler (`@intrinsic`) that implements it (`Task.Group`,
-//! `Deferred`), and users cannot write another (E0413).
+//! `Deferred`), and users cannot write another (E4003).
 //!
 //! Everything here is found from the declarations, not from names, so the checks follow the
 //! bundled sources.

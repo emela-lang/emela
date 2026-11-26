@@ -14,16 +14,16 @@ fn map[A, B](xs: List[A], f: fn(A) -> B) -> List[B] { ... }
 pub fn find(id: Int) -> User fails NotFound uses { Users } { ... }
 ```
 
-- In a top-level fn and a local fn (6.9), the parameter types are written (omitting them is a compile error (E0316)). In an anonymous function they can be omitted. The return type, `fails`, and `uses` can be omitted. The meaning when they are omitted is defined in 7.4 and 9.3.
-- A call determines the type parameters of a top-level fn only from the type of the fn: the parameter types, the return type, the fails clause and the uses clause, including inside function types and in the type arguments of named types. When the return type, the fails clause or the uses clause is omitted, the inferred one is used (in `fn f[A](x: Int) { none: Option[A] = None; none }` the return type is inferred as `Option[A]`, so A appears in it). A type parameter that does not appear in the type of the fn is never determined, so the compiler warns (W0305) at that type parameter in the list. A bound (`[A: Show]`) and type annotations inside the body do not count as appearing. Ordinary type parameters and set type parameters are treated alike.
+- In a top-level fn and a local fn (6.9), the parameter types are written (omitting them is a compile error (E3006)). In an anonymous function they can be omitted. The return type, `fails`, and `uses` can be omitted. The meaning when they are omitted is defined in 7.4 and 9.3.
+- A call determines the type parameters of a top-level fn only from the type of the fn: the parameter types, the return type, the fails clause and the uses clause, including inside function types and in the type arguments of named types. When the return type, the fails clause or the uses clause is omitted, the inferred one is used (in `fn f[A](x: Int) { none: Option[A] = None; none }` the return type is inferred as `Option[A]`, so A appears in it). A type parameter that does not appear in the type of the fn is never determined, so the compiler warns (W3002) at that type parameter in the list. A bound (`[A: Show]`) and type annotations inside the body do not count as appearing. Ordinary type parameters and set type parameters are treated alike.
 - The body is a block, and the value of the last expression is the return value. There is no `return`.
 - An anonymous function is written `|x| x + 1`. The parameters are written between `|` and `|`, separated by `,` (`|acc, x| acc + x`). An anonymous function without parameters is written with the token `||` (`|| fetch(1)`). Parameter types can be omitted. There is no annotation of the return type.
 - The body is one expression and extends as far to the right as possible: it includes `|>`, binary operators, and postfix `match` and `escape`. It ends where an expression ends: at a `,` or a closing bracket, at the end of a statement, and at the end of an arm. A body of several statements is a block, `|x| { ... }`. A `{` after the parameter list always starts a block, because records and constructors are written with parentheses (5.1).
 - Since the body takes everything to its right, an anonymous function that is called, piped, or used as the left operand of an operator is enclosed in parentheses (`(|x| x + 1)(2)`).
-- `fn` is written only in declarations, local fns (6.9) and function types. `fn(...)` in an expression is a compile error (E0148).
+- `fn` is written only in declarations, local fns (6.9) and function types. `fn(...)` in an expression is a compile error (E1405).
 - A parameter of an anonymous function can be a pattern instead of a name (`|(key, value)| ...`, `|acc, _| acc`, `|Request(url:, ..)| url`). A type, when written, comes after the pattern (`|(a, b): (Int, Int)| a + b`).
-  - A parameter pattern is limited, as for bindings, to patterns that always match (6.3, E0317).
-  - `|p| body` means the same as `|t| { p = t; body }`. Parameters are matched from left to right. Binding the same name in two parameters is a compile error (E0220).
+  - A parameter pattern is limited, as for bindings, to patterns that always match (6.3, E3108).
+  - `|p| body` means the same as `|t| { p = t; body }`. Parameters are matched from left to right. Binding the same name in two parameters is a compile error (E2109).
   - Inside the parameter list, a `|` at bracket depth zero closes the list. A parameter type whose error set has two or more items is enclosed in parentheses (`|f: (fn() -> Int fails Timeout | Refused)| f()`).
   - The parameters of top-level fns, local fns, fns in impls and handlers, and operations of traits and effects are limited to names. This is because a parameter name also serves as the label of a named argument (6.2) and as the link to the declaration. Values of anonymous functions have no parameter names and are called by position only (6.2), so making a parameter a pattern loses nothing.
 
@@ -45,8 +45,8 @@ connect(host: "localhost", port: 5432)
 - When the variable name and the argument name are the same, it can be shortened to `NotFound(id:)`. The same holds in patterns: `User(name:)` binds `name`.
 - Constructors with named fields follow the same rule, so both `Circle(1.0)` and `Circle(radius: 1.0)` can be written.
 - Parameter names are part of the public API, and renaming one is a breaking change.
-- Named arguments can be used only when calling an fn (a top-level fn or a local fn) or a constructor referred to by name, and when calling an operation on a capability value (`log.info(msg: "hi")`, where the argument names are the parameter names in the declaration of the effect operation). Function values such as local variables and lambdas have no parameter names (the function type `fn(A) -> B` has no names), so they can be called with positional arguments only (E0306).
-- A wrong number of arguments is E0305, a label with no matching parameter is E0306, and passing to the same parameter twice is E0307. A call that has a label error (E0306, E0307) does not also get an error for the number of arguments.
+- Named arguments can be used only when calling an fn (a top-level fn or a local fn) or a constructor referred to by name, and when calling an operation on a capability value (`log.info(msg: "hi")`, where the argument names are the parameter names in the declaration of the effect operation). Function values such as local variables and lambdas have no parameter names (the function type `fn(A) -> B` has no names), so they can be called with positional arguments only (E3103).
+- A wrong number of arguments is E3101, a label with no matching parameter is E3103, and passing to the same parameter twice is E3104. A call that has a label error (E3103, E3104) does not also get an error for the number of arguments.
 
 ## 6.3 Blocks and bindings `[fn.block]`
 
@@ -63,7 +63,7 @@ pairs: List[(String, Int)] = List.zip(names, scores)
 - The value of a block `{ ... }` is the value of its last expression.
 - Bindings inside a block are not generalized, and neither are local fns. Only top-level functions and consts are polymorphic.
 - A binding of an anonymous function (`f = |x| x + 1`) is not generalized, is called with positional arguments only (6.2), and cannot refer to itself, because the name is visible only after the binding.
-- An anonymous function written as a statement that is not the last statement of its block is a compile error (E0149). Its value is always discarded, so it is never useful. A line that starts with `||` starts such an anonymous function (2.5), so the rule also keeps `x = a⏎|| b`, which once bound `a || b`, from binding `a` and dropping `|| b`.
+- An anonymous function written as a statement that is not the last statement of its block is a compile error (E1112). Its value is always discarded, so it is never useful. A line that starts with `||` starts such an anonymous function (2.5), so the rule also keeps `x = a⏎|| b`, which once bound `a || b`, from binding `a` and dropping `|| b`.
 
 ## 6.4 if `[fn.if]`
 
@@ -104,12 +104,12 @@ load(id) match {
 }
 ```
 
-- In a pattern, `-` can be written before a numeric literal (`-1`, `-0x10`, `-1.5`). The expression `-1` is unary minus applied to a literal, so this rule applies only to patterns. Whitespace MAY be placed between `-` and the number (fmt removes it). It can also be written on the left-hand side of a binding, but it is refutable, so it is E0317. When what follows `-` is not a numeric literal (`-x`), it is not a pattern: in the pattern of an arm it is E0113, and on the left-hand side of a binding (`--1`, `-x`) it is E0125. The range check treats `-` and the number as one value (the minimum Int value `-2147483648` can be written). `-0.0` matches with `==`, so it matches the same values as `0.0`. There are no range patterns (`1..10`) (exhaustiveness checking would have to handle intervals of numbers; use a guard instead).
-- The prefix form (`match expr { arms }`) cannot be written. Writing it is a compile error (E0142) with help that suggests the postfix form. The diagnostic points at `match`. The same holds in an operand position of an operator (`1 + match x { ... }`). The implementation recovers by reading it in the prefix form and continues type checking.
+- In a pattern, `-` can be written before a numeric literal (`-1`, `-0x10`, `-1.5`). The expression `-1` is unary minus applied to a literal, so this rule applies only to patterns. Whitespace MAY be placed between `-` and the number (fmt removes it). It can also be written on the left-hand side of a binding, but it is refutable, so it is E3108. When what follows `-` is not a numeric literal (`-x`), it is not a pattern: in the pattern of an arm it is E1102, and on the left-hand side of a binding (`--1`, `-x`) it is E1111. The range check treats `-` and the number as one value (the minimum Int value `-2147483648` can be written). `-0.0` matches with `==`, so it matches the same values as `0.0`. There are no range patterns (`1..10`) (exhaustiveness checking would have to handle intervals of numbers; use a guard instead).
+- The prefix form (`match expr { arms }`) cannot be written. Writing it is a compile error (E1401) with help that suggests the postfix form. The diagnostic points at `match`. The same holds in an operand position of an operator (`1 + match x { ... }`). The implementation recovers by reading it in the prefix form and continues type checking.
 - Arms are tried from top to bottom. A match that does not cover all cases is a compile error.
-- A match with no arms is not exhaustive for a value of any type, including `Never` (E0303).
+- A match with no arms is not exhaustive for a value of any type, including `Never` (E3102).
 - Arms with a guard (`if condition`) are not counted when judging exhaustiveness. An arm with a guard also does not cover the arms below it when judging whether those arms are redundant.
-- An arm fully covered by the arms above it is warned about as redundant (W0301).
+- An arm fully covered by the arms above it is warned about as redundant (W3101).
 - When a match is not exhaustive, examples of missing patterns are shown (`Rect(_, _)`, `[_, ..]`, `Some(None)`). The examples take the following form.
   - At a position with no constructor patterns, the constructors are not listed and only `_` is shown. At a position with constructor patterns, all missing constructors are listed.
   - The missing values at a position with only literals are shown as `_` (values other than the literals that appear).
@@ -118,7 +118,7 @@ load(id) match {
   - `[_, ..]` is a form that cannot be written in the grammar (17.6) (the rest needs a name), but it is shown as it is to describe the missing values.
   - Outside the defining module, constructor patterns of an opaque type cannot be written, so the example is `_` and the hidden constructors are not shown.
   - The examples are cut off at 64.
-- An arm with a guard is also warned about as redundant (W0301) if it is covered by arms without guards above it.
+- An arm with a guard is also warned about as redundant (W3101) if it is covered by arms without guards above it.
 
 | Pattern | Form | Meaning |
 |---|---|---|
@@ -131,9 +131,9 @@ load(id) match {
 | Tuple | `(a, b)` | Matches element by element |
 | List | `[]` `[x, ..rest]` `[x, ..]` | The empty list, the head and the rest, the head and the rest (not bound) |
 
-- In a pattern for a constructor with named fields, omitting fields without writing `..` is a compile error (E0308, which lists the omitted fields). Writing more than the number of fields, or writing too few in a positional-only constructor without `..`, is E0309. Patterns for constructors with named fields MAY also be written by position.
-- Interpolation cannot be written in a string in a pattern (E0117). An interpolation is not a constant, so it cannot be used for matching.
-- A const pattern is matched with `==` but does not require Eq (it is not E0326).
+- In a pattern for a constructor with named fields, omitting fields without writing `..` is a compile error (E3105, which lists the omitted fields). Writing more than the number of fields, or writing too few in a positional-only constructor without `..`, is E3101. Patterns for constructors with named fields MAY also be written by position.
+- Interpolation cannot be written in a string in a pattern (E1105). An interpolation is not a constant, so it cannot be used for matching.
+- A const pattern is matched with `==` but does not require Eq (it is not E3302).
 - In a list pattern, the forms with only the rest (`[..]`, `[..rest]`) cannot be written. They mean the same as `_` and `rest`, so they are not needed.
 - The arms of escape (7.3) MAY handle only some of the errors, so exhaustiveness is not required. Only redundant arms are warned about.
 
@@ -153,7 +153,7 @@ The precedence is as follows. Operators higher in the table bind more tightly.
 | 8 | Pipe | `\|>` | Left associative |
 | 9 | escape and match | `expr escape { ... }` `expr match { ... }` | Left associative |
 
-- Arithmetic operators can be used only on Int, Int64, and Float (otherwise E0310). Both sides MUST have the same type, and there is no implicit conversion.
+- Arithmetic operators can be used only on Int, Int64, and Float (otherwise E3003). Both sides MUST have the same type, and there is no implicit conversion.
 - If the type of an operand of an arithmetic operator or unary minus is still undetermined after inference of the definition finishes, it is Int. There are no type parameters that abstract over numeric types.
 - There are no bitwise operators. They are written with core functions (`Int.bit_and`, `Int.bit_or`, `Int.bit_xor`, `Int.bit_not`, `Int.shift_left`, `Int.shift_right` (sign-preserving), and `Int.shift_right_unsigned`; Int64 has the same ones). They can be written with a pipe, as in `flags |> Int.bit_and(MASK)`.
 - The shift amount of the shift functions is Int, even in the Int64 versions. A negative shift amount is a defect. A shift amount at least the width of the type (32 or 64) shifts out all bits: `shift_left` and `shift_right_unsigned` give 0, and `shift_right` gives 0 or -1 depending on the sign (the amount is not taken modulo the width). The result of `shift_right_unsigned` is read as a signed value (`Int.shift_right_unsigned(-1, 0)` is -1).
@@ -204,8 +204,8 @@ pub fn range(from: Int, to: Int) -> List[Int] {
 ```
 
 - A block can contain a local fn, a statement written `fn name(params) [signature] block`. Its parameters, return type, `fails` and `uses` follow the rules of a top-level fn.
-- A local fn cannot have type parameters, attributes, `pub` or `suspend` (E0150).
-- A local fn cannot be the last statement of its block (E0151). Nothing after it can call it.
+- A local fn cannot have type parameters (E1213), attributes, `pub` or `suspend` (E1212).
+- A local fn cannot be the last statement of its block (E1214). Nothing after it can call it.
 - A doc comment (`##`) can be written before a local fn (2.2). The language server shows it on hover. Generated documentation does not include it.
 - The declaration binds the name as a value. The name is visible from the declaration to the end of the block, and inside the local fn's own body. It is not visible before the declaration, so local fns cannot be mutually recursive.
 - The body can refer to every variable visible at the declaration (it captures them, as an anonymous function does). A captured variable keeps the value it had at the declaration.

@@ -2,7 +2,7 @@
 source: crates/emela-cli/tests/cli.rs
 expression: run.stderr
 ---
-error[E0318]: unhandled error `NotFound`
+error[E3201]: unhandled error `NotFound`
    ╭─[ src/main.emel:9:3 ]
    │
  9 │   find(1)
@@ -11,7 +11,7 @@ error[E0318]: unhandled error `NotFound`
 ───╯
    = help: handle it with `escape`, or declare it with `fails`
 
-error[E0318]: error `NotFound` is not declared in `fails`
+error[E3201]: error `NotFound` is not declared in `fails`
     ╭─[ src/main.emel:13:3 ]
     │
  13 │   find(1)
@@ -20,7 +20,7 @@ error[E0318]: error `NotFound` is not declared in `fails`
 ────╯
    = help: add it to `fails` or handle it with `escape`
 
-error[E0321]: error set mismatch: expected `fails {}`, found `fails Timeout`
+error[E3201]: error set mismatch: expected `fails {}`, found `fails Timeout`
     ╭─[ src/main.emel:18:23 ]
     │
  18 │ fn bad() -> Int { run(|| fail Timeout) }
@@ -28,7 +28,7 @@ error[E0321]: error set mismatch: expected `fails {}`, found `fails Timeout`
     │                              ╰───────── 
 ────╯
 
-warning[W0302]: error `Timeout` is never raised here
+warning[W3201]: error `Timeout` is never raised here
     ╭─[ src/main.emel:20:39 ]
     │
  20 │ fn never() -> Int { strict() escape { Timeout -> 0 } }
@@ -36,7 +36,7 @@ warning[W0302]: error `Timeout` is never raised here
     │                                          ╰───── 
 ────╯
 
-error[E0319]: expected an error value, found `Int`
+error[E3202]: expected an error value, found `Int`
     ╭─[ src/main.emel:22:23 ]
     │
  22 │ fn not_error() { fail 1 }
@@ -44,7 +44,7 @@ error[E0319]: expected an error value, found `Int`
     │                       ╰── 
 ────╯
 
-error[E0320]: escape arms must match an error constructor or `_`
+error[E3203]: escape arms must match an error constructor or `_`
     ╭─[ src/main.emel:24:47 ]
     │
  24 │ fn catch_variable() -> Int { find(1) escape { e -> 0 } }
@@ -52,7 +52,7 @@ error[E0320]: escape arms must match an error constructor or `_`
     │                                               ╰── 
 ────╯
 
-warning[W0304]: the value of type `Int` returned by `main` is discarded
+warning[W3001]: the value of type `Int` returned by `main` is discarded
     ╭─[ src/main.emel:27:4 ]
     │
  27 │ fn main() {

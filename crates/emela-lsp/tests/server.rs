@@ -663,7 +663,7 @@ fn lex_error_appears_and_clears() {
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/app/src/main.emel"));
     assert_eq!(published.version, Some(1));
-    assert_eq!(codes(&published), ["E0107"]);
+    assert_eq!(codes(&published), ["E1007"]);
     let diagnostic = &published.diagnostics[0];
     assert_eq!(diagnostic.range, range((1, 11), (1, 13)));
     assert_eq!(diagnostic.severity, Some(lsp::DiagnosticSeverity::ERROR));
@@ -690,7 +690,7 @@ fn columns_are_utf16() {
         "# 日本\nconst S = \"あ😀\\q日本\\q\"\n",
     );
     let published = client.diagnostics();
-    assert_eq!(codes(&published), ["E0107", "E0107"]);
+    assert_eq!(codes(&published), ["E1007", "E1007"]);
     assert_eq!(published.diagnostics[0].range, range((1, 14), (1, 16)));
     assert_eq!(published.diagnostics[1].range, range((1, 18), (1, 20)));
     client.shutdown();
@@ -712,7 +712,7 @@ fn import_errors_go_to_the_importing_file() {
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/app/src/main.emel"));
     assert_eq!(published.version, None);
-    assert_eq!(codes(&published), ["E0205"]);
+    assert_eq!(codes(&published), ["E2004"]);
     assert_eq!(published.diagnostics[0].range, range((1, 7), (1, 18)));
     assert_eq!(
         published.diagnostics[0].message,
@@ -728,10 +728,10 @@ fn import_errors_go_to_the_importing_file() {
     );
     let published = client.diagnostics_n(2);
     assert_eq!(published[0].uri, uri("/app/src/main.emel"));
-    assert_eq!(codes(&published[0]), ["E0205"]);
+    assert_eq!(codes(&published[0]), ["E2004"]);
     assert_eq!(published[1].uri, uri("/app/src/util.emel"));
     assert_eq!(published[1].version, Some(1));
-    assert_eq!(codes(&published[1]), ["E0205"]);
+    assert_eq!(codes(&published[1]), ["E2004"]);
     assert_eq!(published[1].diagnostics[0].range, range((1, 7), (1, 11)));
 
     // A file not yet on disk becomes a module once opened.
@@ -741,7 +741,7 @@ fn import_errors_go_to_the_importing_file() {
     assert_eq!(published[0].uri, uri("/app/src/main.emel"));
     assert!(published[0].diagnostics.is_empty());
     assert_eq!(published[1].uri, uri("/app/src/util.emel"));
-    assert_eq!(codes(&published[1]), ["E0205"]);
+    assert_eq!(codes(&published[1]), ["E2004"]);
     client.shutdown();
 }
 
@@ -757,7 +757,7 @@ fn reports_dependencies_that_cannot_be_used() {
     let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/app/Pome.toml"));
-    assert_eq!(codes(&published), ["E0236"]);
+    assert_eq!(codes(&published), ["E2306"]);
     assert!(
         published.diagnostics[0]
             .message
@@ -780,7 +780,7 @@ fn reports_a_license_that_is_not_an_spdx_expression() {
     let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/app/Pome.toml"));
-    assert_eq!(codes(&published), ["W0205"]);
+    assert_eq!(codes(&published), ["W2303"]);
     let diagnostic = &published.diagnostics[0];
     assert_eq!(diagnostic.range, range((4, 10), (4, 22)));
     assert_eq!(diagnostic.severity, Some(lsp::DiagnosticSeverity::WARNING));
@@ -788,7 +788,7 @@ fn reports_a_license_that_is_not_an_spdx_expression() {
 }
 
 /// `[lsp.project]`, `[pome.manifest]`: the server reads `[experimental]` of the project as the
-/// commands do, so an unknown name is W0206 at the key in `Pome.toml`.
+/// commands do, so an unknown name is W2304 at the key in `Pome.toml`.
 #[test]
 fn reports_an_unknown_experimental_feature() {
     let manifest = "[pome]\nname = \"github.com/me/app\"\nversion = \"0.1.0\"\nemela = \"0.29.0\"\n\n[experimental]\nfrom-the-future = true\n";
@@ -799,7 +799,7 @@ fn reports_an_unknown_experimental_feature() {
     let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/app/Pome.toml"));
-    assert_eq!(codes(&published), ["W0206"]);
+    assert_eq!(codes(&published), ["W2304"]);
     let diagnostic = &published.diagnostics[0];
     assert_eq!(diagnostic.range, range((6, 0), (6, 15)));
     assert_eq!(diagnostic.severity, Some(lsp::DiagnosticSeverity::WARNING));
@@ -814,7 +814,7 @@ fn close_reverts_to_disk() {
     ];
     let client = Client::initialize(&files, Some("/app"), ParseOnly::new);
     let published = client.diagnostics();
-    assert_eq!(codes(&published), ["E0107"]);
+    assert_eq!(codes(&published), ["E1007"]);
     assert_eq!(published.version, None);
 
     client.open("/app/src/main.emel", 1, "const X = 1\n");
@@ -828,7 +828,7 @@ fn close_reverts_to_disk() {
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/app/src/main.emel"));
     assert_eq!(published.version, None);
-    assert_eq!(codes(&published), ["E0107"]);
+    assert_eq!(codes(&published), ["E1007"]);
     client.shutdown();
 }
 
@@ -847,7 +847,7 @@ fn uri_spelling_changes_clear_first() {
         published.uri.as_str(),
         "file:///w/proj%20%281%29/src/main.emel"
     );
-    assert_eq!(codes(&published), ["E0107"]);
+    assert_eq!(codes(&published), ["E1007"]);
 
     client.open(main, 1, "const X = \"\\q\"\n");
     let cleared = client.diagnostics();
@@ -858,7 +858,7 @@ fn uri_spelling_changes_clear_first() {
     assert!(cleared.diagnostics.is_empty());
     let published = client.diagnostics();
     assert_eq!(published.uri, uri(main));
-    assert_eq!(codes(&published), ["E0107"]);
+    assert_eq!(codes(&published), ["E1007"]);
 
     client.close(main);
     let cleared = client.diagnostics();
@@ -869,7 +869,7 @@ fn uri_spelling_changes_clear_first() {
         published.uri.as_str(),
         "file:///w/proj%20%281%29/src/main.emel"
     );
-    assert_eq!(codes(&published), ["E0107"]);
+    assert_eq!(codes(&published), ["E1007"]);
     client.shutdown();
 }
 
@@ -878,7 +878,7 @@ fn closing_a_single_file_clears_it() {
     let files = [("/tmp/x/main.emel", "")];
     let client = Client::initialize(&files, None, ParseOnly::new);
     client.open("/tmp/x/main.emel", 1, "const X = \"\\q\"\n");
-    assert_eq!(codes(&client.diagnostics()), ["E0107"]);
+    assert_eq!(codes(&client.diagnostics()), ["E1007"]);
     client.close("/tmp/x/main.emel");
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/tmp/x/main.emel"));
@@ -899,11 +899,11 @@ fn watched_file_changes_recheck_the_project() {
     ]);
     // The disk is changed only after a publish, so the server has read it before the change.
     let client = Client::initialize_on(disk.clone(), Some("/app"), json!({}), ParseOnly::new);
-    assert_eq!(codes(&client.diagnostics()), ["E0107"]);
+    assert_eq!(codes(&client.diagnostics()), ["E1007"]);
 
     // The open buffer wins over the disk, so this change on disk publishes nothing.
     client.open("/app/src/main.emel", 1, "const X = 1\n");
-    assert_eq!(codes(&client.diagnostics()), ["E0107"]);
+    assert_eq!(codes(&client.diagnostics()), ["E1007"]);
     disk.write("/app/src/main.emel", "const X = \"\\q\"\n");
     client.watched(&[("/app/src/main.emel", Change::CHANGED)]);
 
@@ -915,9 +915,9 @@ fn watched_file_changes_recheck_the_project() {
     client.watched(&[("/app/Pome.toml", Change::CHANGED)]);
     let published = client.diagnostics_n(2);
     assert_eq!(published[0].uri, uri("/app/Pome.toml"));
-    assert_eq!(codes(&published[0]), ["E0236"]);
+    assert_eq!(codes(&published[0]), ["E2306"]);
     assert_eq!(published[1].uri, uri("/app/src/util.emel"));
-    assert_eq!(codes(&published[1]), ["E0107"]);
+    assert_eq!(codes(&published[1]), ["E1007"]);
 
     disk.write("/app/Pome.toml", "");
     disk.delete("/app/src/util.emel");
@@ -936,7 +936,7 @@ fn watched_file_changes_recheck_the_project() {
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/app/src/new.emel"));
     assert_eq!(published.version, None);
-    assert_eq!(codes(&published), ["E0107"]);
+    assert_eq!(codes(&published), ["E1007"]);
 
     // A file that cannot change a check is ignored.
     client.watched(&[("/app/README.md", Change::CHANGED)]);
@@ -954,7 +954,7 @@ fn watched_file_changes_recheck_single_file_imports() {
     client.open("/tmp/x/main.emel", 1, "import Util\n");
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/tmp/x/util.emel"));
-    assert_eq!(codes(&published), ["E0107"]);
+    assert_eq!(codes(&published), ["E1007"]);
 
     disk.write("/tmp/x/util.emel", "const U = 1\n");
     client.watched(&[("/tmp/x/util.emel", lsp::FileChangeType::CHANGED)]);
@@ -1003,7 +1003,7 @@ fn registers_file_watchers_when_the_client_can() {
         ]
     );
     client.send(lsp_server::Response::new_ok(request.id, serde_json::Value::Null).into());
-    assert_eq!(codes(&client.diagnostics()), ["E0107"]);
+    assert_eq!(codes(&client.diagnostics()), ["E1007"]);
     client.shutdown();
 }
 
@@ -1020,7 +1020,7 @@ fn consecutive_changes_publish_only_the_latest() {
     assert!(matches!(client.recv(), Message::Response(_)));
     let published = client.diagnostics();
     assert_eq!(published.version, Some(3));
-    assert_eq!(codes(&published), ["E0101"]);
+    assert_eq!(codes(&published), ["E1001"]);
     assert_eq!(published.diagnostics[0].range, range((1, 10), (1, 11)));
     // Diagnostics for the old version never arrive (the shutdown response comes next).
     client.shutdown_with_nothing_published();
@@ -1037,7 +1037,7 @@ fn file_outside_the_source_root() {
     client.open("/app/scripts/x.emel", 1, "const Y = 1\n");
     let published = client.diagnostics();
     assert_eq!(published.uri, uri("/app/scripts/x.emel"));
-    assert_eq!(codes(&published), ["E0208"]);
+    assert_eq!(codes(&published), ["E2006"]);
     assert_eq!(published.diagnostics[0].range, range((0, 0), (0, 0)));
     assert!(
         published.diagnostics[0]
@@ -2750,7 +2750,7 @@ fn quickfixes_link_only_the_diagnostic_at_the_requested_range() {
     let published = client.diagnostics();
     assert_eq!(
         codes(&published),
-        ["E0211", "E0211", "W0202", "E0303", "E0325"]
+        ["E2101", "E2101", "W2102", "E3102", "E3301"]
     );
     let capabilities = emela_lsp::capabilities();
     let Some(lsp::CodeActionProviderCapability::Options(options)) =
@@ -2766,10 +2766,10 @@ fn quickfixes_link_only_the_diagnostic_at_the_requested_range() {
     );
 
     for (at, code, inserted) in [
-        ((1, 28), "E0303", "Blue -> todo()"),
-        ((2, 30), "E0211", "count"),
-        ((3, 31), "E0211", "total"),
-        ((5, 1), "E0325", "fn show(self) { todo() }"),
+        ((1, 28), "E3102", "Blue -> todo()"),
+        ((2, 30), "E2101", "count"),
+        ((3, 31), "E2101", "total"),
+        ((5, 1), "E3301", "fn show(self) { todo() }"),
     ] {
         let actions = client.quickfixes(MAIN, at, at);
         assert_eq!(actions.len(), 1, "at {at:?}: {actions:?}");
@@ -2800,7 +2800,7 @@ fn impl_stubs_are_quickfixes_linked_to_published_diagnostics() {
     let files = [("/app/Pome.toml", ""), (MAIN, main)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let published = client.diagnostics();
-    assert_eq!(codes(&published), ["E0325", "E0325"]);
+    assert_eq!(codes(&published), ["E3301", "E3301"]);
     assert_eq!(published.diagnostics[0].range, range((6, 0), (6, 16)));
     assert_eq!(published.diagnostics[1].range, range((9, 0), (9, 15)));
     let id = client.request(
@@ -2886,11 +2886,11 @@ fn quickfixes_insert_imports_and_extend_effect_and_error_annotations() {
     ];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let published = client.diagnostics();
-    assert_eq!(codes(&published), ["E0211", "E0318", "E0402"]);
+    assert_eq!(codes(&published), ["E2101", "E3201", "E4301"]);
     for (at, code, inserted) in [
-        ((2, 16), "E0211", "import Io\n"),
-        ((3, 27), "E0318", " fails Missing"),
-        ((6, 4), "E0402", "uses { Log }"),
+        ((2, 16), "E2101", "import Io\n"),
+        ((3, 27), "E3201", " fails Missing"),
+        ((6, 4), "E4301", "uses { Log }"),
     ] {
         let actions = client.quickfixes(MAIN, at, at);
         assert_eq!(actions.len(), 1, "at {at:?}: {actions:?}");
@@ -3074,7 +3074,7 @@ fn broken( {
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     // Syntax, name and type errors.
     let published = codes(&client.diagnostics());
-    for code in ["E0110", "E0211", "E0301"] {
+    for code in ["E1101", "E2101", "E3001"] {
         assert!(published.iter().any(|c| c == code), "{published:?}");
     }
     assert_eq!(
@@ -3737,14 +3737,14 @@ fn docs_coexist_with_highlights_and_completion_based_quickfixes() {
     client.shutdown();
 }
 
-/// The old impl and handler heads come with quick fixes that rewrite them (E0144, E0145).
+/// The old impl and handler heads come with quick fixes that rewrite them (E1402, E1403).
 #[test]
 fn old_forms_have_rewriting_quickfixes() {
     let main = "trait Label { fn label(self) -> String }\nimpl Label for Int {\n  fn label(self) { \"n\" }\n}\neffect Log { fn log() -> () }\nhandler Quiet implements Log {\n  fn log() { () }\n}\n";
     let files = [("/app/Pome.toml", ""), (MAIN, main)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let published = client.diagnostics();
-    assert_eq!(codes(&published), ["E0144", "E0145"]);
+    assert_eq!(codes(&published), ["E1402", "E1403"]);
     for ((line, character), expected) in [((1, 0), "impl Int: Label"), ((5, 14), ":")] {
         let actions = client.quickfixes(MAIN, (line, character), (line, character));
         assert_eq!(actions.len(), 1, "at {line}:{character}");
@@ -3754,7 +3754,7 @@ fn old_forms_have_rewriting_quickfixes() {
     client.shutdown();
 }
 
-/// The old form of an anonymous function comes with a quick fix that rewrites it (E0148,
+/// The old form of an anonymous function comes with a quick fix that rewrites it (E1405,
 /// `[fn.decl]`), and the inlay hint of a parameter type stays on the new form (`|x: Int|`).
 #[test]
 fn old_lambda_has_a_rewriting_quickfix() {
@@ -3762,7 +3762,7 @@ fn old_lambda_has_a_rewriting_quickfix() {
     let files = [("/app/Pome.toml", ""), (MAIN, main)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let published = client.diagnostics();
-    assert_eq!(codes(&published), ["E0148"]);
+    assert_eq!(codes(&published), ["E1405"]);
     let actions = client.quickfixes(MAIN, (1, 15), (1, 15));
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].title, "Rewrite as `|x| ...`");

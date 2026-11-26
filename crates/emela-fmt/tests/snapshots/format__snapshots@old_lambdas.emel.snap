@@ -3,7 +3,7 @@ source: crates/emela-fmt/tests/format.rs
 expression: "check(&name, &src, 100)"
 input_file: crates/emela-fmt/test_data/old_lambdas.emel
 ---
-# 前の形 fn(params) { body } は書き換える（E0148）
+# 前の形 fn(params) { body } は書き換える（E1405）
 fn old(xs: List[Int]) {
   ys = xs |> List.map(|x| x + 1)
   thunk = || fetch(1)

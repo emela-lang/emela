@@ -4,7 +4,7 @@ expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/closures.emel
 ---
 ROOT@0..719
-  COMMENT@0..117 "# fn(...) は式に書けない（E0148）．ブロックの最後でない文の無名関数は E0149（6.1，6.3）"
+  COMMENT@0..117 "# fn(...) は式に書けない（E1405）．ブロックの最後でない文の無名関数は E1112（6.1，6.3）"
   NEWLINE@117..118 "\n"
   FN_DECL@118..196
     FN_KW@118..120 "fn"
@@ -379,17 +379,17 @@ ROOT@0..719
       NEWLINE@716..717 "\n"
       R_BRACE@717..718 "}"
   NEWLINE@718..719 "\n"
-error[E0148]@162..167: anonymous functions are written `|x| body`
+error[E1405]@162..167: anonymous functions are written `|x| body`
   = help: write `|x| x + 1`
-error[E0148]@181..185: anonymous functions are written `|x| body`
+error[E1405]@181..185: anonymous functions are written `|x| body`
   = help: write `(|| 1)`
-error[E0149]@214..218: this anonymous function is never used
+error[E1112]@214..218: this anonymous function is never used
   = help: a line that starts with `||` starts an anonymous function; to continue the previous line with `||`, enclose the expression in parentheses
-error[E0149]@221..226: this anonymous function is never used
-error[E0149]@293..297: this anonymous function is never used
+error[E1112]@221..226: this anonymous function is never used
+error[E1112]@293..297: this anonymous function is never used
   = help: a line that starts with `||` starts an anonymous function; to continue the previous line with `||`, enclose the expression in parentheses
-error[E0149]@334..338: this anonymous function is never used
-error[E0118]@441..442: expected expression
-error[E0110]@546..548: expected `|`
-error[E0122]@549..550: expected newline or `}` after statement
-error[E0122]@707..708: expected newline or `}` after statement
+error[E1112]@334..338: this anonymous function is never used
+error[E1102]@441..442: expected expression
+error[E1101]@546..548: expected `|`
+error[E1109]@549..550: expected newline or `}` after statement
+error[E1109]@707..708: expected newline or `}` after statement

@@ -90,12 +90,12 @@ impl FmtReport {
 /// Decides the `.emel` files to format from the given paths. The diagnostics are for paths that
 /// could not be resolved.
 ///
-/// - Files follow the same rules as [`Input::resolve`] (E0208 outside the project's source
+/// - Files follow the same rules as [`Input::resolve`] (E2006 outside the project's source
 ///   root; a single file without `Pome.toml`). A single file formats only itself and does not
 ///   follow imports.
-/// - Directories need `Pome.toml` (E0207). The project directory means everything under the
+/// - Directories need `Pome.toml` (E2301). The project directory means everything under the
 ///   source root, and a directory inside the source root means everything under it. Elsewhere is
-///   E0208.
+///   E2006.
 pub fn fmt_targets(fs: &dyn FileSystem, paths: &[PathBuf]) -> (Vec<FmtTarget>, Vec<FmtFailure>) {
     let mut targets = BTreeSet::new();
     let mut failures = Vec::new();
@@ -324,7 +324,7 @@ mod tests {
         assert!(found.is_empty());
         assert_eq!(errors.len(), 2);
         assert!(
-            errors.iter().all(|e| e.starts_with("E0208: ")),
+            errors.iter().all(|e| e.starts_with("E2006: ")),
             "{errors:?}"
         );
     }
@@ -340,8 +340,8 @@ mod tests {
         let (found, errors) = targets(&files, &["/tmp/a", "/nowhere"]);
         assert!(found.is_empty());
         assert_eq!(errors.len(), 2);
-        assert!(errors[0].starts_with("E0207: "), "{errors:?}");
-        assert!(errors[1].starts_with("E0901: "), "{errors:?}");
+        assert!(errors[0].starts_with("E2301: "), "{errors:?}");
+        assert!(errors[1].starts_with("E9001: "), "{errors:?}");
     }
 
     #[test]
@@ -372,7 +372,7 @@ mod tests {
         );
         assert!(report.has_errors());
         let rendered = report.render(false);
-        assert!(rendered.starts_with("error[E0"), "{rendered}");
+        assert!(rendered.starts_with("error[E1"), "{rendered}");
         assert!(rendered.contains("src/b.emel"), "{rendered}");
         assert!(
             rendered.ends_with(" error\n") || rendered.ends_with(" errors\n"),
@@ -392,7 +392,7 @@ mod tests {
         assert!(report.changed.is_empty());
         assert_eq!(
             report.render(false),
-            "error[E0903]: cannot write file: read-only\n   ─[ src/a.emel ]\n\n1 error\n"
+            "error[E9003]: cannot write file: read-only\n   ─[ src/a.emel ]\n\n1 error\n"
         );
     }
 
@@ -404,6 +404,6 @@ mod tests {
             Some(CLEAN.to_owned())
         );
         let failure = format_source(Path::new(STDIN_DISPLAY), "const X = $\n").unwrap_err();
-        assert_eq!(failure.diagnostics[0].code, Some("E0105"));
+        assert_eq!(failure.diagnostics[0].code, Some("E1005"));
     }
 }

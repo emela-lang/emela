@@ -17,7 +17,7 @@ fi
 tree-sitter test
 
 # The compiler's error cases, the statement-level lexer inputs, and the formatter's input in the
-# old form of anonymous functions (E0148) are not whole files that it accepts.
+# old form of anonymous functions (E1405) are not whole files that it accepts.
 list=$(mktemp)
 trap 'rm -f "$list"' EXIT
 find "$root/examples" "$root/crates" "$root/tests" -name '*.emel' \

@@ -182,7 +182,7 @@ impl BodyInfer<'_> {
     fn expr_effects(&mut self, expr: ExprId) -> Row {
         let program = self.program;
         let row = match &program.exprs[expr].kind {
-            // `use` of a host effect or of External is an error (E0414) and not added to R.
+            // `use` of a host effect or of External is an error (E4402) and not added to R.
             ExprKind::Use {
                 effect: Res::Def(effect),
                 ..
@@ -620,7 +620,7 @@ impl BodyInfer<'_> {
     }
 
     /// Decides the initialization order of handlers listed in the same `with` (spec 14.2); a
-    /// dependency cycle is E0411. Checked with the solved dependencies after sets are solved.
+    /// dependency cycle is E4101. Checked with the solved dependencies after sets are solved.
     /// Cycles only inside a layer are reported at the layer declaration.
     pub(super) fn check_handler_cycles(&mut self) {
         let program = self.program;
@@ -775,7 +775,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// W0401 for label items of a `with` (`with L`, `L by P`, issue #255) whose effect neither
+    /// W4201 for label items of a `with` (`with L`, `L by P`, issue #255) whose effect neither
     /// the body nor another provider of the same `with` uses. Only when the body's R is fully
     /// known: a set with unknown contents (`f()` with `f`'s R a set parameter) may use it.
     fn unused_label_providers(&mut self, entries: &[layer::Entry], deps: &[Row], body: &Row) {

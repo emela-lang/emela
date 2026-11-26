@@ -81,8 +81,8 @@ ROOT@0..96
       WHITESPACE@93..94 " "
       R_BRACE@94..95 "}"
   NEWLINE@95..96 "\n"
-error[E0127]@32..38: imports must come before declarations
-error[E0127]@49..55: imports must come before declarations
-error[E0110]@56..61: expected module path
-error[E0110]@64..66: expected lower name
-error[E0110]@83..85: expected newline after annotation
+error[E1201]@32..38: imports must come before declarations
+error[E1201]@49..55: imports must come before declarations
+error[E1101]@56..61: expected module path
+error[E1101]@64..66: expected lower name
+error[E1101]@83..85: expected newline after annotation

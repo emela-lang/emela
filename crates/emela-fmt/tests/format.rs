@@ -185,7 +185,7 @@ fn 長い宣言は_fails_と_uses_から折る() {
     );
 }
 
-/// `[fmt.signature]`: a uses clause always has braces, and the old clause (E0147) becomes one.
+/// `[fmt.signature]`: a uses clause always has braces, and the old clause (E1404) becomes one.
 #[test]
 fn uses_節は波括弧で書き前の形の_use_は書き換える() {
     let cases = [
@@ -251,7 +251,7 @@ fn uses_節は波括弧で書き前の形の_use_は書き換える() {
     }
 }
 
-/// E0137 (a uses clause on an effect operation) is a syntax error for the formatter, also when
+/// E1211 (a uses clause on an effect operation) is a syntax error for the formatter, also when
 /// the clause is written in the old form.
 #[test]
 fn effect_operation_の_uses_節は整形しない() {
@@ -263,7 +263,7 @@ fn effect_operation_の_uses_節は整形しない() {
             panic!("{src} was formatted");
         };
         let codes: Vec<_> = diagnostics.iter().map(|d| d.code.as_str()).collect();
-        assert_eq!(codes, ["E0137"], "{src}");
+        assert_eq!(codes, ["E1211"], "{src}");
     }
 }
 

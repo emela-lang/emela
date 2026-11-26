@@ -51,7 +51,7 @@ struct Lower {
     span: Option<Span>,
 }
 
-/// An `escape`, kept for the W0302 check after the error sets are solved.
+/// An `escape`, kept for the W3201 check after the error sets are solved.
 pub(super) struct Escape {
     /// The inner expression.
     pub(super) inner: ExprId,
@@ -297,7 +297,7 @@ impl BodyInfer<'_> {
                         self.ctx.add_subset(inner_row.clone(), sup, Origin::Lambda);
                     }
                 }
-                // If some arm is a variable or a guarded `_` (E0320), treat everything as caught
+                // If some arm is a variable or a guarded `_` (E3203), treat everything as caught
                 // so errors do not cascade.
                 let broken = arms.iter().any(|arm| match &program.pats[arm.pat].kind {
                     PatKind::Ctor { .. } | PatKind::Missing => false,
@@ -457,7 +457,7 @@ impl BodyInfer<'_> {
         self.ctx.add_subset(row, fails, Origin::LocalFn(local));
     }
 
-    /// Errors of the body of a local fn not contained in its declared E (E0318), reported as
+    /// Errors of the body of a local fn not contained in its declared E (E3201), reported as
     /// for a top-level fn.
     fn report_local_fn_errors(&mut self, local: LocalId, missing: &[RowElem]) {
         let Some(info) = self.local_fns.get(local) else {
@@ -470,7 +470,7 @@ impl BodyInfer<'_> {
         self.push_unhandled(body, written, None, missing);
     }
 
-    /// Effects of the body of a local fn not contained in its `uses` clause (E0402).
+    /// Effects of the body of a local fn not contained in its `uses` clause (E4301).
     fn report_local_fn_effects(&mut self, local: LocalId, missing: &[RowElem]) {
         let Some(info) = self.local_fns.get(local) else {
             return;
@@ -488,7 +488,7 @@ impl BodyInfer<'_> {
     }
 
     /// The callee function type's E. If a single-error type parameter is instantiated with a
-    /// non-error type, pushes E0319 at `span` (the call expression).
+    /// non-error type, pushes E3202 at `span` (the call expression).
     fn callee_fails(&mut self, callee: ExprId, span: Span) -> Row {
         let ty = self.exprs.get(callee).cloned().unwrap_or(Ty::Error);
         let Ty::Fn(f) = self.ctx.shallow_resolve(&ty) else {
@@ -910,7 +910,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// Body errors not contained in the declared E (E0318). For each error, finds the expression
+    /// Body errors not contained in the declared E (E3201). For each error, finds the expression
     /// that raised it (`fail` or a call) and groups errors from the same expression into one
     /// diagnostic.
     fn report_unhandled(&mut self, def: DefId, missing: &[RowElem]) {
@@ -946,7 +946,7 @@ impl BodyInfer<'_> {
     }
 
     /// Errors of a handler operation body not contained in the effect operation's declared E
-    /// (E0318, spec 8.1).
+    /// (E3201, spec 8.1).
     fn report_unhandled_op(&mut self, handler: DefId, index: usize, missing: &[RowElem]) {
         let program = self.program;
         let Some(Item::Handler(item)) = program.item(handler) else {
@@ -981,7 +981,7 @@ impl BodyInfer<'_> {
         self.push_unhandled(init, declared, None, missing);
     }
 
-    /// E0420, spec 8.4. Grouped by the expression that raised each error.
+    /// E4007, spec 8.4. Grouped by the expression that raised each error.
     fn report_release_fails(&mut self, handler: DefId, missing: &[RowElem]) {
         let program = self.program;
         let Some(Item::Handler(item)) = program.item(handler) else {
@@ -1010,7 +1010,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// Pushes E0318, grouped by the expression that raised each error.
+    /// Pushes E3201, grouped by the expression that raised each error.
     fn push_unhandled(
         &mut self,
         body: ExprId,
@@ -1041,7 +1041,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// The body's R not contained in the R the declaration or context allows (E0402). For each
+    /// The body's R not contained in the R the declaration or context allows (E4301). For each
     /// effect, finds the expression that required it (`use` or a call) and groups effects from the
     /// same expression into one diagnostic.
     pub(super) fn report_unhandled_effects(
@@ -1061,7 +1061,7 @@ impl BodyInfer<'_> {
         self.push_unhandled_effects(body, &params, missing, context);
     }
 
-    /// E0402 for the effects `missing` of `body`, grouped by the expression that required them.
+    /// E4301 for the effects `missing` of `body`, grouped by the expression that required them.
     fn push_unhandled_effects(
         &mut self,
         body: ExprId,
@@ -1117,7 +1117,7 @@ impl BodyInfer<'_> {
 
     /// If `origin` is a `with` whose items start tasks (`Task.Group`, `Task.Background`) and some
     /// of `elems` are required by a task started in its body (through the R of the item,
-    /// `[task.group]`), the call of `start` that started it: E0402 points there, with the note
+    /// `[task.group]`), the call of `start` that started it: E4301 points there, with the note
     /// that tasks get their handlers from outside the `with`.
     fn started_from(&mut self, origin: ExprId, elems: &[RowElem]) -> Option<ExprId> {
         let program = self.program;
@@ -1256,7 +1256,7 @@ impl BodyInfer<'_> {
 
     /// The first bound item of the effect of `elem` in a `with` on the way from `expr` to the
     /// origin of `elem` ([`Self::origin_of`]), searched for as [`Self::under_platform`] does. A
-    /// bound item provides nothing by name (`[effect.with]`), so E0402 names it. The search stays
+    /// bound item provides nothing by name (`[effect.with]`), so E4301 names it. The search stays
     /// inside the body being reported.
     fn bound_provider(
         &self,
@@ -1406,11 +1406,11 @@ impl BodyInfer<'_> {
         tags
     }
 
-    /// Warns when an `escape` arm catches an error the inner expression cannot raise (W0302), and
+    /// Warns when an `escape` arm catches an error the inner expression cannot raise (W3201), and
     /// when an arm `_` is on an inner expression whose E is empty. No warning if the inner E has a
     /// set with unknown contents (a set type parameter, an error type parameter, a set variable to
     /// be generalized), since it may be caught at run time. Arms below `_` are not looked at: they
-    /// are W0301 instead (`[error.escape]`).
+    /// are W3101 instead (`[error.escape]`).
     fn check_unraised(&mut self) {
         for Escape {
             inner,
@@ -1467,10 +1467,10 @@ fn is_process_effect(program: &Program, effect: DefId) -> bool {
         || is_std_def(program, effect, "Tcp", "Tcp")
 }
 
-/// Capabilities that do not fit (E0455, `[effect.escape]`).
+/// Capabilities that do not fit (E4405, `[effect.escape]`).
 impl BodyInfer<'_> {
     /// Reports a capability set `missing` that is not contained in `sup` (`[type.rules]`): a
-    /// capability that goes into a set fixed outside what made it leaks (E0455); a name or the set
+    /// capability that goes into a set fixed outside what made it leaks (E4405); a name or the set
     /// of a parameter is a mismatch of sets.
     fn report_caps(&mut self, c: &Subset, sup: &Row, missing: &[RowElem]) {
         let span = self.origin_span(&c.origin);
@@ -1520,7 +1520,7 @@ impl BodyInfer<'_> {
         }
     }
 
-    /// E0455 for the capability `cap` at `span`, once per capability: the first place found is
+    /// E4405 for the capability `cap` at `span`, once per capability: the first place found is
     /// where it leaves.
     pub(super) fn push_leak(&mut self, cap: &CapElem, span: Option<Span>) {
         let program = self.program;
@@ -1604,7 +1604,7 @@ impl BodyInfer<'_> {
     }
 }
 
-/// Capabilities that leave what made them (E0455, `[effect.escape]`).
+/// Capabilities that leave what made them (E4405, `[effect.escape]`).
 impl BodyInfer<'_> {
     /// Once the sets are solved: a set variable made outside the scope of a capability that its
     /// solution has, a capability that a binding put into a type variable made outside its scope
@@ -1776,7 +1776,7 @@ fn tail_span(program: &Program, body: ExprId) -> Span {
 }
 
 /// The name of the module whose External is among `elems` (`[effect.external]`), for the help of
-/// E0402 and E0403.
+/// E4301 and E4301.
 fn external_module(program: &emela_resolve::hir::Program, elems: &[RowElem]) -> Option<SmolStr> {
     elems.iter().find_map(|e| match e {
         RowElem::Tag(t) => program

@@ -179,16 +179,16 @@ ROOT@0..172
       NEWLINE@169..170 "\n"
       R_BRACE@170..171 "}"
   NEWLINE@171..172 "\n"
-error[E0152]@30..32: `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b`
-error[E0152]@42..44: `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b`
-error[E0152]@58..60: `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b`
-error[E0152]@71..73: `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b`
-error[E0152]@101..102: the right side of `<-` must be an effect
+error[E1113]@30..32: `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b`
+error[E1113]@42..44: `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b`
+error[E1113]@58..60: `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b`
+error[E1113]@71..73: `<-` can only bind an effect at the start of a statement (`x <- E`); to compare with a negative value, write `a < -b`
+error[E1113]@101..102: the right side of `<-` must be an effect
   = help: `x <- E` binds an effect; to compare with a negative value, write `x < -1`
-error[E0152]@110..115: the right side of `<-` must be an effect
+error[E1113]@110..115: the right side of `<-` must be an effect
   = help: `x <- E` binds an effect; to compare with a negative value, write `x < -LIMIT`
-error[E0152]@123..133: the right side of `<-` must be an effect
+error[E1113]@123..133: the right side of `<-` must be an effect
   = help: `x <- E` binds an effect; to compare with a negative value, write `x < -Int.abs(3)`
-error[E0152]@141..162: the right side of `<-` must be an effect
+error[E1113]@141..162: the right side of `<-` must be an effect
   = help: `x <- E` binds an effect; to compare with a negative value, write `x < -Money(cents: 1).cents`
-error[E0110]@169..170: expected type name
+error[E1101]@169..170: expected type name

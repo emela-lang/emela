@@ -4,7 +4,7 @@
 //! Immediate (may suspend). Per element of R, an effect may suspend if it has a suspend fn or is
 //! Async (spec 9.5). An operation call is decided by the operation's declaration (`suspend fn` or
 //! not). An fn-operation implementation may suspend only when its body's R is not Immediate and the
-//! body contains a call marked as suspending (E0417, spec 8.1).
+//! body contains a call marked as suspending (E4303, spec 8.1).
 //!
 //! Whether a set type parameter (such as `R(f)` of `List.map`) may suspend depends on its
 //! instantiation. A suspending function becomes a generator and is called differently, so such a
@@ -125,7 +125,7 @@ impl Lowerer<'_> {
 
 /// Whether the lowered expression `e` contains a suspending call (`Expr::Call::suspends`). Lambda
 /// bodies are not visited (calling the lambda is marked as a function value call). Calls are marked
-/// by the same rule as E0417 in the type checker (operation calls by the operation's declaration,
+/// by the same rule as E4303 in the type checker (operation calls by the operation's declaration,
 /// function calls by the R of the type).
 pub(super) fn has_suspending_call(e: &Expr) -> bool {
     match e {

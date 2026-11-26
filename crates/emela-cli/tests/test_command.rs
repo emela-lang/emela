@@ -1,6 +1,6 @@
 //! Integration tests that run `emela test` as a process.
 //!
-//! Covers argument parsing, the `@test` checks (E0226), and lowering the source's test functions
+//! Covers argument parsing, the `@test` checks (E2203), and lowering the source's test functions
 //! and running them on node. Details of the result output are tested in emela-driver's
 //! tests/test_runner.rs.
 

@@ -164,9 +164,9 @@ fn main() -> Int {
     ));
 }
 
-/// Errors at a method call: a wrong number of arguments (E0305), a function written without a
-/// call (E0312), no field or function (E0312), a type without fields (E0313), and an undetermined
-/// type (E0314).
+/// Errors at a method call: a wrong number of arguments (E3101), a function written without a
+/// call (E3106), no field or function (E3106), a type without fields (E3107), and an undetermined
+/// type (E3005).
 #[test]
 fn method_call_errors() {
     insta::assert_snapshot!(render_bodies(

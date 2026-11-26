@@ -372,14 +372,14 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
             };
         };
         let mut diagnostics = resolved.diagnostics;
-        // `@test` errors (E0226) and test function reference errors (E0227) are checked here too,
+        // `@test` errors (E2203) and test function reference errors (E2204) are checked here too,
         // so `check` and the LSP report them.
         let (tests, mut test_diagnostics) = collect_tests(analysis, |m| self.parse_of(m));
         let (tests, ref_diagnostics) = resolve_tests(analysis, &hir, tests);
         test_diagnostics.extend(ref_diagnostics);
-        // Placement of `@internal` (E0229) and references from outside core (E0228).
+        // Placement of `@internal` (E2206) and references from outside core (E2205).
         test_diagnostics.extend(check_internal(analysis, &hir, |m| self.parse_of(m)));
-        // Placement and arguments of `@key` and `@tag` (E0338), and repeated keys and tags (E0337).
+        // Placement and arguments of `@key` and `@tag` (E3310), and repeated keys and tags (E3309).
         test_diagnostics.extend(crate::attributes::check_key_tag(analysis, |m| {
             self.parse_of(m)
         }));
@@ -618,7 +618,7 @@ fn entry_main(hir: &Program, entry: ModuleId) -> Option<DefId> {
 }
 
 /// Whether `range` is an anonymous function that starts a line with `||` and is the last
-/// statement of its block. A type mismatch there gets the help of E0149 (`[diag.list]`): the line
+/// statement of its block. A type mismatch there gets the help of E1112 (`[diag.list]`): the line
 /// was probably meant to continue the previous one with the logical or.
 fn last_lambda_after_or_line(parse: &Parse, range: line_index::TextRange) -> bool {
     let root = parse.syntax();
@@ -640,7 +640,7 @@ fn last_lambda_after_or_line(parse: &Parse, range: line_index::TextRange) -> boo
     last_in_block && emela_syntax::rewrite::starts_line_with_or(&lambda)
 }
 
-/// Leaves out the help of W0403 and E0453 that suggests a bound item where the body of the
+/// Leaves out the help of W4401 and E4404 that suggests a bound item where the body of the
 /// `with` that provides the effect also uses it by name: a bound item provides nothing by name,
 /// so the rewrite would send those uses to an outer handler (`[effect.with]`).
 fn drop_bound_item_helps(
@@ -706,7 +706,7 @@ mod tests {
 
     #[test]
     fn import_after_declaration_still_counts() {
-        // E0127 is a placement error; the import itself is readable.
+        // E1201 is a placement error; the import itself is readable.
         let src = "let x = 1\nimport Json\n";
         assert_eq!(imports_of(src), [("Json".into(), "Json".into())]);
     }

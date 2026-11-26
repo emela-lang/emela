@@ -98,7 +98,7 @@ fn main() {
 "#));
 }
 
-/// A capability cannot leave the `with` that made it (E0455): in the value of the body, in the R
+/// A capability cannot leave the `with` that made it (E4405): in the value of the body, in the R
 /// of a closure that is the value, and in a type fixed outside (the type argument of an outer
 /// `State`). A closure used up inside is fine (`[effect.escape]`).
 #[test]
@@ -132,7 +132,7 @@ fn used_up(names: List[String]) {
 }
 
 /// A capability is not widened to its effect: a closure whose R has `g` does not fit
-/// `uses { Logger }` (E0403, with a help).
+/// `uses { Logger }` (E4301, with a help).
 #[test]
 fn capabilities_are_not_widened() {
     insta::assert_snapshot!(run(r#"
@@ -148,7 +148,7 @@ fn main() {
 
 /// `use E` written as a parameter of a function type is quantified at it (`[type.rules]`): a
 /// closure checked against it receives an unknown set, which can be in its R but not in its
-/// result (E0455). A call puts the argument's set in place of the quantified one. A function of
+/// result (E4405). A call puts the argument's set in place of the quantified one. A function of
 /// a capability parameter fits too. A closure without an expected type is not quantified.
 #[test]
 fn quantified_function_types() {
@@ -192,7 +192,7 @@ fn not_quantified() -> Int {
 
 /// A capability type written in a field gives the type a hidden set, decided when a value is
 /// made: a record of capabilities of two `with`s records both, and cannot leave either
-/// (`[type.rules]`, E0455). The hidden sets are not shown.
+/// (`[type.rules]`, E4405). The hidden sets are not shown.
 #[test]
 fn fields_record_capabilities() {
     insta::assert_snapshot!(run(r#"
@@ -221,10 +221,10 @@ fn leaks() {
 }
 
 /// A type or enum with `uses E` is a capability-bound type of E: only a handler of E makes its
-/// values (E0458), and a value made there records the handler's `self`. An operation of E that
-/// returns one records the capability it is called on, which cannot leave its `with` (E0455).
+/// values (E4407), and a value made there records the handler's `self`. An operation of E that
+/// returns one records the capability it is called on, which cannot leave its `with` (E4405).
 /// An operation's result cannot contain a capability type, or a bound type of another effect
-/// (E0456).
+/// (E4406).
 #[test]
 fn capability_bound_types() {
     insta::assert_snapshot!(run(r#"
@@ -264,7 +264,7 @@ fn leaves() {
 /// set in the implementation; `self` is the capability of the handler and can be passed to a
 /// parameter of type `use E`. The fields given to `Self(...)` cannot record a capability of a
 /// with inside the init, nor a handler member opened through its handlers, by name or through a
-/// capability (E0455, #658); one used inside that with is fine.
+/// capability (E4405, #658); one used inside that with is fine.
 #[test]
 fn handlers_and_capabilities() {
     insta::assert_snapshot!(run(r#"
@@ -332,9 +332,9 @@ fn main() {
 }
 
 /// A callback passed to an external function cannot have a capability in its R: the host may
-/// keep it after the capability's with has ended (E0454). A parameter marked `@borrowed` may
+/// keep it after the capability's with has ended (E5003). A parameter marked `@borrowed` may
 /// take one. `@borrowed` is written only on a parameter of function type of an external
-/// function (E0457, `[ext.boundary]`).
+/// function (E5004, `[ext.boundary]`).
 #[test]
 fn callbacks_of_external_functions() {
     insta::assert_snapshot!(run(r#"
@@ -362,7 +362,7 @@ handler Ticking: Counter {
 }
 
 /// An error whose fields record capabilities records them in its tag in E (`[type.rules]`): it
-/// cannot leave the with that made them (E0455, #719), and the fields of an error caught by
+/// cannot leave the with that made them (E4405, #719), and the fields of an error caught by
 /// `escape` take the capabilities of the tag, so a value taken out of it cannot leave either.
 #[test]
 fn errors_record_capabilities() {
@@ -412,12 +412,12 @@ fn taken_out() uses { Async } {
 ///    hidden set of `b`, and calling an operation of the field through `self` adds nothing to the
 ///    R of the caller (`[effect.handler]`).
 /// 2. `self` (of type `Box[A]`) is passed as `use Cell[A]`.
-/// 3. A capability made by a `with` inside init cannot be put in a field of `Self(...)` (E0455).
+/// 3. A capability made by a `with` inside init cannot be put in a field of `Self(...)` (E4405).
 /// 4. A capability as a type argument (`A = use Counter`): used inside the `with` that made it,
-///    and leaving it (E0455).
-/// 5. The hidden sets do not make the type arguments of an item ambiguous (E0459).
+///    and leaving it (E4405).
+/// 5. The hidden sets do not make the type arguments of an item ambiguous (E4107).
 /// 6. A capability made inside the body cannot go into a type argument fixed at an outer item
-///    (E0455).
+///    (E4405).
 #[test]
 fn generic_handlers_and_capabilities() {
     insta::assert_snapshot!(run(r#"

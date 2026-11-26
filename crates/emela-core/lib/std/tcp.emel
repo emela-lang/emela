@@ -14,7 +14,7 @@
 #
 # The registry functions are bound on every target, because the init and the release of a handler
 # are reached by every `with Process` (`[ext.decl]`). The operations are bound on JS only for now:
-# calling them on native or WASM is E0412 until those targets implement them.
+# calling them on native or WASM is E5001 until those targets implement them.
 
 import Std.Bytes.{Bytes}
 

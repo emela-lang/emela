@@ -282,14 +282,14 @@ ROOT@0..421
       WHITESPACE@418..419 " "
       R_BRACE@419..420 "}"
   NEWLINE@420..421 "\n"
-error[E0129]@43..49: derive rules in traits are not supported yet
-error[E0110]@249..250: expected `->`
-error[E0110]@252..255: expected operation (`fn`) or handler member (`handler`)
-error[E0110]@284..285: expected type name
-error[E0110]@286..292: expected `:`
-error[E0110]@328..332: expected `:`
-error[E0110]@364..369: expected upper name
-error[E0110]@384..385: expected `=`
-error[E0110]@392..393: expected type name
-error[E0110]@396..397: expected handler name
-error[E0110]@398..399: expected `,` or newline between handlers
+error[E1203]@43..49: derive rules in traits are not supported yet
+error[E1101]@249..250: expected `->`
+error[E1101]@252..255: expected operation (`fn`) or handler member (`handler`)
+error[E1101]@284..285: expected type name
+error[E1101]@286..292: expected `:`
+error[E1101]@328..332: expected `:`
+error[E1101]@364..369: expected upper name
+error[E1101]@384..385: expected `=`
+error[E1101]@392..393: expected type name
+error[E1101]@396..397: expected handler name
+error[E1101]@398..399: expected `,` or newline between handlers

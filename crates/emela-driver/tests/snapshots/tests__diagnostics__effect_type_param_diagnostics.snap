@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-error[E0424]: type parameter `E` of effect `Raise` is used as a set, but effect type parameters must be ordinary types
+error[E4009]: type parameter `E` of effect `Raise` is used as a set, but effect type parameters must be ordinary types
    ╭─[ main.emel:5:14 ]
    │
  5 │ effect Raise[E] {
@@ -10,7 +10,7 @@ error[E0424]: type parameter `E` of effect `Raise` is used as a set, but effect 
    │              ╰── 
 ───╯
 
-error[E0423]: handler `Generic` must implement `Cell[S]` with concrete types
+error[E4008]: handler `Generic` must implement `Cell[S]` with concrete types
    ╭─[ main.emel:9:9 ]
    │
  9 │ handler Generic: Cell {
@@ -19,7 +19,7 @@ error[E0423]: handler `Generic` must implement `Cell[S]` with concrete types
 ───╯
    = help: write the types, like `handler Generic: Cell[...]`, or give the handler type parameters, like `handler Generic[S]: Cell[S]`
 
-error[E0423]: missing type arguments for effect `Cell[S]`
+error[E4008]: missing type arguments for effect `Cell[S]`
     ╭─[ main.emel:17:17 ]
     │
  17 │ fn omitted() { (use Cell).get() }
@@ -28,7 +28,7 @@ error[E0423]: missing type arguments for effect `Cell[S]`
 ────╯
    = help: write the types, like `Cell[...]`
 
-error[E0304]: wrong number of type arguments: `Cell` takes 1, found 2
+error[E3101]: wrong number of type arguments: `Cell` takes 1, found 2
     ╭─[ main.emel:19:18 ]
     │
  19 │ fn too_many() { (use Cell[Int, Int]).get() }
@@ -36,7 +36,7 @@ error[E0304]: wrong number of type arguments: `Cell` takes 1, found 2
     │                           ╰────────── 
 ────╯
 
-error[E0402]: effect `Cell[String]` is not declared in `uses`
+error[E4301]: effect `Cell[String]` is not declared in `uses`
     ╭─[ main.emel:31:6 ]
     │
  31 │     (use Cell[String]).get()
@@ -45,7 +45,7 @@ error[E0402]: effect `Cell[String]` is not declared in `uses`
 ────╯
    = help: add it to `uses` or provide it with `with`
 
-error[E0421]: effect `Cell[Int]` is provided by both `Zero` and `One` in layer `Twice`
+error[E4102]: effect `Cell[Int]` is provided by both `Zero` and `One` in layer `Twice`
     ╭─[ main.emel:43:3 ]
     │
  43 │   One

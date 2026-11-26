@@ -102,7 +102,7 @@ fn prints_stdout() {
         "import { Defect } from \"./runtime/defect.mjs\";\nconsole.log(\"こんにちは\");\nconsole.error(\"to stderr\");\n",
         &[],
     );
-    // The programs may still write `use E` as an expression (W0403, deprecated).
+    // The programs may still write `use E` as an expression (W4401, deprecated).
     assert!(
         analysis
             .diagnostics
@@ -272,7 +272,7 @@ fn run_ir(name: &str, module: emela_core::Module) -> RunOutput {
         |_, _| {},
     );
     let _ = std::fs::remove_dir_all(&options.out_dir);
-    // The programs may still write `use E` as an expression (W0403, deprecated).
+    // The programs may still write `use E` as an expression (W4401, deprecated).
     assert!(
         analysis
             .diagnostics
@@ -402,7 +402,7 @@ fn run_source_in(name: &str, main: &str, frontend: &mut Lower, js_host: PathBuf)
     };
     let (analysis, output) = run(&fs, &input, frontend, &mut CoreJs, &options, |_, _| {});
     let _ = std::fs::remove_dir_all(&options.out_dir);
-    // The programs may still write `use E` as an expression (W0403, deprecated).
+    // The programs may still write `use E` as an expression (W4401, deprecated).
     assert!(
         analysis
             .diagnostics
@@ -442,7 +442,7 @@ fn const_self_reference_in_if_match_and_through_function_is_a_defect() {
 
 #[test]
 fn run_without_main_stops_before_node() {
-    // Without main in the entry, run stops with E0230 and does not start node (spec 8.3). Starting
+    // Without main in the entry, run stops with E2009 and does not start node (spec 8.3). Starting
     // it would add a "node not found" diagnostic, so a missing node is passed to check that.
     let sources = [
         ("app/Pome.toml", ""),
@@ -474,7 +474,7 @@ fn run_without_main_stops_before_node() {
     assert_eq!(
         diagnostics,
         [(
-            Some("E0230"),
+            Some("E2009"),
             "entry `src/main.emel` has no `main` function"
         )]
     );
@@ -487,7 +487,7 @@ fn run_without_main_stops_before_node() {
         &mut CoreJs,
         &options.out_dir,
     );
-    // The programs may still write `use E` as an expression (W0403, deprecated).
+    // The programs may still write `use E` as an expression (W4401, deprecated).
     assert!(
         analysis
             .diagnostics
@@ -534,7 +534,7 @@ fn run_stops_at_syntax_error_like_check() {
     };
     assert_eq!(codes(&ran), codes(&checked));
     assert!(
-        ran.diagnostics.iter().all(|d| d.code == Some("E0118")),
+        ran.diagnostics.iter().all(|d| d.code == Some("E1102")),
         "{:?}",
         ran.diagnostics
     );
@@ -591,7 +591,7 @@ fn main() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir("js-exports");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
-    // The programs may still write `use E` as an expression (W0403, deprecated).
+    // The programs may still write `use E` as an expression (W4401, deprecated).
     assert!(
         analysis
             .diagnostics
@@ -687,7 +687,7 @@ fn main() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir("js-bytes");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
-    // The programs may still write `use E` as an expression (W0403, deprecated).
+    // The programs may still write `use E` as an expression (W4401, deprecated).
     assert!(
         analysis
             .diagnostics
@@ -851,7 +851,7 @@ fn main() {
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir("js-array");
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
-    // The programs may still write `use E` as an expression (W0403, deprecated).
+    // The programs may still write `use E` as an expression (W4401, deprecated).
     assert!(
         analysis
             .diagnostics

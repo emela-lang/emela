@@ -125,7 +125,7 @@ ROOT@0..170
       NEWLINE_CONT@167..168 "\n"
       R_BRACE@168..169 "}"
   NEWLINE@169..170 "\n"
-error[E0110]@44..45: expected `)`
-error[E0110]@48..50: expected `}`
-error[E0110]@113..114: expected `)`
-error[E0110]@158..159: expected `)`
+error[E1101]@44..45: expected `)`
+error[E1101]@48..50: expected `}`
+error[E1101]@113..114: expected `)`
+error[E1101]@158..159: expected `)`

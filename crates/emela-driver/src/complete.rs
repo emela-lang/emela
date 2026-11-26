@@ -145,11 +145,11 @@ const ATTRIBUTES: &[&str] = &[
     "tag",
 ];
 
-/// Attributes allowed only in the bundled core sources (E0224, E0229), offered there only.
+/// Attributes allowed only in the bundled core sources (E2201, E2206), offered there only.
 const CORE_ATTRIBUTES: &[&str] = &["intrinsic", "internal"];
 
 /// The language names of `@external` and `@export` (spec `[ext.decl]`, `[ext.export]`; others are
-/// E0140).
+/// E1303).
 const LANGUAGES: &[&str] = &["js", "wasm", "c"];
 
 /// Contexts decided by the lexical position alone, before any name lookup: inside a comment or
@@ -200,7 +200,7 @@ fn lexical(analysis: &Analysis, module: ModuleId, before: &str) -> Option<Vec<Co
             .collect()
     };
     if head.ends_with('@') {
-        // `intrinsic` and `internal` outside core would only produce E0224 and E0229.
+        // `intrinsic` and `internal` outside core would only produce E2201 and E2206.
         let core: &[&str] = if analysis.modules.is_core(module) {
             CORE_ATTRIBUTES
         } else {

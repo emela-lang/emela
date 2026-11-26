@@ -1,7 +1,7 @@
 //! Where suggesting a bound item would change meaning (`[effect.with]`).
 //!
 //! A bound item provides nothing by name. Some diagnostics suggest rewriting a `with` into one
-//! with a bound item (`with x = H`): W0403 and E0453 for `use E` and an effect alias, E0454 for a
+//! with a bound item (`with x = H`): W4401 and E4404 for `use E` and an effect alias, E5003 for a
 //! callback. That rewrite sends every other use of E by name in the body of the `with` to an outer
 //! handler, so the suggestion is left out when the body of the `with` that provides E by name also
 //! uses E by name.
@@ -18,8 +18,8 @@ use crate::sparse::SparseMap;
 use crate::ty::Ty;
 
 impl BodyInfer<'_> {
-    /// Records in [`Self::bound_item_redirects`] the `use E` expressions (W0403, `[effect.use]`)
-    /// and the references to an effect alias written as a value (E0453), not as the receiver of
+    /// Records in [`Self::bound_item_redirects`] the `use E` expressions (W4401, `[effect.use]`)
+    /// and the references to an effect alias written as a value (E4404), not as the receiver of
     /// an operation, for which a bound item would send other uses of E by name elsewhere. Call
     /// after sets are solved.
     pub(super) fn find_bound_item_redirects(&mut self) {
@@ -56,7 +56,7 @@ impl BodyInfer<'_> {
     }
 
     /// Whether a bound item would send other uses by name elsewhere at the reference `at` to an
-    /// external function whose callback uses one of `effects` (E0454, `[ext.boundary]`), in the
+    /// external function whose callback uses one of `effects` (E5003, `[ext.boundary]`), in the
     /// body of `owner`. The callback is a lambda, whose body is not in the R of the `with`, or a
     /// function value, whose R is in its type.
     pub(super) fn callback_redirects(

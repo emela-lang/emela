@@ -13,8 +13,9 @@ pub struct Diagnostic {
 
 /// Codes match the list in spec appendix A. A code once assigned is never reused.
 ///
-/// E0101–E0109 are lexical, E0110–E0189 syntactic, and E0190–E0199 more lexical ones (added
-/// after E0101–E0109 filled up).
+/// Bands (spec `[diag.bands]`): E10xx lexical, E11xx syntax of expressions, patterns and types,
+/// E12xx syntax of declarations, E13xx syntax of attributes, E14xx forms that are no longer
+/// written. A code names one kind of mistake; the message tells its forms apart.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiagnosticCode {
@@ -31,20 +32,17 @@ pub enum DiagnosticCode {
     /// `\u{...}` is malformed, or its value is a surrogate or above 10FFFF.
     InvalidUnicodeEscape,
     /// The opening `"""` is not followed by a newline, the closing `"""` is not alone on its
-    /// line, or a line is indented less than the closing line. These share one code because the
-    /// lexical band E0101–E0109 had no room left.
+    /// line, or a line is indented less than the closing line. These are one kind of mistake.
     MalformedMultilineString,
     ExpectedToken,
-    ExpectedType,
+    /// No type, pattern, expression or declaration where one is expected. The message names
+    /// which.
+    ExpectedNode,
     /// `(Int)` `(a,)`
     SingleElementTuple,
-    ExpectedPattern,
-    /// Something follows `..`.
-    RestNotLast,
-    /// No element before `..` in a list. `[..rest]`
-    RestWithoutElements,
+    /// `..` in a list is not last, or has no element before it (`[..rest]`).
+    MisplacedListRest,
     InterpolationInPattern,
-    ExpectedExpression,
     /// `a < b < c`
     ChainedComparison,
     PositionalAfterNamed,
@@ -55,12 +53,10 @@ pub enum DiagnosticCode {
     LeftArrow,
     /// A statement not followed by a newline or `}`. `a b`
     ExpectedStatementEnd,
-    UnderscoreOutsidePattern,
-    /// A bare `..` (without an expression) outside a pattern.
-    BareRestOutsidePattern,
+    /// `_`, or a bare `..` (without an expression), outside a pattern.
+    PatternFormOutsidePattern,
     /// The left side of a binding cannot be read as a pattern. `a + b = 1`
     InvalidBindingTarget,
-    ExpectedDeclaration,
     /// An import after a declaration (spec 4.2).
     ImportAfterDeclaration,
     /// Named and unnamed fields mixed in one variant (spec 5.4).
@@ -84,19 +80,15 @@ pub enum DiagnosticCode {
     SignatureInImpl,
     /// A `uses` clause on an effect operation (spec 8.1).
     UseOnEffectOp,
-    /// A fn's `@external` arguments are not `(target, "a")` or `(target, "a", "b")` (spec 12.1):
-    /// the target is missing or not a name, an argument is not a string, or there are not one or
-    /// two strings.
-    MalformedExternal,
+    /// Malformed arguments of an attribute: a fn's `@external` arguments are not
+    /// `(target, "a")` or `(target, "a", "b")` (spec 12.1), `@external type` has arguments
+    /// (spec 12.3), or `@export` has malformed arguments or is on something other than a
+    /// top-level fn with a body (spec 12.7, 16.6.2).
+    MalformedAttributeArgs,
     /// Two or more `@external` for the same target on one fn (spec 12.1).
     DuplicateExternalTarget,
     /// An `@external` target that is not a known name (spec 12.1).
     UnknownExternalTarget,
-    /// Arguments on `@external type` (spec 12.3).
-    ExternalTypeWithArgs,
-    /// Malformed arguments of `@export`, or `@export` on something other than a top-level fn
-    /// with a body (spec 12.7, 16.6.2).
-    MalformedExport,
     /// `match` written before the value. `match x { ... }` (spec 6.5)
     PrefixMatch,
     /// The old head of an impl. `impl Show for User`, `impl[A: Eq] Box[A]: Eq` (spec 10.2)
@@ -109,66 +101,64 @@ pub enum DiagnosticCode {
     UnusedLambda,
     /// `use` written in the place of the uses clause. `fn f() use Db` (`[grammar.decl]`)
     OldUseClause,
-    /// Type parameters, an attribute, `pub` or `suspend` on a local fn (`[fn.local]`).
+    /// An attribute, `pub` or `suspend` on a local fn (`[fn.local]`).
     LocalFnModifier,
+    /// Type parameters where they cannot be written: on a local fn (`[fn.local]`). The type
+    /// checker uses the same code for an operation of a user-defined effect and an inner
+    /// handler.
+    MisplacedTypeParams,
     /// A local fn as the last statement of its block, which nothing can call (`[fn.local]`).
     UnusedLocalFn,
 }
 
 impl DiagnosticCode {
-    /// A code of the form `E0101`.
-    pub fn as_str(self) -> &'static str {
+    /// A code of the form `E1001`.
+    pub const fn as_str(self) -> &'static str {
         match self {
-            Self::UnterminatedString => "E0101",
-            Self::UnterminatedInterpolation => "E0102",
-            Self::InvalidName => "E0103",
-            Self::InvalidNumber => "E0104",
-            Self::UnrecognizedCharacter => "E0105",
-            Self::MissingEscapedCharacter => "E0106",
-            Self::UnknownEscape => "E0107",
-            Self::InvalidUnicodeEscape => "E0108",
-            Self::MalformedMultilineString => "E0109",
-            Self::ExpectedToken => "E0110",
-            Self::ExpectedType => "E0111",
-            Self::SingleElementTuple => "E0112",
-            Self::ExpectedPattern => "E0113",
-            Self::RestNotLast => "E0114",
-            Self::RestWithoutElements => "E0115",
-            Self::InterpolationInPattern => "E0117",
-            Self::ExpectedExpression => "E0118",
-            Self::ChainedComparison => "E0119",
-            Self::PositionalAfterNamed => "E0120",
-            Self::UnparenthesizedUse => "E0121",
-            Self::ExpectedStatementEnd => "E0122",
-            Self::UnderscoreOutsidePattern => "E0123",
-            Self::BareRestOutsidePattern => "E0124",
-            Self::InvalidBindingTarget => "E0125",
-            Self::ExpectedDeclaration => "E0126",
-            Self::ImportAfterDeclaration => "E0127",
-            Self::MixedVariantFields => "E0128",
-            Self::DeriveRuleUnsupported => "E0129",
-            Self::MissingExternal => "E0130",
-            Self::MisplacedOpaque => "E0131",
-            Self::EmptyEnum => "E0132",
-            Self::ModifierOnImpl => "E0133",
-            Self::TypedHandlerParam => "E0134",
-            Self::MissingBody => "E0135",
-            Self::SignatureInImpl => "E0136",
-            Self::UseOnEffectOp => "E0137",
-            Self::MalformedExternal => "E0138",
-            Self::DuplicateExternalTarget => "E0139",
-            Self::UnknownExternalTarget => "E0140",
-            Self::ExternalTypeWithArgs => "E0141",
-            Self::PrefixMatch => "E0142",
-            Self::OldImplHead => "E0144",
-            Self::OldHandlerHead => "E0145",
-            Self::MalformedExport => "E0146",
-            Self::OldLambda => "E0148",
-            Self::UnusedLambda => "E0149",
-            Self::OldUseClause => "E0147",
-            Self::LocalFnModifier => "E0150",
-            Self::UnusedLocalFn => "E0151",
-            Self::LeftArrow => "E0152",
+            Self::UnterminatedString => "E1001",
+            Self::UnterminatedInterpolation => "E1002",
+            Self::InvalidName => "E1003",
+            Self::InvalidNumber => "E1004",
+            Self::UnrecognizedCharacter => "E1005",
+            Self::MissingEscapedCharacter => "E1006",
+            Self::UnknownEscape => "E1007",
+            Self::InvalidUnicodeEscape => "E1008",
+            Self::MalformedMultilineString => "E1009",
+            Self::ExpectedToken => "E1101",
+            Self::ExpectedNode => "E1102",
+            Self::SingleElementTuple => "E1103",
+            Self::MisplacedListRest => "E1104",
+            Self::InterpolationInPattern => "E1105",
+            Self::ChainedComparison => "E1106",
+            Self::PositionalAfterNamed => "E1107",
+            Self::UnparenthesizedUse => "E1108",
+            Self::ExpectedStatementEnd => "E1109",
+            Self::PatternFormOutsidePattern => "E1110",
+            Self::InvalidBindingTarget => "E1111",
+            Self::ImportAfterDeclaration => "E1201",
+            Self::MixedVariantFields => "E1202",
+            Self::DeriveRuleUnsupported => "E1203",
+            Self::MissingExternal => "E1204",
+            Self::MisplacedOpaque => "E1205",
+            Self::EmptyEnum => "E1206",
+            Self::ModifierOnImpl => "E1207",
+            Self::TypedHandlerParam => "E1208",
+            Self::MissingBody => "E1209",
+            Self::SignatureInImpl => "E1210",
+            Self::UseOnEffectOp => "E1211",
+            Self::MalformedAttributeArgs => "E1301",
+            Self::DuplicateExternalTarget => "E1302",
+            Self::UnknownExternalTarget => "E1303",
+            Self::PrefixMatch => "E1401",
+            Self::OldImplHead => "E1402",
+            Self::OldHandlerHead => "E1403",
+            Self::OldLambda => "E1405",
+            Self::UnusedLambda => "E1112",
+            Self::OldUseClause => "E1404",
+            Self::LocalFnModifier => "E1212",
+            Self::MisplacedTypeParams => "E1213",
+            Self::UnusedLocalFn => "E1214",
+            Self::LeftArrow => "E1113",
         }
     }
 }

@@ -51,13 +51,13 @@ fn retired_project_target_is_rejected_without_output() {
         let output = emela(root, &[command]);
         let error = String::from_utf8_lossy(&output.stderr);
         assert_eq!(output.status.code(), Some(1), "{command}: {output:?}");
-        assert!(error.contains("E0232"), "{command}: {error}");
+        assert!(error.contains("E2302"), "{command}: {error}");
         assert!(error.contains("unknown target `c-embedded`"), "{error}");
         assert!(!root.join("target").exists(), "{command}");
     }
 }
 
-/// Issue #691: `[build].target` is the default target of `check` too, and E0232 shows Pome.toml
+/// Issue #691: `[build].target` is the default target of `check` too, and E2302 shows Pome.toml
 /// relative to the project like other diagnostics.
 #[test]
 fn unknown_project_target_is_reported_by_every_command_relative_to_the_project() {
@@ -69,7 +69,7 @@ fn unknown_project_target_is_reported_by_every_command_relative_to_the_project()
         let output = emela(root, &[command]);
         let error = String::from_utf8_lossy(&output.stderr);
         assert_eq!(output.status.code(), Some(1), "{command}: {output:?}");
-        assert!(error.contains("E0232"), "{command}: {error}");
+        assert!(error.contains("E2302"), "{command}: {error}");
         assert!(
             error.contains("unknown target `bogus`"),
             "{command}: {error}"
@@ -160,7 +160,7 @@ fn dependency_targets_are_checked_for_library_only_builds() {
                 "{target}/{supported}: {error}"
             );
             if !supported {
-                assert!(error.contains("E0238"), "{error}");
+                assert!(error.contains("E2307"), "{error}");
             }
             assert!(!app.join("target").exists(), "{target}/{supported}");
         }
@@ -191,7 +191,7 @@ fn the_native_target() {
 }
 
 /// `[target.native]`: `c`, the name of the native target before 0.28, is an unknown target since
-/// 0.29, in `--target` (a usage error) and in `[build].target` (E0232).
+/// 0.29, in `--target` (a usage error) and in `[build].target` (E2302).
 #[test]
 fn the_removed_target_c_is_unknown() {
     let temp = tempfile::tempdir().unwrap();
@@ -204,7 +204,7 @@ fn the_removed_target_c_is_unknown() {
     let output = emela(root, &["build"]);
     let error = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert!(error.contains("E0232"), "{error}");
+    assert!(error.contains("E2302"), "{error}");
     assert!(error.contains("unknown target `c`"), "{error}");
     assert!(!root.join("target").exists());
 }

@@ -63,7 +63,7 @@ contexts:
     - match: '"'
       scope: punctuation.definition.string.end.emela
       pop: true
-    # A string cannot span a line break (E0101).
+    # A string cannot span a line break (E1001).
     - match: '$'
       pop: true
     - include: string_contents

@@ -513,7 +513,7 @@ impl Printer {
     }
 
     /// The parameter list and the space after it, and the body. The old form `fn(x) { ... }`
-    /// (E0148) is printed in the new form. A body block written on one line with one expression
+    /// (E1405) is printed in the new form. A body block written on one line with one expression
     /// loses its braces; any other block keeps them.
     fn lambda_parts(&mut self, node: &SyntaxNode) -> (Doc, LambdaBody) {
         let mut head = RcDoc::nil();
@@ -909,7 +909,7 @@ fn bin_op(node: &SyntaxNode) -> Option<SyntaxToken> {
 /// Whether there is a newline in the trivia right before the token.
 impl Printer {
     /// A uses clause in its canonical form (`[fmt.signature]`): `uses` and the set in braces.
-    /// The old keyword `use` (E0147) is printed as `uses`, and a bare element gets braces
+    /// The old keyword `use` (E1404) is printed as `uses`, and a bare element gets braces
     /// (`uses Db` becomes `uses { Db }`). The formatter does not resolve names, so an effect and
     /// a set type parameter are treated alike.
     fn uses_clause(&mut self, node: &SyntaxNode) -> Doc {

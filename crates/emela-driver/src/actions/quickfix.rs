@@ -38,7 +38,7 @@ pub(super) fn quickfixes(
             Some(code::INCOMPLETE_IMPL) => {
                 super::impls::insert_stubs(&program.hir, module, span.range, &tree, text)
             }
-            Some(code::UNHANDLED_ERRORS | code::UNHANDLED_EFFECTS) => {
+            Some(code::UNDECLARED_ERRORS | code::UNDECLARED_EFFECTS) => {
                 extend_annotation(program, analysis, module, diagnostic, &tree)
             }
             Some(c) if c == DiagnosticCode::OldImplHead.as_str() => {
@@ -94,7 +94,7 @@ fn fix(title: String, diagnostic: &Diagnostic, edits: Vec<Edit>) -> CodeAction {
     }
 }
 
-/// `impl Show for User` -> `impl User: Show` (E0144, spec 10.2).
+/// `impl Show for User` -> `impl User: Show` (E1402, spec 10.2).
 fn old_impl_head(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
     let (range, head) = root
         .descendants()
@@ -103,7 +103,7 @@ fn old_impl_head(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
     Some((format!("Rewrite as `{head}`"), vec![(range, head)]))
 }
 
-/// `handler H implements E` -> `handler H: E` (E0145, spec 8.4).
+/// `handler H implements E` -> `handler H: E` (E1403, spec 8.4).
 fn old_handler_head(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
     let (_, edit, head) = root
         .descendants()
@@ -112,7 +112,7 @@ fn old_handler_head(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
     Some((format!("Rewrite as `{head}`"), vec![(edit, ":".to_owned())]))
 }
 
-/// `fn(x) { x + 1 }` -> `|x| x + 1` (E0148, `[fn.decl]`). The diagnostic covers `fn` and the
+/// `fn(x) { x + 1 }` -> `|x| x + 1` (E1405, `[fn.decl]`). The diagnostic covers `fn` and the
 /// parameter list; the edit replaces the whole function.
 fn old_lambda(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
     let (edit, text, head) = root
@@ -122,7 +122,7 @@ fn old_lambda(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
     Some((format!("Rewrite as `{head} ...`"), vec![(edit, text)]))
 }
 
-/// `use Db` -> `uses { Db }` (E0147, `[lsp.code-action]`). The diagnostic points at `use`; the
+/// `use Db` -> `uses { Db }` (E1404, `[lsp.code-action]`). The diagnostic points at `use`; the
 /// whole clause is replaced with its canonical form.
 fn old_uses_clause(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
     let (clause, uses) = root
@@ -139,10 +139,10 @@ fn old_uses_clause(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
     ))
 }
 
-/// A type parameter that does not appear in the type of its fn (W0305, `[lsp.code-action]`) is
+/// A type parameter that does not appear in the type of its fn (W3002, `[lsp.code-action]`) is
 /// removed with its bound and the `,` next to it, and the brackets with it when it is the only
 /// one. Not offered when it is named in the body of the fn: removing it would make that annotation
-/// E0211.
+/// E2101.
 fn unused_type_param(
     program: &TypedProgram,
     module: ModuleId,
@@ -198,7 +198,7 @@ fn unused_type_param(
     ))
 }
 
-/// `use E` written as an expression (W0403, `[effect.use]`), rewritten to an effect alias when
+/// `use E` written as an expression (W4401, `[effect.use]`), rewritten to an effect alias when
 /// the help names one: name resolution gives that help only where the alias means the same.
 ///
 /// - `x = use E` -> `x <- E`.
@@ -543,21 +543,25 @@ fn extend_annotation(
     let Some(Location::Span(span)) = diagnostic.location else {
         return None;
     };
-    let effects = diagnostic.code == Some(code::UNHANDLED_EFFECTS);
-    // main, tests, constants, and handler operations cannot propagate effects this way.
-    if effects
-        && !program.types.diags.iter().any(|d| {
-            d.span
-                .is_some_and(|s| s.module == module && s.range == span.range)
-                && matches!(
+    let effects = diagnostic.code == Some(code::UNDECLARED_EFFECTS);
+    // main, tests, constants, and handler operations cannot propagate effects this way, and the
+    // same codes are given to a function value whose E or R does not fit, which has no clause to
+    // extend.
+    if !program.types.diags.iter().any(|d| {
+        d.span
+            .is_some_and(|s| s.module == module && s.range == span.range)
+            && if effects {
+                matches!(
                     d.kind,
                     DiagnosticKind::UnhandledEffects {
                         context: EffectContext::Declared,
                         ..
                     }
                 )
-        })
-    {
+            } else {
+                matches!(d.kind, DiagnosticKind::UnhandledErrors { .. })
+            }
+    }) {
         return None;
     }
     let f = tree

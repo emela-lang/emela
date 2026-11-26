@@ -688,7 +688,7 @@ fn test_functions_cannot_be_used_outside_tests() {
     let (analysis, _) = check(&fs, &input, &mut Typecheck::default());
     // References between test functions (`calls_adds`) are allowed.
     let codes: Vec<_> = analysis.diagnostics.iter().map(|d| d.code).collect();
-    assert_eq!(codes, [Some("E0227")]);
+    assert_eq!(codes, [Some("E2204")]);
 }
 
 #[test]
@@ -1590,7 +1590,7 @@ fn runs_after() {
     assert!(out.contains("test result: ok. 2 passed; 0 failed"), "{out}");
 }
 
-/// The diagnostics but W0403: the programs still write `use E` as an expression (deprecated).
+/// The diagnostics but W4401: the programs still write `use E` as an expression (deprecated).
 fn errors(analysis: &emela_driver::Analysis) -> Vec<&emela_driver::Diagnostic> {
     analysis
         .diagnostics

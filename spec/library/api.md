@@ -775,7 +775,7 @@ fn fetches() {
 | `new` | `new(method: Method, url: String) -> Request` | A request with no headers and no body. Formerly `Http.request` |
 | `add_header` | `add_header(req: Request, name: String, value: String) -> Request` | Appends a header at the end |
 | `header` | `header(req: Request, name: String) -> Option[String]` | The first value whose name matches. Case-insensitive (ASCII) |
-| `header_values` | `header_values(req: Request, name: String) -> List[String]` | All values whose name matches. Formerly `headers`, renamed because the field `headers` has the same name (E0334) |
+| `header_values` | `header_values(req: Request, name: String) -> List[String]` | All values whose name matches. Formerly `headers`, renamed because the field `headers` has the same name (E3109) |
 | `path` | `path(req: Request) -> String` | The path of `url`, without the query, as written (not decoded). `/` if empty |
 | `segments` | `segments(req: Request) -> List[String]` | The path split at `/`, without empty segments, each percent-decoded. A segment with a malformed `%` sequence, or whose decoded bytes are not UTF-8, is kept as written |
 | `query` | `query(req: Request) -> List[(String, String)]` | The part of `url` after `?`, read as `decode_query` does. Empty if there is no `?`. A pair with a malformed `%` sequence, or whose decoded bytes are not UTF-8, is kept as written |
@@ -793,7 +793,7 @@ impl (`[trait.derive]`): Method and Request have `derive Eq, Show`.
 | `new` | `new(status: Int, body: String) -> Response` | A response without headers. Formerly `Http.response` |
 | `add_header` | `add_header(res: Response, name: String, value: String) -> Response` | Appends a header at the end |
 | `header` | `header(res: Response, name: String) -> Option[String]` | The first value whose name matches. Case-insensitive (ASCII). Moved from `Std.Http` |
-| `header_values` | `header_values(res: Response, name: String) -> List[String]` | All values whose name matches. Moved from `Std.Http`. Formerly `headers`, renamed because the field `headers` has the same name (E0334) |
+| `header_values` | `header_values(res: Response, name: String) -> List[String]` | All values whose name matches. Moved from `Std.Http`. Formerly `headers`, renamed because the field `headers` has the same name (E3109) |
 | `require_ok` | `require_ok(res: Response) -> Response fails UnexpectedStatus` | Fails on anything other than 2xx. Moved from `Std.Http` |
 
 impl (`[trait.derive]`): Response has `derive Eq, Show`, and UnexpectedStatus has `derive Show`.
@@ -844,7 +844,7 @@ pub fn read_exact(conn: Connection, n: Int) -> Bytes fails ConnectionClosed | Tc
 - The release of `SystemTcp` closes the connections it opened that are still open. A connection can be used only inside the with of the handler that opened it. Passing a connection to an operation, `close` included, after that with has ended, or passing it to another handler than the one that opened it, is a defect (``a connection was used outside the with of the handler that opened it``).
 - Two concurrent `read`s on the same connection, or two concurrent `write`s, are a defect (``two reads of a connection ran at once``, ``two writes of a connection ran at once``). A `read` and a `write` on the same connection MAY run concurrently.
 - Tcp is not Immediate (`[type.effect-bound]`), so it cannot be used inside the callback of an external function.
-- `SystemTcp` requires ProcessHost (`[effect.host]`): a page of a web browser has no TCP. It uses `node:net` and `node:tls` on JS. On native it resolves names with `getaddrinfo` on another thread and waits on non-blocking sockets with `em_on_readable` and `em_on_writable` (`[ext.c-host]`). On WASM it uses `wasi:sockets@0.3.0`, and performs TLS inside the component (`[target.wasm.external]`). `upgrade_tls` has no native implementation yet, and calling it on native is a compile error (E0412).
+- `SystemTcp` requires ProcessHost (`[effect.host]`): a page of a web browser has no TCP. It uses `node:net` and `node:tls` on JS. On native it resolves names with `getaddrinfo` on another thread and waits on non-blocking sockets with `em_on_readable` and `em_on_writable` (`[ext.c-host]`). On WASM it uses `wasi:sockets@0.3.0`, and performs TLS inside the component (`[target.wasm.external]`). `upgrade_tls` has no native implementation yet, and calling it on native is a compile error (E5001).
 
 impl (`[trait.derive]`): Every error has `derive Show` (their contents are shown when they reach main or a test; `[dyn.error]`).
 

@@ -12,7 +12,7 @@ ROOT@0..8
       PATH_TYPE@5..8
         PATH@5..8
           TYPE_NAME@5..8 "Int"
-error[E0110]@8..8: expected `]`
+error[E1101]@8..8: expected `]`
 === (Int,)
 ROOT@0..6
   TUPLE_TYPE@0..6
@@ -22,7 +22,7 @@ ROOT@0..6
         TYPE_NAME@1..4 "Int"
     COMMA@4..5 ","
     R_PAREN@5..6 ")"
-error[E0112]@5..6: a tuple type needs at least two elements
+error[E1103]@5..6: a tuple type needs at least two elements
 === List[, Int]
 ROOT@0..11
   PATH_TYPE@0..11
@@ -36,7 +36,7 @@ ROOT@0..11
         PATH@7..10
           TYPE_NAME@7..10 "Int"
       R_BRACK@10..11 "]"
-error[E0111]@5..6: expected type
+error[E1102]@5..6: expected type
 === fn(A) B
 ROOT@0..7
   FN_TYPE@0..5
@@ -49,7 +49,7 @@ ROOT@0..7
   WHITESPACE@5..6 " "
   ERROR@6..7
     UPPER_NAME@6..7 "B"
-error[E0110]@6..7: expected `->`
+error[E1101]@6..7: expected `->`
 === fn A -> B
 ROOT@0..9
   FN_TYPE@0..2
@@ -61,7 +61,7 @@ ROOT@0..9
     THIN_ARROW@5..7 "->"
     WHITESPACE@7..8 " "
     UPPER_NAME@8..9 "B"
-error[E0110]@3..4: expected `(`
+error[E1101]@3..4: expected `(`
 === fn() -> A fails
 ROOT@0..15
   FN_TYPE@0..15
@@ -79,7 +79,7 @@ ROOT@0..15
     FAILS_CLAUSE@10..15
       LOWER_NAME@10..15 "fails"
       ERROR_SET@15..15
-error[E0111]@15..15: expected type
+error[E1102]@15..15: expected type
 === fn() -> A fails E |
 ROOT@0..19
   FN_TYPE@0..19
@@ -102,7 +102,7 @@ ROOT@0..19
           UPPER_NAME@16..17 "E"
         WHITESPACE@17..18 " "
         PIPE@18..19 "|"
-error[E0111]@19..19: expected type
+error[E1102]@19..19: expected type
 === fn() -> A uses { Io, 1 }
 ROOT@0..24
   FN_TYPE@0..24
@@ -131,9 +131,9 @@ ROOT@0..24
           INT@21..22 "1"
         WHITESPACE@22..23 " "
         R_BRACE@23..24 "}"
-error[E0111]@21..22: expected type
+error[E1102]@21..22: expected type
 === 42
 ROOT@0..2
   ERROR@0..2
     INT@0..2 "42"
-error[E0111]@0..2: expected type
+error[E1102]@0..2: expected type

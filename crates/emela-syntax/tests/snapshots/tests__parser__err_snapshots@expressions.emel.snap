@@ -141,11 +141,11 @@ ROOT@0..143
       NEWLINE@140..141 "\n"
       R_BRACE@141..142 "}"
   NEWLINE@142..143 "\n"
-error[E0119]@17..18: comparison operators cannot be chained
-error[E0120]@43..44: positional arguments cannot follow named arguments
-error[E0121]@67..68: wrap `use` in parentheses to call its operations: `(use X).op()`
-error[E0125]@79..84: invalid left-hand side of binding: expected a pattern
-error[E0123]@93..94: `_` can only be used in patterns
-error[E0124]@100..102: `..` without an expression can only be used in patterns
-error[E0115]@108..110: `..` needs at least one element before it
-error[E0110]@139..140: expected `{`
+error[E1106]@17..18: comparison operators cannot be chained
+error[E1107]@43..44: positional arguments cannot follow named arguments
+error[E1108]@67..68: wrap `use` in parentheses to call its operations: `(use X).op()`
+error[E1111]@79..84: invalid left-hand side of binding: expected a pattern
+error[E1110]@93..94: `_` can only be used in patterns
+error[E1110]@100..102: `..` without an expression can only be used in patterns
+error[E1104]@108..110: `..` needs at least one element before it
+error[E1101]@139..140: expected `{`

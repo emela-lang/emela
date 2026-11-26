@@ -61,9 +61,9 @@ fn main() -> ExitCode {
 /// code: the native target's "not supported yet").
 const NOT_ON_C: &[(&str, Option<&str>)] = &[
     // SystemHttp has no `@external(c, ...)` yet (spec 15.2).
-    ("http", Some("E0412")),
+    ("http", Some("E5001")),
     // HTTP services are not supported on C (`[target.native.unsupported]`).
-    ("http-service", Some("E0442")),
+    ("http-service", Some("E5203")),
 ];
 
 fn root() -> PathBuf {

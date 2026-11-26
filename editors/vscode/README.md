@@ -49,7 +49,7 @@ npm run compile   # type checks, then bundles src/ into out/extension.js
 1. Open this directory in VSCode and press F5 (Run Extension).
 2. In the development host, set `emela.serverPath` to the absolute path of `target/debug/emela`
    (not needed if `emela` on `PATH` is that build).
-3. Open a folder with `Pome.toml` and `src/main.emel`, and type `const Y = "\q"`. An `E0107`
+3. Open a folder with `Pome.toml` and `src/main.emel`, and type `const Y = "\q"`. An `E1007`
    squiggle appears, and goes away once you fix the escape.
 4. The server's stderr shows up in the Output panel under "Emela Language Server".
 

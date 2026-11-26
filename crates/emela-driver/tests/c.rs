@@ -60,7 +60,7 @@ fn run_c(name: &str, main: &str, backend: &mut CoreC) -> (Analysis, Option<RunOu
     result
 }
 
-/// The diagnostics but W0403: the programs still write `use E` as an expression (deprecated).
+/// The diagnostics but W4401: the programs still write `use E` as an expression (deprecated).
 fn codes(analysis: &Analysis) -> Vec<(Option<&str>, &str)> {
     analysis
         .diagnostics
@@ -172,7 +172,7 @@ fn main() {
     assert_eq!(
         codes(&analysis),
         [(
-            Some("E0412"),
+            Some("E5001"),
             "external function `now` has no `@external(c, ...)` for target `native`"
         )]
     );
@@ -202,7 +202,7 @@ fn main() {
     assert_eq!(text(&output.stdout), "ok\n");
 }
 
-/// The operations of `SystemTcp` have no C binding yet (`[api.std.tcp]`): calling one is E0412.
+/// The operations of `SystemTcp` have no C binding yet (`[api.std.tcp]`): calling one is E5001.
 #[test]
 fn tcp_operations_are_e0412_natively() {
     let main = r##"import Std.Tcp.{Tcp, SystemTcp}
@@ -221,7 +221,7 @@ fn main() {
     let found = codes(&analysis);
     assert!(
         found.contains(&(
-            Some("E0412"),
+            Some("E5001"),
             "external function `host_connect` has no `@external(c, ...)` for target `native`"
         )),
         "{found:?}"
@@ -239,13 +239,13 @@ fn main() { take(|x| x) }
     assert_eq!(
         codes(&analysis),
         [(
-            Some("E0427"),
+            Some("E5201"),
             "external function `take` takes a callback, which target `native` does not support yet"
         )]
     );
 }
 
-/// An exported fn with a callback is not supported on C yet; it is not E0427, which is about
+/// An exported fn with a callback is not supported on C yet; it is not E5201, which is about
 /// external functions (`[target.native.export]`).
 #[test]
 fn exported_callbacks_are_rejected() {
@@ -266,7 +266,7 @@ fn main() {}
 
 /// `[ext.boundary]`: the native target does not support Array at the boundary yet either. An external
 /// function reachable from the entry, or an exported fn, that takes or returns a type that is an
-/// Array (of any element type, Bytes and nested arrays included) is E0443.
+/// Array (of any element type, Bytes and nested arrays included) is E5204.
 #[test]
 fn arrays_at_the_boundary_are_e0443() {
     let main = r##"import Std.Array.{Array}
@@ -293,15 +293,15 @@ fn main() {
         codes(&analysis),
         [
             (
-                Some("E0443"),
+                Some("E5204"),
                 "external function `sum` takes `Array[Int]`, which target `native` does not support yet"
             ),
             (
-                Some("E0443"),
+                Some("E5204"),
                 "external function `rows` returns `Array[String]`, which target `native` does not support yet"
             ),
             (
-                Some("E0443"),
+                Some("E5204"),
                 "external function `chunks` takes `Array[Array[Bytes]]`, which target `native` does not support yet"
             ),
         ]
@@ -322,11 +322,11 @@ fn main() {}
         codes(&analysis),
         [
             (
-                Some("E0443"),
+                Some("E5204"),
                 "exported function `size` takes `Array[Int]`, which target `native` does not support yet"
             ),
             (
-                Some("E0443"),
+                Some("E5204"),
                 "exported function `names` returns `Array[String]`, which target `native` does not support yet"
             ),
         ]
@@ -344,7 +344,7 @@ fn cc_problems_are_e0907_and_e0908() {
     assert!(output.is_none());
     let found = codes(&analysis);
     assert_eq!(found.len(), 1, "{found:?}");
-    assert_eq!(found[0].0, Some("E0907"));
+    assert_eq!(found[0].0, Some("E9101"));
     assert!(
         found[0]
             .1
@@ -365,7 +365,7 @@ fn cc_problems_are_e0907_and_e0908() {
     assert_eq!(
         found,
         [(
-            Some("E0908"),
+            Some("E9103"),
             "`false` failed to compile the output of target `native`"
         )]
     );
@@ -385,7 +385,7 @@ fn a_compiler_with_flags_in_its_name_points_to_emela_cc_args() {
     assert_eq!(
         codes(&analysis),
         [(
-            Some("E0907"),
+            Some("E9101"),
             "cannot start `cc -fsanitize=address`: No such file or directory (os error 2)"
         )]
     );
@@ -621,14 +621,14 @@ fn build_target_from_pome_toml() {
     assert_eq!(
         read("[build]\ntarget = \"c\"\n"),
         Err((
-            Some("E0232"),
+            Some("E2302"),
             "unknown target `c` in `[build].target`".to_owned()
         ))
     );
     assert_eq!(
         read("[build]\ntarget = \"node\"\n"),
         Err((
-            Some("E0232"),
+            Some("E2302"),
             "unknown target `node` in `[build].target`".to_owned()
         ))
     );

@@ -25,7 +25,7 @@ fail NotFound(id:)
 
 `fail e` ends the current computation with the error `e`. The type of `e` MUST be an error type. The type of the expression is Never, and the tag of the type of `e` is added to E.
 
-When a type parameter is used both as the type of a value (`err: E`) and as an error set (`fails E`), that type parameter is inferred as a single error type. The same holds when the type of `e` is a type variable that is not yet determined: the type of `fn raise(err) { fail err }` is `∀ E, A. fn(E) -> A fails E`. Passing a type that is not an error to `fail`, and instantiating a type parameter for a single error type with a type that is not an error, are compile errors (E0319; for instantiation, the diagnostic points at the call). Passing a value of type Never to `fail` adds nothing to E.
+When a type parameter is used both as the type of a value (`err: E`) and as an error set (`fails E`), that type parameter is inferred as a single error type. The same holds when the type of `e` is a type variable that is not yet determined: the type of `fn raise(err) { fail err }` is `∀ E, A. fn(E) -> A fails E`. Passing a type that is not an error to `fail`, and instantiating a type parameter for a single error type with a type that is not an error, are compile errors (E3202; for instantiation, the diagnostic points at the call). Passing a value of type Never to `fail` adds nothing to E.
 
 ```emel
 fn or_fail[A, E](opt: Option[A], err: E) -> A fails E {
@@ -78,12 +78,12 @@ fn or_else[A, E](f: fn() -> A fails E, default: A) -> A {
 }
 ```
 
-- `expr escape { arms }` handles errors raised while evaluating the expression. The pattern of an arm MUST be an error constructor or the wildcard `_`. A variable cannot be written, because a value of one of several errors has no type (7.1). A constructor that is not an error at the top level is E0217, and a variable or `_` with a guard is E0320. An escape with such a mistake is checked further as if it handled all the errors of the original expression (E0318 is not reported in addition). Exhaustiveness of the arms is not required.
-- An arm that handles an error the original expression cannot raise gets a warning (W0302). If an arm for the same error is covered by the arms above it, it is warned about as a redundant arm (W0301). Both checks also apply to arms that handle only some values. They are checked only when the E of the original expression contains no opaque set variable.
+- `expr escape { arms }` handles errors raised while evaluating the expression. The pattern of an arm MUST be an error constructor or the wildcard `_`. A variable cannot be written, because a value of one of several errors has no type (7.1). A constructor that is not an error at the top level is E2106, and a variable or `_` with a guard is E3203. An escape with such a mistake is checked further as if it handled all the errors of the original expression (E3201 is not reported in addition). Exhaustiveness of the arms is not required.
+- An arm that handles an error the original expression cannot raise gets a warning (W3201). If an arm for the same error is covered by the arms above it, it is warned about as a redundant arm (W3101). Both checks also apply to arms that handle only some values. They are checked only when the E of the original expression contains no opaque set variable.
 - The result of an arm MUST have the same type as the original expression, or be Never (`fail` or `panic`). When the type of the original expression is Never, the common type of the arms is the type of the whole.
 - The tags handled by the arms are removed from E. The tags not handled propagate as they are.
 - A tag is removed only when the arms without guards for that error together handle all values of that error (`NotFound(_)`; two arms `Flag(on: True)` and `Flag(on: False)` also work). If there are only arms that handle some of the values (`NotFound(id: 1)`, arms with guards), the tag stays in E, and values that match no arm propagate to the caller as errors.
-- An arm `_` handles every error that reaches it, and removes every tag and every set variable, opaque or not, from E. Arms below it are warned about as redundant (W0301), whether or not the E of the original expression contains an opaque set variable, and such an arm does not also get W0302. `_` cannot have a guard.
+- An arm `_` handles every error that reaches it, and removes every tag and every set variable, opaque or not, from E. Arms below it are warned about as redundant (W3101), whether or not the E of the original expression contains an opaque set variable, and such an arm does not also get W3201. `_` cannot have a guard.
 - `_` discards the error. Use it when the error itself is not needed: to fall back to a default value, to do nothing, or to turn the failure into a defect with `panic`. To look at the error, handle it by its constructor.
 - A defect and an interruption are not errors, so `_` does not handle them (7.5, 11.5).
 - Errors raised in an arm are added to E.
@@ -132,9 +132,9 @@ The E of a function with a written return type is the written fails clause plus 
 fn twice(f: fn() -> Int) -> Int { f() + f() }
 ```
 
-The hidden set variable of a function that a parameter function receives (the inner one in `f: fn(fn() -> A) -> B`) is opaque from the body, so passing a function that fails there is a compile error (E0321).
+The hidden set variable of a function that a parameter function receives (the inner one in `f: fn(fn() -> A) -> B`) is opaque from the body, so passing a function that fails there is a compile error (E3201).
 
-An error not included in the E of the declaration is E0318. The diagnostic points, for each error, at the first expression that raised it. The first expression is found by following, in written order, the subexpressions whose E contains that error, down to an expression that cannot be followed further (a `fail` or a call). Multiple errors raised from the same expression are reported as one.
+An error not included in the E of the declaration is E3201. The diagnostic points, for each error, at the first expression that raised it. The first expression is found by following, in written order, the subexpressions whose E contains that error, down to an expression that cannot be followed further (a `fail` or a call). Multiple errors raised from the same expression are reported as one.
 
 ## 7.5 defect `[error.defect]`
 
