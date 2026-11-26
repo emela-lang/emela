@@ -36,3 +36,31 @@ fn unreserved(byte: Int) -> Bool {
 fn inside(byte: Int) -> Bool {
   f(byte >= 0x41 && byte <= 0x5A || byte >= 0x61 && byte <= 0x7A || byte >= 0x30 && byte <= 0x39 || byte == 0x2D)
 }
+
+# A chain of `||` that fits only without the `->` or `{` after it gets parentheses (`[fmt.wrap]`).
+fn guard(xs: List[Int]) -> Int {
+  xs match {
+    [c, ..] if c == 1111111111 || c == 2222222222 || c == 3333333333 || c == 4444444444 || c == 5555 -> 1
+    [c, ..] if (c == 1111111111 || c == 2222222222 || c == 3333333333 || c == 4444444444 || c == 5) -> 2
+    _ -> 0
+  }
+}
+
+fn condition(c: Int) -> Int {
+  if c == 1111111111 || c == 2222222222 || c == 3333333333 || c == 4444444444 || c == 55555555555555 {
+    1
+  } else {
+    0
+  }
+}
+
+# A chain of `||` with a comment before its `)` stays on one line if it fits.
+fn commented(c: Int) -> Bool {
+  (c == 1111111111 || c == 2222222222 # comment
+  )
+}
+
+fn commented_long(c: Int) -> Bool {
+  (c == 1111111111 || c == 2222222222 || c == 3333333333 || c == 4444444444 || c == 555555555 # comment
+  )
+}

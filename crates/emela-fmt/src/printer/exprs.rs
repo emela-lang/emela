@@ -509,7 +509,7 @@ impl Printer {
         // After a trailing comment, `)` already starts a line of its own.
         let close_breaks = self.pending;
         let close = child_token(node, R_PAREN).map_or_else(RcDoc::nil, |t| self.tok(&t));
-        or_chain_in_parens(open, chain, close, close_breaks, 1, self.width())
+        or_chain_in_parens(open, chain, close, close_breaks, false)
     }
 
     /// The parameter list and the space after it, and the body. The old form `fn(x) { ... }`
@@ -776,7 +776,7 @@ impl Printer {
         }
         let normal = first_doc.clone().append(tail.nest(INDENT)).group();
         if class == op_class(PIPE2) && !inside_brackets(node) {
-            return or_chain_in_parens(text("("), normal, text(")"), false, 0, self.width());
+            return or_chain_in_parens(text("("), normal, text(")"), false, true);
         }
         // When a single pipe breaks only inside a hugged body (`xs |> List.map(|x| {`), do
         // not break the pipe if the first line fits.
@@ -802,49 +802,30 @@ impl Printer {
     }
 }
 
-/// A chain of `||` that breaks before a `||` is written with `open` and `close` on lines of
-/// their own around it (`[fmt.wrap]`); with `close_breaks`, `close` already starts a line (after
-/// a trailing comment). Otherwise the chain is printed as is: alone for a chain outside brackets
-/// (`shift` 0: `open` and `close` are the parentheses the formatter adds), or in its parentheses,
-/// `shift` being the width of `(`.
-fn or_chain_in_parens(
-    open: Doc,
-    chain: Doc,
-    close: Doc,
-    close_breaks: bool,
-    shift: usize,
-    width: usize,
-) -> Doc {
-    let inline = if shift == 0 {
-        chain.clone()
-    } else {
-        open.clone().append(chain.clone()).append(close.clone())
-    };
-    let close_line = if close_breaks {
-        close
-    } else {
-        RcDoc::hardline().append(close)
-    };
+/// A chain of `||` that does not fit on its line, counting what follows it there (the
+/// `-> body` of an arm, the `{` of an `if`), is written with `open` and `close` on lines of
+/// their own around it (`[fmt.wrap]`); with `close_breaks`, `close` already starts a line
+/// (after a trailing comment). Otherwise the chain is printed flat, alone when `added` (`open`
+/// and `close` are the parentheses the formatter adds) or in its parentheses, so it never
+/// breaks before a `||` outside them.
+fn or_chain_in_parens(open: Doc, chain: Doc, close: Doc, close_breaks: bool, added: bool) -> Doc {
     let broken = open
-        .append(RcDoc::hardline().append(chain.clone()).nest(INDENT))
-        .append(close_line);
-    RcDoc::column(move |col| {
-        let (chain, inline, broken) = (chain.clone(), inline.clone(), broken.clone());
-        RcDoc::nesting(move |indent| {
-            let probe = text(&" ".repeat(col + shift))
-                .append(chain.clone())
-                .nest(indent as isize);
-            let broke = render(&probe, width)
-                .lines()
-                .skip(1)
-                .any(|l| l.trim_start().starts_with("||"));
-            if broke {
-                broken.clone()
-            } else {
-                inline.clone()
-            }
-        })
-    })
+        .clone()
+        .append(RcDoc::hardline().append(chain.clone()).nest(INDENT));
+    if close_breaks {
+        // The newline in `close` would keep the group from ever fitting, so it stays outside.
+        return broken.flat_alt(open.append(chain)).group().append(close);
+    }
+    let inline = if added {
+        chain
+    } else {
+        open.append(chain).append(close.clone())
+    };
+    broken
+        .append(RcDoc::hardline())
+        .append(close)
+        .flat_alt(inline)
+        .group()
 }
 
 /// The chain of `||` that is the only thing in a PAREN_EXPR.
