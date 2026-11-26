@@ -669,9 +669,6 @@ Set.from_list(["a", "b"])
   operations is E5001 ([`tcp`](proposals/tcp.md) is implemented in steps).
 - `FileSystem` and `Http` handle UTF-8 text only; `Std.Bytes` exists, but they
   do not read or write it yet.
-- No limit on how many fibers run at once (`Semaphore`) or `Queue` yet. Both
-  are an adopted proposal ([`semaphore-queue`](proposals/semaphore-queue.md))
-  that is not implemented.
 - Only `Eq`, `Ord`, `Show`, `Encode`, `Decode`, `ObjectKey` and `Shaped` can be
   derived.
 - The JavaScript target assumes a server host: Node.js 22 or later, or Bun
