@@ -3,10 +3,10 @@
 //! [`add_entry_exports`] runs before type checking, because it adds definitions: for each
 //! `@entry(T)` on `f`, a fn whose body is `T(f, ...)`. Type checking then infers it like any other
 //! fn, so matching `f` against the first parameter of `T` (and instantiating `T`) needs nothing of
-//! its own; an error in that body is reported as E0440 instead ([`check`]).
+//! its own; an error in that body is reported as E5105 instead ([`check`]).
 //!
-//! [`check`] runs after inference: the boundary types of an exported fn (E0436) and its empty E
-//! (E0402). Its R is closed like main's ([`crate::CheckOptions`] is not involved: every fn with an
+//! [`check`] runs after inference: the boundary types of an exported fn (E5101) and its empty E
+//! (E4301). Its R is closed like main's ([`crate::CheckOptions`] is not involved: every fn with an
 //! `@export` is closed, see `check_program_with`).
 
 use emela_resolve::ModuleId;
@@ -84,8 +84,8 @@ pub fn is_http_serve(program: &Program, def: DefId) -> bool {
             if program.modules.get(m).is_some_and(|items| items.name.segments() == ["Std", "Http"]))
 }
 
-/// Checks where `@export` and `@entry` are written (E0437, E0439) and that no two exports share a
-/// name (E0438), and adds the fns that `@entry` exposes ([`Program::entry_exports`]). `entry` is
+/// Checks where `@export` and `@entry` are written (E5102, E5104) and that no two exports share a
+/// name (E5103), and adds the fns that `@entry` exposes ([`Program::entry_exports`]). `entry` is
 /// the entry module; without one, every `@export` that is not an entry adapter and every `@entry`
 /// is outside it.
 pub fn add_entry_exports(program: &mut Program, entry: Option<ModuleId>) -> Vec<Diagnostic> {
@@ -179,7 +179,7 @@ fn body_span(attr: Span) -> Span {
 /// and its expressions and parameters have [`body_span`].
 ///
 /// `None` if a parameter or the return type of `adapter` names one of its type parameters (which
-/// is not a boundary type, E0436 on `adapter`): the new fn could not refer to it.
+/// is not a boundary type, E5101 on `adapter`): the new fn could not refer to it.
 fn entry_fn(program: &mut Program, f: DefId, adapter: DefId, attr: Span) -> Option<DefId> {
     let span = body_span(attr);
     let Some(Item::Fn(item)) = program.item(adapter) else {
@@ -320,7 +320,7 @@ pub fn host_exports(program: &Program, entry: Option<ModuleId>) -> Vec<HostExpor
     out
 }
 
-/// Two exports with the same name for the same target (E0438), reported at the second: at its
+/// Two exports with the same name for the same target (E5103), reported at the second: at its
 /// `@export`, or at the `@entry` that made it.
 fn duplicates(program: &Program, entry: Option<ModuleId>, diags: &mut Vec<Diagnostic>) {
     let mut seen: Vec<(&str, &[String])> = Vec::new();
@@ -348,8 +348,8 @@ fn duplicates(program: &Program, entry: Option<ModuleId>, diags: &mut Vec<Diagno
 }
 
 /// After inference: the parameters and the return value of every `@export` fn are boundary types
-/// (E0436, the first parameter of an entry adapter excepted), and its E is empty (E0402). A type
-/// error in a fn made by `@entry` becomes one E0440 at the attribute.
+/// (E5101, the first parameter of an entry adapter excepted), and its E is empty (E4301). A type
+/// error in a fn made by `@entry` becomes one E5105 at the attribute.
 pub(crate) fn check(
     program: &Program,
     ty_table: &TyTable,
@@ -429,7 +429,7 @@ pub(crate) fn check(
 /// which excludes tests), and `$start` when the entry's `main` or a fn with an `@export(js, ...)`
 /// may suspend. The `$start` of a fn with several exports is emitted only for a `js` export, and
 /// tests are not in the output of a build. An export with one of these names is a duplicate of the
-/// launcher's export (E0438).
+/// launcher's export (E5103).
 ///
 /// Reported once per name, at the first such export in source order (at the `@entry` for an export
 /// it makes). Later exports of the same name are [`duplicates`]' diagnostics.
@@ -505,7 +505,7 @@ fn may_suspend(program: &Program, sig: &Signature) -> bool {
     })
 }
 
-/// E0402 when the E of `def` is not empty. A hidden set variable of a parameter's function type
+/// E4301 when the E of `def` is not empty. A hidden set variable of a parameter's function type
 /// counts (spec 9.4 adds it to the fn's E), so a callback parameter is written with `fails {}`.
 fn export_fails(
     program: &Program,

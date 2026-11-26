@@ -4,7 +4,7 @@ expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/old_lambda_rewrites.emel
 ---
 ROOT@0..470
-  COMMENT@0..83 "# fn(...) の書き換え（E0148）: 引数の型，本体の形，括弧の要否"
+  COMMENT@0..83 "# fn(...) の書き換え（E1405）: 引数の型，本体の形，括弧の要否"
   NEWLINE@83..84 "\n"
   FN_DECL@84..306
     FN_KW@84..86 "fn"
@@ -420,21 +420,21 @@ ROOT@0..470
       L_BRACE@467..468 "{"
       R_BRACE@468..469 "}"
   NEWLINE@469..470 "\n"
-error[E0148]@104..146: anonymous functions are written `|x| body`
+error[E1405]@104..146: anonymous functions are written `|x| body`
   = help: write `|f: (fn() -> Int fails Timeout | Refused)| f()`
-error[E0148]@161..199: anonymous functions are written `|x| body`
+error[E1405]@161..199: anonymous functions are written `|x| body`
   = help: write `|f: fn(Result[Int, Bool]) -> Int, x| x`
-error[E0148]@212..253: anonymous functions are written `|x| body`
+error[E1405]@212..253: anonymous functions are written `|x| body`
   = help: write `|f: fn(fn() -> Int fails A | B) -> Int| 1`
-error[E0148]@266..270: anonymous functions are written `|x| body`
+error[E1405]@266..270: anonymous functions are written `|x| body`
   = help: write `|| { x = 1 }`
-error[E0148]@287..292: anonymous functions are written `|x| body`
+error[E1405]@287..292: anonymous functions are written `|x| body`
   = help: write `|x| ...`
-error[E0148]@330..335: anonymous functions are written `|x| body`
+error[E1405]@330..335: anonymous functions are written `|x| body`
   = help: write `(|x| x)`
-error[E0148]@353..358: anonymous functions are written `|x| body`
+error[E1405]@353..358: anonymous functions are written `|x| body`
   = help: write `(|x| x)`
-error[E0148]@384..389: anonymous functions are written `|x| body`
+error[E1405]@384..389: anonymous functions are written `|x| body`
   = help: write `|x| x`
-error[E0144]@400..428: write `impl Box[A: Show]: Eq` instead of `impl[A: Eq] Box[A: Show]: Eq`
-error[E0144]@432..466: write `impl Pair[A: Eq, B: Ord]: Eq` instead of `impl[A: Eq, B: Ord] Pair[A, B]: Eq`
+error[E1402]@400..428: write `impl Box[A: Show]: Eq` instead of `impl[A: Eq] Box[A: Show]: Eq`
+error[E1402]@432..466: write `impl Pair[A: Eq, B: Ord]: Eq` instead of `impl[A: Eq, B: Ord] Pair[A, B]: Eq`

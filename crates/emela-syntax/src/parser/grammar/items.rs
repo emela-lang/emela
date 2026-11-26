@@ -139,7 +139,7 @@ fn decl(p: &mut Parser<'_>, m: Marker) {
         TRAIT_KW => trait_decl(p, m),
         IMPL_KW => impl_decl(p, m),
         _ => {
-            p.error(DiagnosticCode::ExpectedDeclaration, "expected declaration");
+            p.error(DiagnosticCode::ExpectedNode, "expected declaration");
             if !p.at_eof() {
                 skip_to_decl(p);
             }
@@ -263,7 +263,7 @@ fn fn_decl(p: &mut Parser<'_>, m: Marker) {
 /// of a block. `m` is opened before its doc comment, if any.
 ///
 /// The parser also reads the attributes, `pub`, `suspend` and type parameters of a top-level fn
-/// into the node, and validation reports them (E0150). A missing body is reported here.
+/// into the node, and validation reports them (E1212, E1213). A missing body is reported here.
 pub(crate) fn local_fn(p: &mut Parser<'_>, m: Marker) {
     while p.at(AT) {
         annotation(p);
@@ -515,7 +515,7 @@ fn at_annotated_variant(p: &Parser<'_>) -> bool {
     n > 0 && p.peek(n) == TYPE_NAME
 }
 
-/// FIELD_LIST if named, TUPLE_FIELD_LIST if unnamed; mixing them is E0128.
+/// FIELD_LIST if named, TUPLE_FIELD_LIST if unnamed; mixing them is E1202.
 fn variant_fields(p: &mut Parser<'_>) {
     let m = p.start();
     let mut named = None;
@@ -706,8 +706,8 @@ fn member_sig(p: &mut Parser<'_>, m: Marker) {
 
 /// `[ "suspend" ] "fn" lower_name [ type_params ] "(" [ params ] ")" "->" type [ "fails" error_set ]`
 ///
-/// Type parameters are only allowed on built-in effects (spec 8.1); the type checker reports E0426.
-/// A uses clause is read too, and validation reports it over the clause (E0137, like E0136 for
+/// Type parameters are only allowed on built-in effects (spec 8.1); the type checker reports E1213.
+/// A uses clause is read too, and validation reports it over the clause (E1211, like E1210 for
 /// impl fns), so that the `{` or newline after it does not pile up syntax errors.
 fn op_sig(p: &mut Parser<'_>, m: Marker) {
     p.eat(SUSPEND_KW);
@@ -735,7 +735,7 @@ fn op_sig(p: &mut Parser<'_>, m: Marker) {
 /// `"handler" type_name [ type_params ] [ "(" [ fields ] ")" ] ":" effect_ref { "+" effect_ref }
 /// "{" { handler_item NL } "}"`
 ///
-/// Type parameters are read on an inner handler too; the type checker reports them (E0460).
+/// Type parameters are read on an inner handler too; the type checker reports them (E1213).
 ///
 /// The body, and the block of init, are left out only in a built-in handler (`@intrinsic`).
 ///
@@ -751,7 +751,7 @@ fn handler_decl(p: &mut Parser<'_>, m: Marker) {
     if p.at(L_PAREN) {
         field_list(p);
     }
-    // Without `:`, the old `implements` (E0145, reported by validation) or a following type name
+    // Without `:`, the old `implements` (E1403, reported by validation) or a following type name
     // is still read as the effect.
     if p.at(COLON) || p.at_contextual_kw("implements") || p.at(TYPE_NAME) {
         if p.at_contextual_kw("implements") {
@@ -869,15 +869,15 @@ fn trait_decl(p: &mut Parser<'_>, m: Marker) {
 ///
 /// The type and its type parameters (`Map[K: Eq, V: Eq]`) become an IMPL_TYPE; the trait is the
 /// PATH after `:`. The type parameters are read as those of an fn, so `List[Int]` and
-/// `Pair[A, A]` parse; name resolution checks the head (E0328).
+/// `Pair[A, A]` parse; name resolution checks the head (E3303).
 ///
 /// The old forms (`impl Show for User`, `impl[A: Eq] Box[A]: Eq`) are read without a diagnostic
 /// into the tree the rewritten head would give (the leading type parameters as a TYPE_PARAM_LIST
 /// directly under IMPL_DECL), so name resolution and type checking go on as after the rewrite;
-/// validation reports E0144.
+/// validation reports E1402.
 fn impl_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump_kind(IMPL_KW);
-    // The old `impl[A: Eq] Box[A]: Eq` puts the type parameters first (E0144, reported by
+    // The old `impl[A: Eq] Box[A]: Eq` puts the type parameters first (E1402, reported by
     // validation).
     if p.at(L_BRACK) {
         type_param_list(p);
@@ -889,7 +889,7 @@ fn impl_decl(p: &mut Parser<'_>, m: Marker) {
         p.expect(TYPE_NAME);
     }
     if p.at_contextual_kw("for") {
-        // The old `impl Show for User` (E0144, reported by validation): the first name is the
+        // The old `impl Show for User` (E1402, reported by validation): the first name is the
         // trait and the type follows `for`.
         head.abandon(p);
         p.bump();

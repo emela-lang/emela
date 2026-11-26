@@ -347,12 +347,12 @@ ROOT@0..500
       L_BRACE@497..498 "{"
       R_BRACE@498..499 "}"
   NEWLINE@499..500 "\n"
-error[E0144]@55..73: write `impl User: Show` instead of `impl Show for User`
-error[E0144]@101..123: write `impl Box[A: Eq]: Eq` instead of `impl[A: Eq] Box[A]: Eq`
-error[E0110]@168..172: expected `:`
-error[E0145]@220..230: write `handler ConsoleLogger: Logger` instead of `implements`
-error[E0145]@286..296: write `handler Fixed(n: Int): State[Int]` instead of `implements`
-error[E0144]@352..381: write `impl Pair[A: Eq, B]: Eq` instead of `impl[A: Eq, B] Pair[A, B]: Eq`
-error[E0144]@385..415: write `impl List[A: Show]: Show` instead of `impl[A: Show] Show for List[A]`
-error[E0145]@432..442: write `handler Bare: Logger` instead of `implements`
-error[E0145]@466..476: write `handler Both: Logger + State[Int]` instead of `implements`
+error[E1402]@55..73: write `impl User: Show` instead of `impl Show for User`
+error[E1402]@101..123: write `impl Box[A: Eq]: Eq` instead of `impl[A: Eq] Box[A]: Eq`
+error[E1101]@168..172: expected `:`
+error[E1403]@220..230: write `handler ConsoleLogger: Logger` instead of `implements`
+error[E1403]@286..296: write `handler Fixed(n: Int): State[Int]` instead of `implements`
+error[E1402]@352..381: write `impl Pair[A: Eq, B]: Eq` instead of `impl[A: Eq, B] Pair[A, B]: Eq`
+error[E1402]@385..415: write `impl List[A: Show]: Show` instead of `impl[A: Show] Show for List[A]`
+error[E1403]@432..442: write `handler Bare: Logger` instead of `implements`
+error[E1403]@466..476: write `handler Both: Logger + State[Int]` instead of `implements`

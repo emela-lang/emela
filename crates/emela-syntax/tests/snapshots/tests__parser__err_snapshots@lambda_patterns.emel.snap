@@ -92,10 +92,10 @@ ROOT@0..202
     WHITESPACE@199..200 " "
     R_BRACE@200..201 "}"
     NEWLINE@201..202 "\n"
-error[E0110]@140..141: expected parameter name or pattern
-error[E0110]@150..151: expected `|`
-error[E0122]@151..152: expected newline or `}` after statement
-error[E0130]@161..164: a function without a body must be `@external`
-error[E0110]@165..166: expected parameter name
-error[E0110]@166..167: expected `)`
-error[E0122]@166..167: expected newline after declaration
+error[E1101]@140..141: expected parameter name or pattern
+error[E1101]@150..151: expected `|`
+error[E1109]@151..152: expected newline or `}` after statement
+error[E1204]@161..164: a function without a body must be `@external`
+error[E1101]@165..166: expected parameter name
+error[E1101]@166..167: expected `)`
+error[E1109]@166..167: expected newline after declaration

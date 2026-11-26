@@ -64,5 +64,5 @@ ROOT@0..89
       NEWLINE@86..87 "\n"
       R_BRACE@87..88 "}"
   NEWLINE@88..89 "\n"
-error[E0110]@21..21: expected `{`
-error[E0110]@64..64: expected `{`
+error[E1101]@21..21: expected `{`
+error[E1101]@64..64: expected `{`

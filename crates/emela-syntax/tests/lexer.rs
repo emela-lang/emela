@@ -13,7 +13,7 @@ fn lexer_snapshots() {
 }
 
 /// One token per line as `KIND@start..end "text"`, followed by the diagnostics as
-/// `error[E0101]@start..end: message`.
+/// `error[E1001]@start..end: message`.
 fn dump(src: &str) -> String {
     let lexed = lex(src);
     let mut out = String::new();

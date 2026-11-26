@@ -123,7 +123,7 @@ fn an_unknown_target_in_the_project_is_an_error() {
     let dir = project(Some("cobol"));
     let output = emela(dir.path(), &["doctor"]);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("E0232"), "{stderr}");
+    assert!(stderr.contains("E2302"), "{stderr}");
     assert_ne!(output.status.code(), Some(0));
 }
 

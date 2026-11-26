@@ -202,7 +202,7 @@ impl Shapes<'_> {
     /// The value of the const `def` as a pattern for a value of type `ty`, if its value is made
     /// only of literals, negated numeric literals, constructors, tuples, lists and other such
     /// consts (spec 5.6). `None` otherwise, and for a const that refers to itself (`seen` holds the
-    /// consts being expanded; E0231 has been reported).
+    /// consts being expanded; E2113 has been reported).
     fn const_pat(&self, def: DefId, ty: &Ty, seen: &mut Vec<DefId>) -> Option<Pat> {
         let Some(Item::Const(item)) = self.program.item(def) else {
             return None;

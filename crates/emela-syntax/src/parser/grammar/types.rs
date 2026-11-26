@@ -25,7 +25,7 @@ pub(crate) fn type_(p: &mut Parser<'_>) {
         L_PAREN => paren_type(p),
         FN_KW => fn_type(p),
         USE_KW => cap_type(p),
-        _ => p.err_recover(DiagnosticCode::ExpectedType, "expected type", RECOVERY),
+        _ => p.err_recover(DiagnosticCode::ExpectedNode, "expected type", RECOVERY),
     }
 }
 
@@ -47,7 +47,7 @@ fn path_type(p: &mut Parser<'_>) {
 /// (`Handler[NotFound | Timeout, { Db, Log }]`, spec 9.2). Braces are the effect set notation
 /// (`{}` is the empty set and may also stand where an error set goes); `|` joins an error set.
 /// A single element is read as a type (`Handler[NotFound, Db]`). Which type arguments take a set
-/// is not checked here; type inference does (E0323, E0324).
+/// is not checked here; type inference does (E3007, E3008).
 fn type_arg(p: &mut Parser<'_>) {
     if p.at(L_BRACE) {
         effect_set(p);
@@ -179,7 +179,7 @@ pub(crate) fn ret_type(p: &mut Parser<'_>) {
 /// `[ "fails" error_set ] [ "uses" effect_set ]`
 ///
 /// The old clause `use effect_set` is read as a USES_CLAUSE too, and validation reports it
-/// with the rewrite (E0147, `[grammar.decl]`), so that checking goes on with the set it names.
+/// with the rewrite (E1404, `[grammar.decl]`), so that checking goes on with the set it names.
 /// Returns whether a uses clause was read.
 pub(crate) fn effects_and_errors(p: &mut Parser<'_>) -> bool {
     if p.at_contextual_kw("fails") {
@@ -280,6 +280,6 @@ fn set_element(p: &mut Parser<'_>) {
         UPPER_NAME => {
             type_var(p);
         }
-        _ => p.err_recover(DiagnosticCode::ExpectedType, "expected type", RECOVERY),
+        _ => p.err_recover(DiagnosticCode::ExpectedNode, "expected type", RECOVERY),
     }
 }

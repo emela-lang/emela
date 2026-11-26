@@ -175,7 +175,7 @@ every construct of the language. The native target does not have `String.length`
 `String.chars`, callbacks across `@external` or HTTP services yet
 ([`[target.native.unsupported]`](spec/targets/native.md)). The client of `Std.Http`
 (`SystemHttp`) runs only on JS: a program that sends a request does not
-compile for native or WASM (E0412, [`[target.wasm.external]`](spec/targets/wasm.md)).
+compile for native or WASM (E5001, [`[target.wasm.external]`](spec/targets/wasm.md)).
 `SystemStdin` does not run on WASM yet either.
 
 | Command        | Does                                                                                          |
@@ -665,7 +665,7 @@ Set.from_list(["a", "b"])
 ## Known limitations
 
 - `Std.Tcp` runs on JS only so far: on native and WASM, calling its
-  operations is E0412 ([`tcp`](proposals/tcp.md) is implemented in steps).
+  operations is E5001 ([`tcp`](proposals/tcp.md) is implemented in steps).
 - `FileSystem` and `Http` handle UTF-8 text only; `Std.Bytes` exists, but they
   do not read or write it yet.
 - No limit on how many fibers run at once (`Semaphore`) or `Queue` yet. Both

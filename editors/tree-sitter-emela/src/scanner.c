@@ -135,7 +135,7 @@ static bool continues_line(TSLexer *lexer, const bool *valid_symbols) {
     while (is_blank(lexer->lookahead)) advance(lexer);
     return (lexer->lookahead >= 'A' && lexer->lookahead <= 'Z') || lexer->lookahead == '{';
   }
-  // The old clause `use` on its own line (E0147) continues a signature, as the compiler reads
+  // The old clause `use` on its own line (E1404) continues a signature, as the compiler reads
   // it.
   if (equals(name, "use")) {
     if (!valid_symbols[SIGNATURE_CONTINUES]) return false;
@@ -177,7 +177,7 @@ static bool finish_before_interpolation(TSLexer *lexer, bool has_content,
 }
 
 // The body of a `"` string up to the closing `"`, an escape, an interpolation or the end of the
-// line (an unterminated string, E0101, ends there).
+// line (an unterminated string, E1001, ends there).
 static bool scan_string_content(TSLexer *lexer) {
   bool has_content = false;
   for (;;) {
@@ -210,7 +210,7 @@ static bool at_closing_line(TSLexer *lexer) {
 }
 
 // The body of a `"""` string. A line that holds only the closing `"""` ends it before its
-// indentation; a `"""` elsewhere also ends it (E0109 in the compiler).
+// indentation; a `"""` elsewhere also ends it (E1009 in the compiler).
 static bool scan_multiline_string_content(TSLexer *lexer) {
   // The indentation of the closing line is whitespace before the `"""` token, not body.
   if (lexer->get_column(lexer) == 0 && at_closing_line(lexer)) return false;

@@ -35,7 +35,7 @@ fn files(app: &str, router: &str) -> MemoryFiles {
 
 const ROUTER: &str = "import Util\nimport Web\nimport Web.Client\n\npub fn route() -> Int { Util.two() + Web.get() + Client.send() }\n";
 
-/// The compiler's own version: a dependency written for it gets no W0203, whatever the
+/// The compiler's own version: a dependency written for it gets no W2301, whatever the
 /// workspace version is.
 const COMPILER: &str = env!("CARGO_PKG_VERSION");
 
@@ -116,8 +116,8 @@ fn hides_dependencies_of_dependencies() {
     assert_eq!(
         found,
         [
-            "E0205 undefined module `Web`",
-            "E0205 undefined module `HttpKit`"
+            "E2004 undefined module `Web`",
+            "E2004 undefined module `HttpKit`"
         ]
     );
 }
@@ -140,14 +140,14 @@ fn checks_root_names() {
         )
     };
     assert!(
-        check("Util")[0].starts_with("E0204 the root name `Util`"),
+        check("Util")[0].starts_with("E2003 the root name `Util`"),
         "{:?}",
         check("Util")
     );
-    assert!(check("Std")[0].starts_with("E0203"), "{:?}", check("Std"));
-    assert!(check("List")[0].starts_with("E0203"), "{:?}", check("List"));
+    assert!(check("Std")[0].starts_with("E2002"), "{:?}", check("Std"));
+    assert!(check("List")[0].starts_with("E2002"), "{:?}", check("List"));
     assert!(
-        check("lower")[0].starts_with("E0235"),
+        check("lower")[0].starts_with("E2305"),
         "{:?}",
         check("lower")
     );
@@ -160,7 +160,7 @@ fn allows_external_only_when_the_project_says_so() {
     let found = diagnostics(&files(app, router), dependencies(None, COMPILER));
     assert!(
         found.iter().any(|d| d
-            .starts_with("E0233 `github.com/acme/quince` uses `@external`, but it is not allowed")),
+            .starts_with("E2303 `github.com/acme/quince` uses `@external`, but it is not allowed")),
         "{found:?}"
     );
 
@@ -171,7 +171,7 @@ fn allows_external_only_when_the_project_says_so() {
         Vec::<String>::new()
     );
 
-    // A `pub` external fn MAY be in a dependency (E0237 is retired, `[ext.decl]`). One declared
+    // A `pub` external fn MAY be in a dependency (`[ext.decl]`). One declared
     // with `uses {}` is called from the depending side as any pub fn.
     let public = "@external(js, \"./x.mjs\", \"f\")\npub fn f() -> Int uses {}\n\npub fn route() -> Int { f() }\n";
     let app_calls = "import Quince.Router\n\nfn main() {\n  Router.f()\n  ()\n}\n";
@@ -185,12 +185,12 @@ fn allows_external_only_when_the_project_says_so() {
     let found = diagnostics(&files(app, router), allowed);
     assert_eq!(
         found,
-        ["W0204 `github.com/acme/old` is allowed in [external] but not depended on"]
+        ["W2302 `github.com/acme/old` is allowed in [external] but not depended on"]
     );
 }
 
 /// `[effect.external]`: a pub `@external` fn of a dependency that adds External keeps the External
-/// of its module, so the handlers of the depending side cannot call it (E0402), and can only refer
+/// of its module, so the handlers of the depending side cannot call it (E4301), and can only refer
 /// to it and pass it to a handler of that module. An effect and a handler of that module reach the
 /// host for them.
 #[test]
@@ -205,7 +205,7 @@ fn external_functions_of_a_dependency_keep_their_external() {
         found
             .iter()
             .any(|d| d
-                .starts_with("E0402 effect `Quince.Router.External` is not provided in `main`")),
+                .starts_with("E4301 effect `Quince.Router.External` is not provided in `main`")),
         "{found:?}"
     );
 
@@ -225,7 +225,7 @@ fn allows_entry_adapters_only_when_the_project_says_so() {
     let found = diagnostics(&files(app, router), dependencies(None, COMPILER));
     assert!(
         found.iter().any(|d| d
-            .starts_with("E0233 `github.com/acme/quince` uses `@export`, but it is not allowed")),
+            .starts_with("E2303 `github.com/acme/quince` uses `@export`, but it is not allowed")),
         "{found:?}"
     );
     let mut allowed = dependencies(None, COMPILER);
@@ -243,7 +243,7 @@ fn checks_the_targets_of_dependencies() {
     assert!(check_dependency_targets(&deps, Target::Js).is_empty());
     let found = check_dependency_targets(&deps, Target::Wasm);
     assert_eq!(found.len(), 1);
-    assert_eq!(found[0].code, Some("E0238"));
+    assert_eq!(found[0].code, Some("E2307"));
     assert_eq!(
         found[0].message,
         "`github.com/acme/http-kit` supports only js, not wasm"
@@ -255,11 +255,11 @@ fn checks_the_targets_of_dependencies() {
 fn compares_the_compiler_version() {
     let found = diagnostics(&files(APP, ROUTER), dependencies(None, "99.0.0"));
     assert!(
-        found[0].starts_with("E0234 `github.com/acme/quince` needs emela 99.0.0"),
+        found[0].starts_with("E2304 `github.com/acme/quince` needs emela 99.0.0"),
         "{found:?}"
     );
     let found = diagnostics(&files(APP, ROUTER), dependencies(None, "0.1.0"));
-    assert!(found[0].starts_with("W0203"), "{found:?}");
+    assert!(found[0].starts_with("W2301"), "{found:?}");
 }
 
 // The project has a test root with a helper module; brix is a `[dev-dependencies]` Pome.
@@ -340,8 +340,8 @@ fn the_source_root_cannot_import_test_modules_or_dev_dependencies() {
     assert_eq!(
         test_diagnostics(&fs, deps, true),
         [
-            "E0239 `Brix` can only be imported under `test/`",
-            "E0239 `Support` can only be imported under `test/`",
+            "E2010 `Brix` can only be imported under `test/`",
+            "E2010 `Support` can only be imported under `test/`",
         ]
     );
 }
@@ -359,8 +359,8 @@ fn a_test_module_shares_the_names_of_the_source_root() {
     assert!(
         found
             .iter()
-            .any(|d| d.starts_with("E0204 duplicate module `Sort`"))
-            && found.contains(&"E0203 module name `Lib` is reserved".to_string()),
+            .any(|d| d.starts_with("E2003 duplicate module `Sort`"))
+            && found.contains(&"E2002 module name `Lib` is reserved".to_string()),
         "{found:?}"
     );
 }
@@ -388,7 +388,7 @@ fn does_not_report_the_license_of_a_dependency() {
 }
 
 /// `[module.pome]`: the `[experimental]` of a dependency is not reported when building the Pome
-/// that depends on it (W0206 and W0207 are reported only for the Pome being built).
+/// that depends on it (W2304 and W2305 are reported only for the Pome being built).
 #[test]
 fn does_not_report_the_experimental_settings_of_a_dependency() {
     let bad = "[pome]\nname = \"github.com/acme/quince\"\nversion = \"0.1.0\"\nemela = \"0.29.0\"\n\n[experimental]\nfrom-the-future = true\nother = 1\n";

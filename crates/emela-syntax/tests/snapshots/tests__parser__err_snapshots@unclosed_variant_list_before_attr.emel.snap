@@ -35,4 +35,4 @@ ROOT@0..134
       L_BRACE@131..132 "{"
       R_BRACE@132..133 "}"
   NEWLINE@133..134 "\n"
-error[E0110]@118..119: expected `}`
+error[E1101]@118..119: expected `}`

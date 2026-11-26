@@ -407,7 +407,7 @@ mod tests {
             |file, start: u32, end: u32| Span::new(file, TextRange::new(start.into(), end.into()));
         let uri_of = |path: &Path| path_to_uri(path);
         let d = Diagnostic::warning("w")
-            .with_code("W0301")
+            .with_code("W3101")
             .with_span(span(a, 4, 7))
             .with_label(span(b, 2, 3), "here")
             .with_note("n1")
@@ -417,7 +417,7 @@ mod tests {
         assert_eq!(lsp.range.start, lsp::Position::new(0, 4));
         assert_eq!(lsp.range.end, lsp::Position::new(0, 5));
         assert_eq!(lsp.severity, Some(lsp::DiagnosticSeverity::WARNING));
-        assert_eq!(lsp.code, Some(lsp::NumberOrString::String("W0301".into())));
+        assert_eq!(lsp.code, Some(lsp::NumberOrString::String("W3101".into())));
         assert_eq!(lsp.message, "w\nnote: n1\nnote: n2");
         assert_eq!(
             lsp.related_information,

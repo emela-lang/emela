@@ -4,13 +4,13 @@ This appendix defines the externally visible behavior of the `emela` command. `e
 
 ## emela check, build, run `[cmd.build]`
 
-- Takes one path, which defaults to `.`. When a directory is given, the target is the whole project of the ancestor `Pome.toml` (4.1). The directory given can be the project directory or a directory inside the source root or the test root. A directory outside them (`scripts/`) is a compile error (E0208, the same as fmt). Even when a directory inside the source root or the test root is given, the whole project is checked, because type checking spans modules. `emela test` does the same.
+- Takes one path, which defaults to `.`. When a directory is given, the target is the whole project of the ancestor `Pome.toml` (4.1). The directory given can be the project directory or a directory inside the source root or the test root. A directory outside them (`scripts/`) is a compile error (E2006, the same as fmt). Even when a directory inside the source root or the test root is given, the whole project is checked, because type checking spans modules. `emela test` does the same.
 - The command writes `main.mjs`, translated from the entry, and the runtime to the output directory. The fns with `@export(js, ...)` and the exports made by `@entry` are exported from `main.mjs` (`[target.js.module]`). `emela run` also writes to the default output directory (4.1) before running, and overwrites the previous output without deleting it. `--out-dir` changes the output directory.
 - Arguments to the program are written after `--`. Diagnostics are reported before the program is launched.
 - The JS host is the command in the environment variable `EMELA_JS_HOST` if it is set and not empty, otherwise the command in `EMELA_NODE` if it is set and not empty, otherwise `node` on PATH. It MUST accept the options `--input-type=module -e` as node does; Node and Bun do.
-- `EMELA_NODE` is deprecated. When it is read, W0902 is reported, also when `EMELA_JS_HOST` is set and takes precedence. It is read until the minor version after the one that deprecates it.
-- For `js`, before starting the program, the command reads the version of the JS host by starting it with `--input-type=module -e` and a module that writes `bun <process.versions.bun>` when `process.versions.bun` is defined, and `node <process.versions.node>` otherwise. A host that wrote `bun` is Bun, and is compared with the minimum version of Bun that `[target]` requires; a host that wrote `node` is compared with the minimum version of Node. When the version is older than the minimum, it is E0904 and the program is not started: the message is ``` `<executable>` is <Host> <version>, but target `js` needs <Host> <minimum> or later ```, with the note `install Node.js 22 or later or Bun 1.4.3 or later, or set EMELA_JS_HOST to a newer JS host`. `<executable>` is the command of the JS host, `<Host>` is `Node` or `Bun`, `<version>` is the version written by the host, and `<minimum>` is the minimum that `[target]` gives for that host. If the version cannot be read, including when the host cannot be started, the program is started. The same check is made by `emela test` (`[cmd.test]`).
-- For `native`, the command writes the executable `main` and the header `emela.h` to the output directory, with other implementation-defined files (`[target.native.output]`). The C compiler is chosen as in `[target.native.cc]` (E0907, E0908).
+- `EMELA_NODE` is deprecated. When it is read, W9101 is reported, also when `EMELA_JS_HOST` is set and takes precedence. It is read until the minor version after the one that deprecates it.
+- For `js`, before starting the program, the command reads the version of the JS host by starting it with `--input-type=module -e` and a module that writes `bun <process.versions.bun>` when `process.versions.bun` is defined, and `node <process.versions.node>` otherwise. A host that wrote `bun` is Bun, and is compared with the minimum version of Bun that `[target]` requires; a host that wrote `node` is compared with the minimum version of Node. When the version is older than the minimum, it is E9101 and the program is not started: the message is ``` `<executable>` is <Host> <version>, but target `js` needs <Host> <minimum> or later ```, with the note `install Node.js 22 or later or Bun 1.4.3 or later, or set EMELA_JS_HOST to a newer JS host`. `<executable>` is the command of the JS host, `<Host>` is `Node` or `Bun`, `<version>` is the version written by the host, and `<minimum>` is the minimum that `[target]` gives for that host. If the version cannot be read, including when the host cannot be started, the program is started. The same check is made by `emela test` (`[cmd.test]`).
+- For `native`, the command writes the executable `main` and the header `emela.h` to the output directory, with other implementation-defined files (`[target.native.output]`). The C compiler is chosen as in `[target.native.cc]` (E9101, E9103).
 - The exit code is as follows.
   - 1 if the diagnostics include an error. 0 if there are only warnings.
   - When `run` reaches the program, the exit code of the program: 0, or the value of the `ExitCode` that `main` returned (`[dyn.error]`), when main ends with a value; 1 for an error (14.3); 101 for a defect (7.5); 130 for an interruption (14.5); 141 for a write to a closed standard output (`[api.std.process]`).
@@ -18,20 +18,20 @@ This appendix defines the externally visible behavior of the `emela` command. `e
 
 Experimental features:
 
-- `check`, `build` and `run` take a flag `--experimental-<name>` for each experimental feature `name` (`[intro.experimental]`). It enables that feature for that run, for the Pome being built (in single-file mode, for the files read), in addition to the `[experimental]` of its `Pome.toml`. It does not apply to dependencies, and it cannot disable a feature enabled in `Pome.toml`. A flag that starts with `--experimental-` and does not name a known experimental feature, or names a stable or removed one, is not an error: it is the warning W0206. `--help` lists the flags of the experimental features the compiler knows.
+- `check`, `build` and `run` take a flag `--experimental-<name>` for each experimental feature `name` (`[intro.experimental]`). It enables that feature for that run, for the Pome being built (in single-file mode, for the files read), in addition to the `[experimental]` of its `Pome.toml`. It does not apply to dependencies, and it cannot disable a feature enabled in `Pome.toml`. A flag that starts with `--experimental-` and does not name a known experimental feature, or names a stable or removed one, is not an error: it is the warning W2304. `--help` lists the flags of the experimental features the compiler knows.
 - The language server applies only `Pome.toml` (`[lsp.project]`), so a feature enabled only by a flag does not show in the diagnostics of an editor.
 
 Build target and output directory:
 
 - `build`, `run`, and `test` select the build target with `--target <js|native|wasm>`. When omitted, it is `[build].target` in `Pome.toml`, and if that is also absent, `js` (`[module.pome]`). `check` takes no build target.
 - The default output directory of `build` and `run` is `target/emela/<target>` (`target/emela/js`, `target/emela/native`, `target/emela/wasm`) in the project (in single-file mode, in the directory that contains the file). The default output directory of `test` is as in `[cmd.test.out-dir]`. `--out-dir` changes the output directory of `build` and `run` for every target.
-- Giving `build` or `run` a file inside the test root is a compile error (E0208, ``... is under the test root, which only check and test read``). `build` and `run` do not read the test root.
+- Giving `build` or `run` a file inside the test root is a compile error (E2006, ``... is under the test root, which only check and test read``). `build` and `run` do not read the test root.
 
 Entry and main:
 
-- When a directory is given and neither `src/main.emel` nor `src/lib.emel` exists, `check` passes, and `build` and `run` report a compile error (E0209).
-- When a directory is given and `src/main.emel` does not exist but `src/lib.emel` does, the project is a library-only project, and `lib.emel` is the entry for checking and testing. `build` only checks and outputs nothing. `run` is a compile error (E0230), whether or not `lib.emel` has a fn `main`. If `src/main.emel` exists, it is the entry. When a file is given, that file is the entry, including `lib.emel`.
-- If the entry module has no fn named `main` and the program is not an HTTP service (`[lib.http-service]`), `run` reports a compile error (E0230, located at the entry file), and neither outputs anything nor launches the program. Something named `main` that is not a fn (a const and so on) does not count. This error is reported only when there are no other errors (syntax, names, types). `build` outputs even without main (8.3).
+- When a directory is given and neither `src/main.emel` nor `src/lib.emel` exists, `check` passes, and `build` and `run` report a compile error (E2007).
+- When a directory is given and `src/main.emel` does not exist but `src/lib.emel` does, the project is a library-only project, and `lib.emel` is the entry for checking and testing. `build` only checks and outputs nothing. `run` is a compile error (E2009), whether or not `lib.emel` has a fn `main`. If `src/main.emel` exists, it is the entry. When a file is given, that file is the entry, including `lib.emel`.
+- If the entry module has no fn named `main` and the program is not an HTTP service (`[lib.http-service]`), `run` reports a compile error (E2009, located at the entry file), and neither outputs anything nor launches the program. Something named `main` that is not a fn (a const and so on) does not count. This error is reported only when there are no other errors (syntax, names, types). `build` outputs even without main (8.3).
 
 JS output:
 
@@ -42,7 +42,7 @@ JS output:
 
 Starting the program:
 
-- Before starting the program, `run` writes one line ``running `<command>` `` to standard error, for every build target. The line comes after the diagnostics and before any output of the program. It is not written when the program is not started (an error in the diagnostics, the JS host too old (E0904), or wasmtime too old (E0909)). When the command is written but cannot be started (the JS host or the executable not found), the diagnostic about it follows the line.
+- Before starting the program, `run` writes one line ``running `<command>` `` to standard error, for every build target. The line comes after the diagnostics and before any output of the program. It is not written when the program is not started (an error in the diagnostics, the JS host too old (E9101), or wasmtime too old (E9101)). When the command is written but cannot be started (the JS host or the executable not found), the diagnostic about it follows the line.
 - `<command>` is the program that is started followed by its arguments, separated by single spaces: the JS host with its options for `js`, the executable `main` for `native`, and wasmtime with its options for `wasm` (`[target.wasm.output]`), each followed by the arguments after `--`.
 - Each word is written as is when it is not empty and consists only of ASCII letters, digits and the characters `-_./=:@%+,`. Otherwise it is enclosed in single quotes, and each `'` inside it is written as `'\''`. Pasting the line into a POSIX shell starts the same command.
 - For `js`, the command is the JS host followed by the path of `main.mjs`, or of `serve.mjs` for an HTTP service (``running `node target/emela/js/main.mjs` ``).
@@ -91,7 +91,7 @@ Diagnostics and help:
 - The Pome section reports the values in effect of `EMELA_POMEPROXY` and `EMELA_POMESUMDB`, the number of prefixes in `EMELA_POMEPRIVATE` (`[module.pome]`), and whether git starts. The prefixes themselves are not written, so that the output can be pasted into a public report. git is required when `EMELA_POMEPRIVATE` is set or when `direct` is the only entry of `EMELA_POMEPROXY`. The userinfo part of a URL (`user:token@`) is written as `***@`. Nothing is fetched and no proxy is contacted.
 - Output without `--format`, written to standard output:
   - The first line is the same as `emela --version`, followed by a blank line.
-  - For each target in the order `js`, `native`, `wasm`, a line with the target's name, followed by ` (required)` when required. Under it, one line per program, indented by two spaces: `ok`, `missing`, `too-old` or `failed`, then the program's name and version and the executable resolved in parentheses, or a sentence that names the target and the program that it lacks. A program that fails is followed by a line with the help of the diagnostic that the command using it would report (E0904, E0907, E0909), aligned with the sentence.
+  - For each target in the order `js`, `native`, `wasm`, a line with the target's name, followed by ` (required)` when required. Under it, one line per program, indented by two spaces: `ok`, `missing`, `too-old` or `failed`, then the program's name and version and the executable resolved in parentheses, or a sentence that names the target and the program that it lacks. A program that fails is followed by a line with the help of the diagnostic that the command using it would report (E9101, E9101, E9101), aligned with the sentence.
   - Then a blank line and the Pome section in the same form.
   - Color is used under the same conditions as diagnostics (`[diag]`). When it is, the first of the two spaces before `ok` is written as `✓`, and the first of the two spaces before `missing`, `too-old` and `failed` as `✗`. Without color, the lines are as described above.
 - With `--format json`, the command writes one JSON object to standard output instead:
@@ -130,7 +130,7 @@ Diagnostics and help:
 ## emela fmt `[cmd.fmt]`
 
 - `emela fmt [path...]` formats and rewrites the `.emel` files in the given files and directories. The path defaults to `.`.
-- A directory requires `Pome.toml` (E0207). For the project directory, the target is everything under the source root and the test root. For a directory inside either root, the target is everything under it. A directory outside them is a compile error (E0208).
+- A directory requires `Pome.toml` (E2301). For the project directory, the target is everything under the source root and the test root. For a directory inside either root, the target is everything under it. A directory outside them is a compile error (E2006).
 - Entries starting with `.` are skipped. Files whose names are not valid module names are also formatted.
 - A file with a syntax error is not rewritten. The command reports diagnostics and continues with the other files.
 - `--check` does not rewrite, and prints the files that need formatting to standard output, one per line. `-` formats standard input and writes to standard output.
@@ -138,12 +138,12 @@ Diagnostics and help:
 - On successful formatting, nothing is printed to standard output.
 - The paths `--check` prints are the same relative paths as in diagnostics. No diff is printed.
 - With `-`, if the input is already formatted, it is written as is. On a syntax error, nothing is written to standard output, the diagnostic is reported to standard error with the path `<stdin>`, and the command ends with 1. `--check -` prints the single line `<stdin>` and ends with 1 if formatting is needed. Mixing `-` with other paths is an argument error (2). A file named `-` is written as `./-`.
-- A given file is handled by the same rules as `[module.name]`. If `Pome.toml` exists and the file is outside the source root, it is E0208. If there is no `Pome.toml`, the file is in single-file mode. Even in single-file mode, only the given file is formatted, and imports are not followed.
+- A given file is handled by the same rules as `[module.name]`. If `Pome.toml` exists and the file is outside the source root, it is E2006. If there is no `Pome.toml`, the file is in single-file mode. Even in single-file mode, only the given file is formatted, and imports are not followed.
 - Formatting a file whose name is not a valid module name reports no name diagnostic.
 - A file given more than once is formatted only once. Files are formatted in the order of their absolute paths.
 - Diagnostics for syntax errors are reported with a code. A failed formatter verification (`[fmt.io]`) is reported as an `internal error: …` diagnostic without a code, and the file is not rewritten.
 - A file whose formatted result is the same as the original is not written to (its modification time does not change).
-- A file that cannot be read is E0902, and a file that cannot be written is E0903.
+- A file that cannot be read is E9002, and a file that cannot be written is E9003.
 
 ## emela pome `[cmd.pome]`
 
@@ -163,7 +163,7 @@ Operations on dependencies are placed under `emela pome` (4.7). Each of them rew
 - `remove` also checks `@external` like `add`, `install`, and `update`, and if there is a Pome that is not allowed, it writes nothing and ends with 1. How files containing `@external` are counted is in `[pome.lock]`.
 - A Pome that was already in the lock is not allowed by `add --allow-external`, even if this `add` changes its version, and the error remains: add it to `allow` by hand. Agreeing to give the host to the Pome being added does not extend to a Pome the project already depended on.
 - `add <src>@<version>` writes the version even if it is lower than the current requirement (the requirement can be lowered). `@latest` and an omitted version use the `@latest` version of `[pome.fetch]`.
-- `add --dev` writes nothing and ends with 1 if it points to a Pome in `[dependencies]` (E0240). When `add` without `--dev` points to a Pome in `[dev-dependencies]`, it moves it from `[dev-dependencies]` to `[dependencies]`. When moving, it moves the entry in its written form and then writes the version.
+- `add --dev` writes nothing and ends with 1 if it points to a Pome in `[dependencies]` (E2308). When `add` without `--dev` points to a Pome in `[dev-dependencies]`, it moves it from `[dev-dependencies]` to `[dependencies]`. When moving, it moves the entry in its written form and then writes the version.
 - `update` only raises requirements and never lowers them. It raises the requirements in both `[dependencies]` and `[dev-dependencies]`. It also raises the requirements of dependencies with `[replace]`, and leaves `[replace]` as it is.
 - `remove` leaves `[replace]` in place.
 - `install` fetches the versions in the lock, verifying them with the hashes in the lock, and does not query the sumdb. Only versions not in the lock are checked against the sumdb. The same holds for the `Pome.toml` files read while walking the dependency graph.
@@ -175,7 +175,7 @@ Operations on dependencies are placed under `emela pome` (4.7). Each of them rew
   1. A local tag `v<version>` exists, and its `Pome.toml` satisfies the conditions of 4.7 (matching `name` and `version`, restrictions on the contents).
   2. `git ls-remote` shows that the same tag in the repository points to the same commit as the local one. If it does not, the command suggests pushing the tag. `publish` does not push.
   3. Computes `h1:` locally from the tree of the tag.
-  4. Compares the public API with the previous version, and warns if the version bump is not large enough (W0901, "Comparing the public API" below). It does not stop even if there are warnings.
+  4. Compares the public API with the previous version, and warns if the version bump is not large enough (W9001, "Comparing the public API" below). It does not stop even if there are warnings.
   5. Requests `<p>/@v/<version>.info` from the first proxy in `EMELA_POMEPROXY` to have it ingest the version.
   6. Looks up the sumdb record and verifies it as in 4.7. If `h1:` matches the local one, it prints the record and finishes. If it differs, different contents were recorded first (for example because the tag was moved), so the command suggests a tag for a new version.
 - `--dry-run` skips 2, 5, and 6. It is used to run only the checks and the public API comparison after tagging locally and before pushing. Because an ingested version cannot be withdrawn, this lets you push after seeing the warnings.

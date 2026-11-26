@@ -1804,7 +1804,7 @@ fn constants_are_evaluated_once() {
         r.stderr
     );
 
-    // A self-reference in a conditional arm is excluded from E0231, but must still pass through
+    // A self-reference in a conditional arm is excluded from E2113, but must still pass through
     // the runtime const guard rather than being loopified into an infinite loop.
     let mut m = Module::new();
     let this = m.declare("A", false);

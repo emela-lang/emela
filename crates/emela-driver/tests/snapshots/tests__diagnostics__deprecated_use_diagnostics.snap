@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-warning[W0403]: `use Logger` as an expression is deprecated
+warning[W4401]: `use Logger` as an expression is deprecated
     ╭─[ main.emel:12:4 ]
     │
  12 │   (use Logger).info("in place")
@@ -11,7 +11,7 @@ warning[W0403]: `use Logger` as an expression is deprecated
 ────╯
    = help: write `logger <- Logger` before the statement, and call `logger.info` here
 
-warning[W0403]: `use Logger` as an expression is deprecated
+warning[W4401]: `use Logger` as an expression is deprecated
     ╭─[ main.emel:13:9 ]
     │
  13 │   log = use Logger
@@ -20,7 +20,7 @@ warning[W0403]: `use Logger` as an expression is deprecated
 ────╯
    = help: write `log <- Logger`
 
-warning[W0403]: `use Logger` as an expression is deprecated
+warning[W4401]: `use Logger` as an expression is deprecated
     ╭─[ main.emel:15:11 ]
     │
  15 │   outer = use Logger
@@ -29,7 +29,7 @@ warning[W0403]: `use Logger` as an expression is deprecated
 ────╯
    = help: write `x <- Logger`, or a named item `with x = H`
 
-warning[W0403]: `use Logger` as an expression is deprecated
+warning[W4401]: `use Logger` as an expression is deprecated
     ╭─[ main.emel:17:8 ]
     │
  17 │   keep(use Logger)

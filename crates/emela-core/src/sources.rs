@@ -169,7 +169,7 @@ mod tests {
                 .filter(|f| f.has_annotation("intrinsic"))
                 .map(|f| f.syntax().text_range())
                 .collect();
-            // E0130 on `@intrinsic` declarations is allowed, from when the syntax check required
+            // E1204 on `@intrinsic` declarations is allowed, from when the syntax check required
             // `@external` on every bodiless fn. It exempts `@intrinsic` now. Any other diagnostic
             // is an error.
             let errors: Vec<_> = parse

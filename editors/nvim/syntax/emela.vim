@@ -113,7 +113,7 @@ syntax match emelaDelimiter "\%(\w\s*\|)\s*\|]\s*\)\@<!||"
 " Numbers (spec 2.4, 17.2)
 
 syntax match emelaNumber "\<\d[0-9_]*\>"
-" A number followed directly by letters (`1e9` `3px` `0XFF` `1.0e`) is a lexical error (E0104).
+" A number followed directly by letters (`1e9` `3px` `0XFF` `1.0e`) is a lexical error (E1004).
 syntax match emelaNumberError "\<\d[0-9_]*\%(\.\d[0-9_]*\)\=\a\w*"
 syntax match emelaNumber "\<0x\x[0-9a-fA-F_]*\>"
 syntax match emelaNumber "\<0b[01][01_]*\>"
@@ -122,13 +122,13 @@ syntax match emelaFloat  "\<\d[0-9_]*\.\d[0-9_]*\%([eE][+-]\=\d[0-9_]*\)\=\>"
 " ---------------------------------------------------------------------------
 " Strings (spec 2.4)
 
-" Any other `\` is an error (E0106); the seven escapes and `\u{...}` are defined after it so they
+" Any other `\` is an error (E1006); the seven escapes and `\u{...}` are defined after it so they
 " win at the same column.
 syntax match emelaEscapeError "\\.\|\\$" contained
 syntax match emelaEscape "\\[\"\\ntr#]" contained
 syntax match emelaEscape "\\u{\x\{1,6}}" contained
 
-" A string cannot cross a newline (E0101), so an unclosed one ends at the end of the line. The
+" A string cannot cross a newline (E1001), so an unclosed one ends at the end of the line. The
 " end is not searched inside an interpolation, which may span lines.
 syntax region emelaString start=+"+ skip=+\\\\\|\\"+ end=+"\|$+
       \ contains=emelaEscape,emelaEscapeError,emelaInterp

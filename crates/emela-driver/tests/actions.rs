@@ -41,7 +41,7 @@ fn fixes(text: &str, needle: &str, extra: &[(&str, &str)]) -> Vec<CodeAction> {
     actions(text, needle, extra, CodeActionKind::QuickFix)
 }
 
-/// The quick fixes but those of W0403, which every `use E` written as an expression gets.
+/// The quick fixes but those of W4401, which every `use E` written as an expression gets.
 fn effect_fixes(text: &str, needle: &str) -> Vec<CodeAction> {
     fixes(text, needle, &[])
         .into_iter()
@@ -296,6 +296,24 @@ fn extends_written_annotations_without_losing_existing_members() {
     assert_clean(&apply(text, &actions[0]), &[]);
 }
 
+/// A function value whose E does not fit the expected function type has the code of an error not
+/// declared in `fails` (E3201, `[diag.list]`), but no clause to extend: no quick fix.
+#[test]
+fn no_fix_for_the_error_set_of_a_function_value() {
+    let text = "error Timeout\nfn run(f: fn() -> Int fails {}) -> Int { f() }\nfn g() -> Int fails Timeout { run(|| fail Timeout) }\n";
+    let (analysis, _, _) = checked(text, &[]);
+    assert!(
+        analysis
+            .diagnostics
+            .iter()
+            .any(|d| d.code == Some(code::UNDECLARED_ERRORS)
+                && d.message.starts_with("error set mismatch")),
+        "{:?}",
+        analysis.diagnostics
+    );
+    assert!(fixes(text, "|| fail", &[]).is_empty());
+}
+
 #[test]
 fn effect_fixes_do_not_propagate_from_main_tests_or_constants() {
     let text = "effect Log { fn log() -> () }\nfn main() -> () { (use Log).log() }\n";
@@ -377,7 +395,7 @@ fn old_lambdas_are_rewritten() {
     let actions = fixes(text, "fn(x)", &[]);
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].title, "Rewrite as `|x| ...`");
-    assert_eq!(actions[0].diagnostics[0].code, Some("E0148"));
+    assert_eq!(actions[0].diagnostics[0].code, Some("E1405"));
     let edited = apply(text, &actions[0]);
     assert!(edited.contains("List.map(xs, |x| x + 1)"), "{edited}");
     assert_clean(&edited, &[]);
@@ -404,7 +422,7 @@ fn old_impl_and_handler_heads_are_rewritten() {
     let actions = fixes(text, "for User", &[]);
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].title, "Rewrite as `impl User: Label`");
-    assert_eq!(actions[0].diagnostics[0].code, Some("E0144"));
+    assert_eq!(actions[0].diagnostics[0].code, Some("E1402"));
     assert_clean(&apply(text, &actions[0]), &[]);
 
     let text = "type Box[A](value: A)\ntrait Label {\n  fn label(self) -> String\n}\nimpl[A: Label] Box[A]: Label {\n  fn label(self) { \"box\" }\n}\n";
@@ -421,13 +439,13 @@ fn old_impl_and_handler_heads_are_rewritten() {
         actions[0].title,
         "Rewrite as `handler Quiet(level: Int): Logger`"
     );
-    assert_eq!(actions[0].diagnostics[0].code, Some("E0145"));
+    assert_eq!(actions[0].diagnostics[0].code, Some("E1403"));
     let edited = apply(text, &actions[0]);
     assert!(edited.contains("handler Quiet(level: Int): Logger {"));
     assert_clean(&edited, &[]);
 }
 
-/// E0147: the old clause is replaced with its canonical form (`[lsp.code-action]`), in a
+/// E1404: the old clause is replaced with its canonical form (`[lsp.code-action]`), in a
 /// signature, in a function type, and on a line of its own.
 #[test]
 fn old_use_clause_is_rewritten() {
@@ -461,16 +479,16 @@ fn old_use_clause_is_rewritten() {
         let actions = fixes(&text, at, &[]);
         assert_eq!(actions.len(), 1, "{text}");
         assert_eq!(actions[0].title, title);
-        assert_eq!(actions[0].diagnostics[0].code, Some("E0147"));
+        assert_eq!(actions[0].diagnostics[0].code, Some("E1404"));
         let edited = apply(&text, &actions[0]);
         assert!(edited.contains(expected), "{edited}");
         assert_clean(&edited, &[]);
     }
 }
 
-/// W0403 (`[effect.use]`): `(use E).op(...)` and `x = use E` used only as a receiver are rewritten
+/// W4401 (`[effect.use]`): `(use E).op(...)` and `x = use E` used only as a receiver are rewritten
 /// to effect aliases. A binding used otherwise gets no quick fix, since an alias would not mean the
-/// same. The rewritten program has no W0403 left.
+/// same. The rewritten program has no W4401 left.
 #[test]
 fn deprecated_uses_are_rewritten_to_effect_aliases() {
     let prelude = "effect Logger {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet: Logger {\n  fn info(msg) { () }\n}\n\n";
@@ -536,7 +554,7 @@ fn deprecated_uses_are_rewritten_to_effect_aliases() {
     assert!(fixes(&text, "use Logger", &[]).is_empty());
 }
 
-/// W0305 (`[lsp.code-action]`): the type parameter is removed with its bound and the `,` next to
+/// W3002 (`[lsp.code-action]`): the type parameter is removed with its bound and the `,` next to
 /// it, and the brackets with it when the list becomes empty. Not offered when the type parameter
 /// appears in a type annotation in the body.
 #[test]
@@ -576,7 +594,7 @@ fn unused_type_parameter_is_removed() {
         let actions = fixes(text, at, &[]);
         assert_eq!(actions.len(), 1, "{text}");
         assert_eq!(actions[0].title, title);
-        assert_eq!(actions[0].diagnostics[0].code, Some("W0305"));
+        assert_eq!(actions[0].diagnostics[0].code, Some("W3002"));
         let edited = apply(text, &actions[0]);
         assert_eq!(edited, expected);
         let (analysis, _, _) = checked(&edited, &[]);
@@ -584,12 +602,12 @@ fn unused_type_parameter_is_removed() {
     }
 }
 
-/// W0305 has no quick fix when the type parameter appears in the body: removing it would make the
-/// annotation E0211 (`[lsp.code-action]`).
+/// W3002 has no quick fix when the type parameter appears in the body: removing it would make the
+/// annotation E2101 (`[lsp.code-action]`).
 #[test]
 fn unused_type_parameter_in_the_body_is_not_removed() {
     let text = "fn g[A](x: Int) -> Int {\n  y: Option[A] = None\n  x\n}\n";
     let (analysis, _, _) = checked(text, &[]);
-    assert!(analysis.diagnostics.iter().any(|d| d.code == Some("W0305")));
+    assert!(analysis.diagnostics.iter().any(|d| d.code == Some("W3002")));
     assert!(fixes(text, "A]", &[]).is_empty());
 }

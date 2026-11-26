@@ -509,8 +509,8 @@ pub enum Stmt {
 }
 
 /// A local fn (`[fn.local]`). `local` is its name, visible from the declaration to the end of the
-/// block and inside `body`. `sig` has no type parameters and is not suspend (E0150 is reported
-/// by the parser; what was written there is left out).
+/// block and inside `body`. `sig` has no type parameters and is not suspend (E1212 and E1213 are
+/// reported by the parser; what was written there is left out).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalFn {
     pub local: LocalId,
@@ -585,7 +585,7 @@ pub struct FnItem {
     /// A built-in function of the bundled core sources.
     pub is_intrinsic: bool,
     /// The arguments of `@export(js, "default", "fetch")` (spec 12.7), in source order, in the
-    /// same shape as [`FnItem::externals`]. Malformed ones are left out (E0146).
+    /// same shape as [`FnItem::externals`]. Malformed ones are left out (E1301).
     pub exports: Vec<ExternalAttr>,
     /// The `@entry(Http.serve)` attributes (spec 12.8), in source order.
     pub entries: Vec<EntryAttr>,
@@ -595,7 +595,7 @@ pub struct FnItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntryAttr {
     /// What `T` names. `None` when the argument is not a single name or path (`@entry`,
-    /// `@entry(1)`, `@entry(a, b)`), which is reported as not naming an entry adapter (E0439).
+    /// `@entry(1)`, `@entry(a, b)`), which is reported as not naming an entry adapter (E5104).
     pub adapter: Option<Res>,
     /// The whole attribute.
     pub span: Span,
@@ -604,7 +604,7 @@ pub struct EntryAttr {
 /// The arguments of `@external(target, "a", "b")` (spec 12.1). `target` is the first argument's
 /// name (`js`, `wasm`); `args` are the remaining strings. Malformed arguments (a first argument
 /// that is not a name, non-string remaining ones) are left out; the parser reports them
-/// (E0138 to E0141).
+/// (E1301 to E1301).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalAttr {
     pub target: SmolStr,
@@ -708,7 +708,7 @@ pub struct MemberItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandlerItem {
     /// The type parameters (`[effect.handler]`): the `S` of `handler Memory[S](value: S)`.
-    /// [`DefKind::TypeParam`]s whose parent is the handler. Those of an inner handler are E0460.
+    /// [`DefKind::TypeParam`]s whose parent is the handler. Those of an inner handler are E1213.
     pub type_params: Vec<TypeParam>,
     /// The effects after `:`, in the order written (`handler SystemTx: Query + Execute`,
     /// `[effect.handler]`), with their type arguments (the `Int` of `handler H: State[Int]`,
@@ -778,7 +778,7 @@ pub struct ImplItem {
     pub type_params: Vec<TypeParam>,
     /// The type before `:`, applied to the type parameters (`Map[K, V]`).
     pub self_ty: Option<TypeId>,
-    /// The head is not a type name with distinct type parameters (E0328, reported by name
+    /// The head is not a type name with distinct type parameters (E3303, reported by name
     /// resolution). Type checking skips the impl's head.
     pub malformed_head: bool,
     pub fns: Vec<ImplFn>,
@@ -909,7 +909,7 @@ impl Program {
 /// [`EntryExport::def`] in the entry module, with the parameters of `T` after the first and the
 /// body `T(f, ...)`. It has no name in scope and no span. Its expressions and parameters have an
 /// empty range at the end of the attribute, and a type error in it is reported at the attribute
-/// (E0440).
+/// (E5105).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntryExport {
     pub def: DefId,
@@ -1058,7 +1058,7 @@ impl Program {
     }
 
     /// The operations of an effect. A label has those of its base (one level: the base of a
-    /// label is not a label, E0429).
+    /// label is not a label, E4201).
     pub fn effect_ops(&self, effect: DefId) -> &[DefId] {
         let effect = self.label_base(effect).unwrap_or(effect);
         match self.item(effect) {

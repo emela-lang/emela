@@ -1,4 +1,4 @@
-# 前の形 fn(params) { body } は書き換える（E0148）
+# 前の形 fn(params) { body } は書き換える（E1405）
 fn old(xs: List[Int]) {
   ys = xs |> List.map(fn(x) { x + 1 })
   thunk = fn() { fetch(1) }

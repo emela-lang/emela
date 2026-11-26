@@ -20,7 +20,7 @@ fn diagnostics(src: &str) -> Vec<DiagnosticKind> {
         .collect()
 }
 
-/// Every parameter and the return value of an `@export` fn are boundary types (E0436).
+/// Every parameter and the return value of an `@export` fn are boundary types (E5101).
 #[test]
 fn export_parameters_and_return_are_boundary_types() {
     let found = diagnostics(
@@ -53,7 +53,7 @@ pub fn f(a: Handle, g: fn(Handle) -> Handle fails {} uses {}) -> Handle { g(a) }
     assert!(found.is_empty(), "{found:?}");
 }
 
-/// The R of an `@export` fn is empty except for Async (E0402), with the export-specific context.
+/// The R of an `@export` fn is empty except for Async (E4301), with the export-specific context.
 #[test]
 fn export_effects_are_checked() {
     let found = diagnostics(
@@ -76,7 +76,7 @@ pub fn f() { (use Logger).info("x") }
     );
 }
 
-/// The E of an `@export` fn is empty, even when a `fails` clause declares it (E0402).
+/// The E of an `@export` fn is empty, even when a `fails` clause declares it (E4301).
 #[test]
 fn export_errors_are_checked() {
     let found = diagnostics(
@@ -97,7 +97,7 @@ pub fn f() -> Int fails Timeout { fail Timeout }
     );
 }
 
-/// `@entry` requires the fn to fit the adapter's first parameter, including its E and R (E0440).
+/// `@entry` requires the fn to fit the adapter's first parameter, including its E and R (E5105).
 #[test]
 fn entry_checks_the_effects_of_the_function() {
     let adapter = r#"
@@ -140,7 +140,7 @@ pub fn f[A](x: A) -> A { x }
 }
 
 /// An `@export` fn whose first parameter is a function type is an entry adapter: its first
-/// parameter need not be a boundary type, but the others and the return value are (E0436).
+/// parameter need not be a boundary type, but the others and the return value are (E5101).
 #[test]
 fn entry_adapter_skips_the_first_parameter() {
     let found = diagnostics(
@@ -199,7 +199,7 @@ fn main() { () }
 }
 
 /// `ExitCode` of `Std.Process` is not a boundary type, so an `@export` fn cannot return it
-/// (E0436, `[ext.export]`, `[api.std.process]`).
+/// (E5101, `[ext.export]`, `[api.std.process]`).
 #[test]
 fn exit_code_is_not_a_boundary_type() {
     let found = diagnostics(
@@ -220,7 +220,7 @@ pub fn f() -> ExitCode { EXIT_SUCCESS }
 }
 
 /// An `@export` fn that is not an entry adapter is given only Async (`[effect.host]`): a
-/// ProcessHost left in its R is E0402.
+/// ProcessHost left in its R is E4301.
 #[test]
 fn export_is_not_given_process_host() {
     let found = diagnostics(
@@ -252,7 +252,7 @@ pub fn f() -> String { with SystemFiles { (use Files).read("a") } }
 
 /// An entry adapter whose first parameter's function type uses a host effect other than Async may
 /// have it in its R, and the fn made by `@entry` is given it (`[ext.entry]`). A fn that needs a
-/// host effect the adapter does not declare does not fit it (E0440).
+/// host effect the adapter does not declare does not fit it (E5105).
 #[test]
 fn entry_adapter_provides_its_host_effect() {
     let found = diagnostics(

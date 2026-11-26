@@ -80,7 +80,7 @@ fn next_significant(tokens: &[Token], i: usize) -> Option<&Token> {
 }
 
 /// Rule 1 of spec 2.5 for `match`: a line starting with `match {` continues the previous one.
-/// When something other than `{` follows, the line is a prefix match (E0142); it starts a new
+/// When something other than `{` follows, the line is a prefix match (E1401); it starts a new
 /// statement so that the parser can report it as such.
 fn postfix_match_follows(tokens: &[Token], i: usize) -> bool {
     let mut rest = tokens[i + 1..]
@@ -172,7 +172,7 @@ mod tests {
             newlines("a\n# c\nmatch {\n}"),
             [NEWLINE_CONT, NEWLINE_CONT, NEWLINE]
         );
-        // Prefix `match` (E0142) starts a new statement so the parser can report it.
+        // Prefix `match` (E1401) starts a new statement so the parser can report it.
         assert_eq!(newlines("a\nmatch x {\n}"), [NEWLINE, NEWLINE]);
     }
 
@@ -336,7 +336,7 @@ mod tests {
     #[test]
     fn use_で始まる行は続かない() {
         // `use` starts an expression; the old clause on its own line is left to the parser
-        // (E0147).
+        // (E1404).
         assert_eq!(
             newlines("fn f() {\n  a\n  use Log\n}"),
             [NEWLINE, NEWLINE, NEWLINE]

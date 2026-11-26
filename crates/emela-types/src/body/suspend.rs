@@ -18,7 +18,7 @@
 //!   carry an `Immediate` bound (callbacks must be Immediate, spec 9.5), so the same mechanism
 //!   checks them.
 //! - The body of an fn operation implementation must either have an Immediate R or contain no
-//!   call that may suspend (E0417, spec 8.1). Whether a call may suspend is decided by the
+//!   call that may suspend (E4303, spec 8.1). Whether a call may suspend is decided by the
 //!   operation's declaration (`suspend fn` or not) for operation calls, always for
 //!   `@external suspend fn`, and by the callee type's R (not Immediate) for functions and
 //!   function values.
@@ -99,7 +99,7 @@ impl BodyInfer<'_> {
             .any(|p| p.borrowed.is_some() && program.locals[p.local].name == name)
     }
 
-    /// Checks that the recorded sets are Immediate (E0416). Call after sets are solved.
+    /// Checks that the recorded sets are Immediate (E4302). Call after sets are solved.
     pub(super) fn check_immediates(&mut self) {
         let program = self.program;
         for ob in std::mem::take(&mut self.immediates) {
@@ -216,7 +216,7 @@ impl BodyInfer<'_> {
 }
 
 impl BodyInfer<'_> {
-    /// Checks that fn operation implementation bodies do not suspend (E0417, spec 8.1). For an fn
+    /// Checks that fn operation implementation bodies do not suspend (E4303, spec 8.1). For an fn
     /// operation, "the caller continues as soon as the handler returns a value", so callers are
     /// emitted assuming no suspension. Call after sets are solved.
     ///
@@ -592,7 +592,7 @@ type Resumed = Option<(Span, bool)>;
 
 impl BodyInfer<'_> {
     /// Checks that no call that may suspend can be evaluated after resume may have been called
-    /// in a suspend fn implementation (E0461, `[effect.handler]`). Call after sets are solved.
+    /// in a suspend fn implementation (E4305, `[effect.handler]`). Call after sets are solved.
     ///
     /// The check follows the order of evaluation (`[dyn.order]`) and joins the paths of the
     /// branches of an if, a match and an escape: what follows a branch that may resume is after

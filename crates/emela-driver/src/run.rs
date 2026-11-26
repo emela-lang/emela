@@ -278,7 +278,7 @@ pub(crate) const WASMTIME: Host = Host {
     target: "wasm",
     env: WASMTIME_ENV,
     min_major: WASMTIME_MIN_MAJOR,
-    code: code::WASMTIME_UNAVAILABLE,
+    code: code::TOOL_UNAVAILABLE,
     version: crate::doctor::wasmtime_version,
 };
 
@@ -341,7 +341,7 @@ impl Host {
     }
 }
 
-/// E0909 when `wasmtime --version` reports a version older than [`WASMTIME_MIN_MAJOR`]
+/// E9101 when `wasmtime --version` reports a version older than [`WASMTIME_MIN_MAJOR`]
 /// (`[target.wasm.run]`).
 pub(crate) fn check_wasmtime_version(wasmtime: &Path) -> Result<(), Diagnostic> {
     WASMTIME.check_version(wasmtime)
@@ -413,7 +413,7 @@ fn shell_word(word: &str) -> String {
 }
 
 /// The command that runs the `.wasm` component `entry` with `wasmtime` (WASI 0.3). `args` are
-/// passed to the program. E0909 if the wasmtime is too old.
+/// passed to the program. E9101 if the wasmtime is too old.
 pub(crate) fn wasmtime_command(
     entry: &Path,
     args: &[OsString],
@@ -428,7 +428,7 @@ pub(crate) fn wasmtime_command(
 }
 
 /// The command that serves the HTTP service `entry` with `wasmtime serve -S p3=y,cli=y`
-/// (`[target.wasm.run]`). `args` go to wasmtime, before the component. E0909 if the wasmtime is
+/// (`[target.wasm.run]`). `args` go to wasmtime, before the component. E9101 if the wasmtime is
 /// too old.
 pub(crate) fn wasmtime_serve_command(
     entry: &Path,

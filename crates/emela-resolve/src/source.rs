@@ -222,7 +222,7 @@ impl ModuleMap {
     }
 
     /// Whether an import that [`ModuleMap::lookup_from`] does not find names a module only the
-    /// test root may import: a module of the test root, or a `[dev-dependencies]` Pome (E0239).
+    /// test root may import: a module of the test root, or a `[dev-dependencies]` Pome (E2010).
     pub fn is_test_only(&self, importer: ModuleId, name: &ModuleName) -> bool {
         if self.package_of.contains_key(&importer) || self.is_test(importer) {
             return false;

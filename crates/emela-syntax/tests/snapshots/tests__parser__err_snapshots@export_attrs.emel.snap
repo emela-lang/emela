@@ -581,19 +581,19 @@ ROOT@0..793
       L_BRACE@790..791 "{"
       R_BRACE@791..792 "}"
   NEWLINE@792..793 "\n"
-error[E0146]@78..85: expected `@export(target, "name")`
-error[E0146]@109..120: expected `@export(target, "name")`
-error[E0146]@146..172: expected `@export(target, "name")`
-error[E0146]@214..215: expected `@export(target, "name")`
-error[E0146]@248..253: expected `@export(target, "name")`
-error[E0140]@291..294: unknown language `jvm` in `@export`: expected `js`, `wasm` or `c`
-error[E0146]@343..349: string interpolation is not allowed in `@export`
-error[E0146]@391..399: on target `js`, the middle argument of `@export` must be `"default"`
-error[E0146]@438..462: on the native target, `@export` takes one name: `@export(c, "name")`
-error[E0146]@553..563: expected `@export(target, "name")`
-error[E0146]@589..605: `@export` is written on a top-level fn with a body
-error[E0130]@609..616: a function without a body must be `@external`
-error[E0146]@626..642: `@export` is written on a top-level fn with a body
-error[E0110]@674..675: expected `.` and a function name after the module path
-error[E0110]@713..714: expected lower name
-error[E0146]@755..764: on target `js`, the name `"default"` is the default export: write `@export(js, "default", "name")`
+error[E1301]@78..85: expected `@export(target, "name")`
+error[E1301]@109..120: expected `@export(target, "name")`
+error[E1301]@146..172: expected `@export(target, "name")`
+error[E1301]@214..215: expected `@export(target, "name")`
+error[E1301]@248..253: expected `@export(target, "name")`
+error[E1303]@291..294: unknown language `jvm` in `@export`: expected `js`, `wasm` or `c`
+error[E1301]@343..349: string interpolation is not allowed in `@export`
+error[E1301]@391..399: on target `js`, the middle argument of `@export` must be `"default"`
+error[E1301]@438..462: on the native target, `@export` takes one name: `@export(c, "name")`
+error[E1301]@553..563: expected `@export(target, "name")`
+error[E1301]@589..605: `@export` is written on a top-level fn with a body
+error[E1204]@609..616: a function without a body must be `@external`
+error[E1301]@626..642: `@export` is written on a top-level fn with a body
+error[E1101]@674..675: expected `.` and a function name after the module path
+error[E1101]@713..714: expected lower name
+error[E1301]@755..764: on target `js`, the name `"default"` is the default export: write `@export(js, "default", "name")`

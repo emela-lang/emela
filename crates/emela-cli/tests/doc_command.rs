@@ -93,7 +93,7 @@ fn doc_writes_nothing_on_errors() {
     );
     let (code, _, stderr) = project.emela(&["doc"]);
     assert_eq!(code, Some(1));
-    assert!(stderr.contains("E0301"), "{stderr}");
+    assert!(stderr.contains("E3001"), "{stderr}");
     assert!(!project.path().join("target/emela/doc").exists());
 }
 

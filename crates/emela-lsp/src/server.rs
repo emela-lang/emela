@@ -32,7 +32,7 @@ use crate::overlay::Overlay;
 /// The project marker file (spec 4.1). Diagnostics without a location attach to it.
 const PROJECT_FILE: &str = "Pome.toml";
 
-/// The lock next to `Pome.toml` (spec 4.7). Whether it exists decides E0236.
+/// The lock next to `Pome.toml` (spec 4.7). Whether it exists decides E2306.
 const LOCK_FILE: &str = "Pome.lock";
 
 /// The files whose contents on disk can change a check, as glob patterns for the client's file

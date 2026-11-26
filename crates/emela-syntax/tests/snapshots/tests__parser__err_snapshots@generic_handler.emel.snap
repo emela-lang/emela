@@ -107,6 +107,6 @@ ROOT@0..124
       NEWLINE_CONT@121..122 "\n"
       R_BRACE@122..123 "}"
   NEWLINE@123..124 "\n"
-error[E0110]@18..19: expected type name
-error[E0110]@18..19: expected `]`
-error[E0110]@99..100: expected `]`
+error[E1101]@18..19: expected type name
+error[E1101]@18..19: expected `]`
+error[E1101]@99..100: expected `]`

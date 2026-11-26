@@ -253,7 +253,7 @@ fn main() {
     ));
 }
 
-/// Handlers in the same `with` depending on each other's effects form a cycle (E0411).
+/// Handlers in the same `with` depending on each other's effects form a cycle (E4101).
 #[test]
 fn handler_cycles() {
     insta::assert_snapshot!(render_effects(
@@ -283,7 +283,7 @@ fn f() {
 
 /// Capability operation types come from the effect declaration, and an operation's fails adds to
 /// the call's E (spec 8.1). Named arguments use the operation's parameter names. Unknown
-/// operations are E0401.
+/// operations are E4401.
 #[test]
 fn operations() {
     insta::assert_snapshot!(render_effects(
@@ -308,7 +308,7 @@ fn wrong() {
     ));
 }
 
-/// A written `use` clause is exactly that set (spec 9.3); a larger body R is E0402. A function
+/// A written `use` clause is exactly that set (spec 9.3); a larger body R is E4301. A function
 /// type with `use {}` accepts only functions without effects (spec 9.2).
 #[test]
 fn declared_uses() {
@@ -430,8 +430,7 @@ handler Sleepy: Clock {
 
 /// An `@external` fn with `uses` omitted adds the External of its module, which the operation
 /// bodies of its handlers remove; with `uses {}` it adds nothing (`[ext.call]`,
-/// `[effect.external]`). E0407 is retired: calling one outside a handler is allowed, and puts
-/// External in R.
+/// `[effect.external]`). Calling one outside a handler is allowed, and puts External in R.
 #[test]
 fn external_functions() {
     insta::assert_snapshot!(render_effects(
@@ -463,7 +462,7 @@ fn outside() {
 }
 
 /// Capability values can be passed as arguments, stored in data structures, and returned, as any
-/// other value (`[effect.use]`). E0408 to E0410 are retired.
+/// other value (`[effect.use]`).
 #[test]
 fn capability_values_as_values() {
     insta::assert_snapshot!(render_effects(
@@ -684,8 +683,8 @@ fn test_waits() {
     ));
 }
 
-/// Async is a built-in effect (spec 8.7). Handlers for it cannot be written (E0413), nor can
-/// `use Async` (E0414). It may appear in use clauses.
+/// Async is a built-in effect (spec 8.7). Handlers for it cannot be written (E4003), nor can
+/// `use Async` (E4402). It may appear in use clauses.
 #[test]
 fn async_effect() {
     insta::assert_snapshot!(render_effects(
@@ -706,7 +705,7 @@ fn main() {
 
 /// `@external suspend fn` requires Async and the External of its module (`[ext.call]`), which
 /// only the handlers of the module remove (`[effect.external]`). fn operation bodies cannot wait
-/// on it (E0417).
+/// on it (E4303).
 #[test]
 fn external_suspend_functions() {
     insta::assert_snapshot!(render_effects(
@@ -740,14 +739,14 @@ fn main() {
 }
 
 /// The body of an fn operation implementation must either have an Immediate R or contain no call
-/// that may suspend (E0417, spec 8.1), the latter judged per call. Operation calls are decided by
+/// that may suspend (E4303, spec 8.1), the latter judged per call. Operation calls are decided by
 /// the operation's declaration, so the fn operation `now` of Clock (which has a suspend fn) may be
 /// called (Clock lands in the body's R and becomes a handler dependency). Calls of functions and
 /// function values are decided by their type's R, so going through a function that only calls fn
 /// operations, a closure capturing the capability, or an operation taken out as a value stays
-/// E0417. Calls of suspend fn operations are E0417 too. But if the body's R is Immediate, the
+/// E4303. Calls of suspend fn operations are E4303 too. But if the body's R is Immediate, the
 /// calls are not looked at (sleep inside a `with` of PureClock, which resumes immediately). Mixing
-/// the outer Clock's now with sleep inside the inner `with` satisfies neither and is E0417.
+/// the outer Clock's now with sleep inside the inner `with` satisfies neither and is E4303.
 #[test]
 fn fn_op_bodies_are_checked_per_call() {
     insta::assert_snapshot!(render_effects(
@@ -844,7 +843,7 @@ handler MixedSleep: Clock {
 
 /// `R: Immediate` (spec 9.5). An effect is Immediate when it has no suspend fn and is not Async; a
 /// set type parameter only when it has the bound. Callbacks passed to external functions must be
-/// Immediate too, and their R cannot contain an effect other than a host effect at all (E0454,
+/// Immediate too, and their R cannot contain an effect other than a host effect at all (E5003,
 /// `[ext.boundary]`).
 #[test]
 fn immediate_constraint() {
@@ -1006,7 +1005,7 @@ fn tickers() {
 
 /// Sets written in type argument positions (spec 9.2). Error sets are joined with `|`; effect sets
 /// are wrapped in braces. An empty `{}` fits either position. A set in a non-set type argument
-/// position is E0324.
+/// position is E3008.
 #[test]
 fn declaration_set_args() {
     insta::assert_snapshot!(render_effects(
@@ -1133,8 +1132,8 @@ fn logged() {
     ));
 }
 
-/// Stateful handler errors: building the handler value outside init (E0418), fields without init
-/// (E0419), a release that can fail (E0420), the type of init's value, and unknown fields.
+/// Stateful handler errors: building the handler value outside init (E4005), fields without init
+/// (E4006), a release that can fail (E4007), the type of init's value, and unknown fields.
 #[test]
 fn stateful_handler_errors() {
     insta::assert_snapshot!(render_handlers(
@@ -1187,7 +1186,7 @@ fn lambda() { || Counter(n: 1) }
 
 /// Layers (spec 8.5): contents are handlers or other layers. Initialization order follows
 /// dependencies, and unmet dependencies remain in the R of `with`. Two handlers providing the same
-/// effect (E0421), mutual inclusion (E0422) and dependency cycles (E0411) are reported at the
+/// effect (E4102), mutual inclusion (E4103) and dependency cycles (E4101) are reported at the
 /// layer declaration. In `with AppLive, FixedClock` the later one wins.
 #[test]
 fn layers() {
@@ -1373,9 +1372,9 @@ fn sleeps() { ticks(|| (use Ticks).sleep(1)) }
     ));
 }
 
-/// Misused labels (issue #255): bases that cannot be used (E0429), effects that are not labels
-/// (E0430), providers of another effect (E0431), two providers for a label (E0432), and handlers
-/// of labels (E0433).
+/// Misused labels (issue #255): bases that cannot be used (E4201), effects that are not labels
+/// (E4202), providers of another effect (E4203), two providers for a label (E4204), and handlers
+/// of labels (E4003).
 #[test]
 fn label_errors() {
     insta::assert_snapshot!(render_handlers(
@@ -1520,7 +1519,7 @@ fn main() {
 }
 
 /// `[effect.layer]`: the arguments of a layer's items are pure. Function calls are allowed; `use`
-/// is E0402, with the help to list the handler after the layer.
+/// is E4301, with the help to list the handler after the layer.
 #[test]
 fn layer_arguments_are_pure() {
     insta::assert_snapshot!(render_handlers(
@@ -1557,10 +1556,10 @@ fn main() {
     ));
 }
 
-/// `[effect.handler]`: a handler whose init takes parameters needs arguments (E0434), and
-/// anything else takes none (E0435, `with H()` included). The arguments are checked as those of
-/// a call (E0305, E0306, E0307, E0301), also for a handler a later item overrides. The
-/// parameters of init need types (E0316).
+/// `[effect.handler]`: a handler whose init takes parameters needs arguments (E4104), and
+/// anything else takes none (E4104, `with H()` included). The arguments are checked as those of
+/// a call (E3101, E3103, E3104, E3001), also for a handler a later item overrides. The
+/// parameters of init need types (E3006).
 #[test]
 fn init_argument_errors() {
     insta::assert_snapshot!(render_effects(
@@ -1611,7 +1610,7 @@ fn f() {
 }
 
 /// `[effect.handler]`: `H(...)` at a `with` is a call of init, not a construction of the
-/// handler value, so it is not E0418; constructing the value outside init still is.
+/// handler value, so it is not E4005; constructing the value outside init still is.
 #[test]
 fn init_arguments_do_not_construct() {
     insta::assert_snapshot!(render_effects(
@@ -1674,7 +1673,7 @@ fn value() {
 }
 
 /// `[effect.handler]`, `[effect.layer]`: a handler listed in a layer without arguments needs them
-/// when its init takes parameters (E0434), also in a layer no `with` names and in a layer where
+/// when its init takes parameters (E4104), also in a layer no `with` names and in a layer where
 /// no other item has arguments.
 #[test]
 fn layer_items_need_init_arguments() {
@@ -1714,7 +1713,7 @@ fn main() {
 }
 
 /// `[effect.with]`, spec 8.1, 8.7: the arguments of a handler a later item overrides are not
-/// evaluated, so a call in them that may suspend is not reported in an fn operation (E0417), and
+/// evaluated, so a call in them that may suspend is not reported in an fn operation (E4303), and
 /// `resume` written in them does not make the operation resume later.
 #[test]
 fn overridden_init_arguments_do_not_run() {
@@ -1758,7 +1757,7 @@ handler Ticking: Clock {
 }
 
 /// A local fn encloses its body's R in its type, and the R surfaces where it is called. A written
-/// `uses` is enforced as for a top-level fn (E0402). A local fn can return a capability value as
+/// `uses` is enforced as for a top-level fn (E4301). A local fn can return a capability value as
 /// a fn can (`[fn.local]`, `[effect.use]`).
 #[test]
 fn local_fn_effects() {
@@ -1813,8 +1812,8 @@ fn returns_capability() {
 /// `[effect.handler]`, `[grammar.expr]`: inside the init of a handler, `Self(...)` constructs its
 /// value as the handler's name does: with fields, alone for a handler without parentheses, `Self()`
 /// for `handler H()`, and inside an anonymous function inside init. Its type is the handler's, and
-/// its fields are checked as for `H(...)`. Inside the handler but outside init it is E0418; outside
-/// a handler (in a function, a trait or an impl) it is E0219. It is not a record update target.
+/// its fields are checked as for `H(...)`. Inside the handler but outside init it is E4005; outside
+/// a handler (in a function, a trait or an impl) it is E2108. It is not a record update target.
 #[test]
 fn self_constructs_in_init() {
     insta::assert_snapshot!(render_handlers(
@@ -1887,13 +1886,13 @@ fn main() {
     ));
 }
 
-/// Host effects (`[effect.host]`): no handler can implement `ProcessHost` or `PageHost` (E0413)
-/// and neither can be taken with `use` (E0414), but both can be written in a uses clause. Calling
+/// Host effects (`[effect.host]`): no handler can implement `ProcessHost` or `PageHost` (E4003)
+/// and neither can be taken with `use` (E4402), but both can be written in a uses clause. Calling
 /// an external function declared with `uses { ProcessHost }` adds `ProcessHost` to R
 /// and the External of its module (`[ext.call]`); a handler of the module removes External,
 /// not the host effect (`[effect.external]`). A handler that calls one requires the host
 /// effect, so it stays in the R of a with that lists the handler. `main` and a test function are
-/// given Async and ProcessHost, not PageHost (E0402).
+/// given Async and ProcessHost, not PageHost (E4301).
 #[test]
 fn host_effects() {
     insta::assert_snapshot!(render_effects(
@@ -1949,7 +1948,7 @@ fn test_load() {
 }
 
 /// The uses clause of an external function contains only ProcessHost and PageHost, or nothing
-/// (`[ext.call]`). Any other effect, Async and a set type parameter included, is E0445, at the
+/// (`[ext.call]`). Any other effect, Async and a set type parameter included, is E5002, at the
 /// effect.
 #[test]
 fn external_uses_only_host_effects() {
@@ -1977,7 +1976,7 @@ fn pure() -> () uses {}
     ));
 }
 
-/// An effect declared in source has at least one operation (E0446, `[effect.decl]`). A label has
+/// An effect declared in source has at least one operation (E4010, `[effect.decl]`). A label has
 /// the operations of the effect it stands for.
 #[test]
 fn effect_without_operations() {
@@ -2241,9 +2240,9 @@ fn never_overridden() {
 }
 
 /// `[effect.with]`, `[effect.label]`: a label item that makes no handler (`L`, `L by P` where P
-/// is an effect or a label) cannot be bound to a name (E0447); an unbound one is
-/// unchanged. Two bound items of one label are not E0432, and a bound label item is never
-/// W0401: it provides nothing by name, so the label is used through its capability.
+/// is an effect or a label) cannot be bound to a name (E4105); an unbound one is
+/// unchanged. Two bound items of one label are not E4204, and a bound label item is never
+/// W4201: it provides nothing by name, so the label is used through its capability.
 #[test]
 fn bound_label_items() {
     insta::assert_snapshot!(render_handlers(

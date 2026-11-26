@@ -3,8 +3,8 @@
 //! `Std.Cause`, `Std.Deferred`, `Std.Semaphore` and `Std.Queue`.
 //!
 //! Checks that the bundled sources type-check with the types of `[task]`, that the examples of
-//! chapter 11 pass, and that the programs the chapter rejects stop: E0402 with the note for
-//! effects of tasks, E0413, E0423, E0424, E0426 and E0455.
+//! chapter 11 pass, and that the programs the chapter rejects stop: E4301 with the note for
+//! effects of tasks, E4003, E4008, E4009, E1213 and E4405.
 //!
 //! The output shows declared types, local variable types, and diagnostics of `main.emel`.
 
@@ -322,7 +322,7 @@ fn spec_queue(job: Job) {
 /// written with type parameters (`[task.group]`). Their tasks' E and R only have to be contained
 /// in those of the group, so two helpers with different tasks share one group. A `use` expression
 /// and an effect alias may omit the type arguments; a uses clause and a parameter type may not
-/// (E0423).
+/// (E4008).
 #[test]
 fn helpers_receive_the_group() {
     insta::assert_snapshot!(render(
@@ -425,7 +425,7 @@ fn kinds(c: Cause[Boom]) -> Bool {
 }
 
 /// The example of `[task.group]`: an effect a task uses is provided outside the with of its group.
-/// A `with` inside the body does not reach the tasks, so E0402 points at the start, with the
+/// A `with` inside the body does not reach the tasks, so E4301 points at the start, with the
 /// note. Providing it outside the group, or by an item before it in the same with, passes, and
 /// an effect the body itself uses gets no note.
 #[test]
@@ -497,8 +497,8 @@ fn test_started() {
 
 /// The R of a task is provided outside the with of its group: a capability made by an item before
 /// the group in the same with can be used by its tasks; one made by an item after it, or by a
-/// with inside its body, cannot (E0455, `[task.group]`). A task, being a capability-bound type of
-/// the group, cannot leave the with (E0455). Neither can a Deferred, a Semaphore or a Queue.
+/// with inside its body, cannot (E4405, `[task.group]`). A task, being a capability-bound type of
+/// the group, cannot leave the with (E4405). Neither can a Deferred, a Semaphore or a Queue.
 #[test]
 fn capabilities_and_tasks_stay_inside() {
     insta::assert_snapshot!(render(
@@ -567,7 +567,7 @@ fn queue() {
 }
 
 /// Only `Task.Group` provides TaskGroup and only `Task.Background` provides Spawn: a handler for
-/// either is E0413 (`[task.group]`, `[task.background]`).
+/// either is E4003 (`[task.group]`, `[task.background]`).
 #[test]
 fn task_handlers() {
     insta::assert_snapshot!(render(
@@ -585,8 +585,8 @@ handler MySpawn: Spawn[{}, {}] {
     ));
 }
 
-/// User effects take neither operation type parameters (E0426) nor set type parameters (E0424,
-/// spec 8.1). `@intrinsic` on an effect is only for the bundled sources (E0224).
+/// User effects take neither operation type parameters (E1213) nor set type parameters (E4009,
+/// spec 8.1). `@intrinsic` on an effect is only for the bundled sources (E2201).
 #[test]
 fn user_effects_stay_plain() {
     insta::assert_snapshot!(render(
@@ -705,7 +705,7 @@ fn nested() {
 }
 
 /// A background (`[task.background]`): start takes a function that returns `()` and returns `()`;
-/// a task whose value is wanted does not fit (E0301). The errors of its tasks go to `on_failure`,
+/// a task whose value is wanted does not fit (E3001). The errors of its tasks go to `on_failure`,
 /// which receives a `Cause` of them and has no errors of its own; they do not reach the with. Its
 /// R and that of the tasks reach the with's R, with Async.
 #[test]

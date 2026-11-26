@@ -4,7 +4,7 @@ expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/prefix_match.emel
 ---
 ROOT@0..239
-  COMMENT@0..66 "# Prefix match is E0142, read in that shape to recover (spec 6.5)."
+  COMMENT@0..66 "# Prefix match is E1401, read in that shape to recover (spec 6.5)."
   NEWLINE@66..67 "\n"
   FN_DECL@67..128
     FN_KW@67..69 "fn"
@@ -183,6 +183,6 @@ ROOT@0..239
       NEWLINE@236..237 "\n"
       R_BRACE@237..238 "}"
   NEWLINE@238..239 "\n"
-error[E0142]@91..96: `match` comes after the value: write `value match { ... }`
-error[E0142]@162..167: `match` comes after the value: write `value match { ... }`
-error[E0142]@218..223: `match` comes after the value: write `value match { ... }`
+error[E1401]@91..96: `match` comes after the value: write `value match { ... }`
+error[E1401]@162..167: `match` comes after the value: write `value match { ... }`
+error[E1401]@218..223: `match` comes after the value: write `value match { ... }`

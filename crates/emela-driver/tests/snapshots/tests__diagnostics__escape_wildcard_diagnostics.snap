@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-warning[W0304]: the value of type `(Int, Int, Int, Int)` returned by `main` is discarded
+warning[W3001]: the value of type `(Int, Int, Int, Int)` returned by `main` is discarded
    ╭─[ main.emel:6:4 ]
    │
  6 │ fn main() {
@@ -11,7 +11,7 @@ warning[W0304]: the value of type `(Int, Int, Int, Int)` returned by `main` is d
 ───╯
    = help: return `()`, or return an `ExitCode` to choose the exit code
 
-warning[W0302]: no error is raised here
+warning[W3201]: no error is raised here
    ╭─[ main.emel:7:25 ]
    │
  7 │   a = steady() escape { _ -> 0 }
@@ -19,7 +19,7 @@ warning[W0302]: no error is raised here
    │                         ╰── 
 ───╯
 
-warning[W0301]: unreachable match arm
+warning[W3101]: unreachable match arm
     ╭─[ main.emel:10:5 ]
     │
  10 │     Boom -> 1
@@ -27,7 +27,7 @@ warning[W0301]: unreachable match arm
     │       ╰─── 
 ────╯
 
-error[E0320]: a `_` escape arm cannot have a guard
+error[E3203]: a `_` escape arm cannot have a guard
     ╭─[ main.emel:12:28 ]
     │
  12 │   c = boom() escape { _ if a > 0 -> 0 }
@@ -35,7 +35,7 @@ error[E0320]: a `_` escape arm cannot have a guard
     │                              ╰──── 
 ────╯
 
-error[E0320]: escape arms must match an error constructor or `_`
+error[E3203]: escape arms must match an error constructor or `_`
     ╭─[ main.emel:13:23 ]
     │
  13 │   d = boom() escape { e -> 0 }

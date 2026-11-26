@@ -50,7 +50,7 @@ EQ@139..140 "="
 WHITESPACE@140..141 " "
 TRIPLE_QUOTE@141..144 "\"\"\""
 STRING_TEXT@144..160 "\n  never closed\n"
-error[E0109]@4..7: expected a newline after the opening `"""`
-error[E0109]@47..50: the closing `"""` must be on its own line
-error[E0109]@103..106: this line is indented less than the closing `"""`
-error[E0101]@141..160: unterminated string literal
+error[E1009]@4..7: expected a newline after the opening `"""`
+error[E1009]@47..50: the closing `"""` must be on its own line
+error[E1009]@103..106: this line is indented less than the closing `"""`
+error[E1001]@141..160: unterminated string literal

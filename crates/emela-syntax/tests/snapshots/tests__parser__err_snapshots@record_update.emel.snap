@@ -155,8 +155,8 @@ ROOT@0..154
       NEWLINE@151..152 "\n"
       R_BRACE@152..153 "}"
   NEWLINE@153..154 "\n"
-error[E0114]@38..42: `..` must come last
-error[E0114]@79..81: `..` must come last
-error[E0124]@110..112: `..` without an expression can only be used in patterns
-error[E0125]@128..134: invalid left-hand side of binding: expected a pattern
-error[E0124]@148..150: `..` without an expression can only be used in patterns
+error[E1104]@38..42: `..` must come last
+error[E1104]@79..81: `..` must come last
+error[E1110]@110..112: `..` without an expression can only be used in patterns
+error[E1111]@128..134: invalid left-hand side of binding: expected a pattern
+error[E1110]@148..150: `..` without an expression can only be used in patterns

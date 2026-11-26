@@ -15,7 +15,7 @@ use crate::source::ModuleId;
 use crate::suggest::best_match;
 
 /// Reports an fn of the module of a type, whose first parameter has that type at its head and
-/// whose name is a field of that type (E0334, `[data.type]`). Types with fields are types,
+/// whose name is a field of that type (E3109, `[data.type]`). Types with fields are types,
 /// errors and handlers with fields. Runs after every item is lowered, since it reads the
 /// resolved type of the first parameter.
 pub(crate) fn check_fn_field_names(resolver: &mut Resolver<'_>) {
@@ -159,7 +159,7 @@ pub(crate) fn alias_name(effect: &str) -> SmolStr {
     out.into()
 }
 
-/// A `use E` written as an expression (W0403, `[effect.use]`), reported when the item is done.
+/// A `use E` written as an expression (W4401, `[effect.use]`), reported when the item is done.
 struct DeprecatedUse {
     expr: ExprId,
     range: TextRange,
@@ -195,13 +195,13 @@ struct Lower<'r, 'a> {
     self_type: bool,
     /// The handler being lowered and its constructor, if it has one. `Self` as an expression
     /// names that constructor anywhere inside the handler (`[effect.handler]`); that it is only
-    /// used inside init is checked by type inference with the handler's name (E0418).
+    /// used inside init is checked by type inference with the handler's name (E4005).
     handler: Option<(DefId, Option<DefId>)>,
     /// Set while looking up a type in a type argument position of a named type. Effect names may
     /// appear there too (set type arguments, `Handler[NotFound, Db]` in spec 9.2); whether an
     /// effect is allowed in that position is checked by type inference.
     type_arg: bool,
-    /// The type parameters written on the local fns being lowered, which are E0150
+    /// The type parameters written on the local fns being lowered, which are E1213
     /// (`[fn.local]`). Their uses are not reported again as undefined.
     ignored_type_params: Vec<SmolStr>,
     /// The label through which the last handler member was named (`Audit.Open`,
@@ -212,7 +212,7 @@ struct Lower<'r, 'a> {
     effect_aliases: FxHashMap<LocalId, (Res, Vec<TypeId>)>,
     /// Set while the base of `x.op` is lowered: a reference to an effect alias is allowed there.
     alias_receiver: bool,
-    /// The `use E` expressions of the item, reported at its end (W0403).
+    /// The `use E` expressions of the item, reported at its end (W4401).
     uses: Vec<DeprecatedUse>,
     /// The variables bound to `use E` in the item ([`UseBind`]).
     use_binds: FxHashMap<LocalId, UseBind>,
@@ -330,8 +330,8 @@ impl Lower<'_, '_> {
     }
 
     /// Reads the type parameters like [`Self::type_params`]. In an impl head (`impl_head`), a
-    /// repeated name or the name of a type is not a type parameter but a malformed head (E0328,
-    /// spec 10.2), so neither E0213 nor W0201 is reported; the second value tells whether the head
+    /// repeated name or the name of a type is not a type parameter but a malformed head (E3303,
+    /// spec 10.2), so neither E2103 nor W2101 is reported; the second value tells whether the head
     /// is malformed. A repeated name still gets a type parameter, so the head keeps its arity.
     fn type_params_in(
         &mut self,
@@ -572,8 +572,8 @@ impl Lower<'_, '_> {
 
     /// Parameters of a lambda. A pattern in place of a name becomes a hidden parameter
     /// ([`LocalKind::PatParam`]) and a binding `pattern = parameter` to put at the head of the
-    /// body (spec 6.1), so type inference checks it as a binding (E0317). Names bound by all
-    /// parameters share one binder (E0220).
+    /// body (spec 6.1), so type inference checks it as a binding (E3108). Names bound by all
+    /// parameters share one binder (E2109).
     fn lambda_params(&mut self, list: Option<ast::ParamList>) -> (Vec<Param>, Vec<Stmt>) {
         let Some(list) = list else {
             return (Vec::new(), Vec::new());
@@ -703,7 +703,7 @@ impl Lower<'_, '_> {
             fields,
             derives,
             bound,
-            // Outside the bundled sources, `@intrinsic` is E0224 and the type stays a user type.
+            // Outside the bundled sources, `@intrinsic` is E2201 and the type stays a user type.
             is_intrinsic: t.has_annotation("intrinsic") && self.r.modules.is_core(self.module),
         })
     }
@@ -792,7 +792,7 @@ impl Lower<'_, '_> {
                 continue;
             };
             // An operation's own type parameters (`fork[A]`, spec 8.1, 11.2). Only built-in
-            // effects may have them; type inference reports E0426 otherwise.
+            // effects may have them; type inference reports E1213 otherwise.
             let op_params = self.type_params(def, op.type_params());
             self.push_scope();
             let params = self.params(op.param_list(), LocalKind::Param);
@@ -816,7 +816,7 @@ impl Lower<'_, '_> {
             ops: ops.to_vec(),
             members,
             label,
-            // Outside the bundled sources, `@intrinsic` is E0224 and the effect stays a user
+            // Outside the bundled sources, `@intrinsic` is E2201 and the effect stays a user
             // effect.
             is_intrinsic: e.has_annotation("intrinsic") && self.r.modules.is_core(self.module),
         })
@@ -859,7 +859,7 @@ impl Lower<'_, '_> {
 
     /// The type parameters of a handler (`[effect.handler]`) are in scope in its fields, the
     /// effects after `:`, init, release, the operation bodies and the inner handlers. Those of an
-    /// inner handler are kept so that their names resolve; type inference reports them (E0460).
+    /// inner handler are kept so that their names resolve; type inference reports them (E1213).
     fn handler_body(&mut self, def: DefId, ctor: Option<DefId>, h: &ast::HandlerDecl) -> Item {
         let type_params = self.type_params(def, h.type_param_list());
         let item = self.handler_body_in(def, ctor, h, type_params);
@@ -1017,8 +1017,8 @@ impl Lower<'_, '_> {
     /// looked up in each of the effects it lists, in order (`[effect.handler]`). Two of them
     /// having the name is reported by type inference; the first is taken here.
     ///
-    /// Not found is E0212, naming every listed effect. Nothing is reported when one of the
-    /// effects did not resolve, or is a label: a handler of a label is E0433, and the operations
+    /// Not found is E2102, naming every listed effect. Nothing is reported when one of the
+    /// effects did not resolve, or is a label: a handler of a label is E4003, and the operations
     /// of a label are not looked up.
     fn member_of_effects(
         &mut self,
@@ -1177,7 +1177,7 @@ impl Lower<'_, '_> {
                 let token = f.name()?;
                 let (name, range) = token_name(&token);
                 // Like the functions of a trait, an impl's functions cannot repeat a name
-                // (E0213, spec 2.3).
+                // (E2103, spec 2.3).
                 if let Some(&first) = seen.get(&name) {
                     self.error(
                         range,
@@ -1458,7 +1458,7 @@ impl Lower<'_, '_> {
     /// module `A`.
     ///
     /// In a type argument of a named type an effect also fits [`Expected::Type`]: which arguments
-    /// take a set is known only to type inference, which reports E0221 for the others.
+    /// take a set is known only to type inference, which reports E2110 for the others.
     fn resolve_type_ns(&mut self, path: &ast::Path, expected: Expected) -> Res {
         let segments: Vec<SyntaxToken> = path.segments().collect();
         let Some((last, prefix)) = segments.split_last() else {
@@ -1508,7 +1508,7 @@ impl Lower<'_, '_> {
             }
             Expected::Effect => matches!(kind, DefKind::Effect | DefKind::TypeParam),
             Expected::Error => matches!(kind, DefKind::Error | DefKind::TypeParam),
-            // A handler member in a layer is reported by type inference (E0447).
+            // A handler member in a layer is reported by type inference (E4105).
             Expected::HandlerOrLayer => {
                 matches!(kind, DefKind::Handler | DefKind::Layer | DefKind::Member)
             }
@@ -1950,7 +1950,7 @@ impl Lower<'_, '_> {
     /// each reference to x becomes its own `use E` ([`Program::alias_uses`]).
     fn effect_alias(&mut self, alias: &ast::EffectAlias) {
         let node = alias.syntax();
-        // A right side that is not an effect name is reported by syntax validation (E0152);
+        // A right side that is not an effect name is reported by syntax validation (E1113);
         // name resolution does not report it again.
         let effect = match alias.path() {
             Some(path) if !alias.is_malformed() => self.resolve_type_ns(&path, Expected::Effect),
@@ -1968,7 +1968,7 @@ impl Lower<'_, '_> {
     }
 
     /// A reference to `local`, if it is an effect alias: its own `use E`, recorded in
-    /// [`Program::alias_uses`]. Anywhere but the receiver of `x.op(...)` or `x.op` it is E0453;
+    /// [`Program::alias_uses`]. Anywhere but the receiver of `x.op(...)` or `x.op` it is E4404;
     /// it is still lowered to `use E`, so that type checking goes on.
     fn alias_use(&mut self, local: LocalId, range: TextRange, receiver: bool) -> Option<ExprId> {
         let (effect, args) = self.effect_aliases.get(&local)?.clone();
@@ -2004,7 +2004,7 @@ impl Lower<'_, '_> {
         }
     }
 
-    /// W0403 for each `use E` written as an expression in the item (`[effect.use]`), with the
+    /// W4401 for each `use E` written as an expression in the item (`[effect.use]`), with the
     /// replacement in the help: an effect alias where it means the same, and otherwise an effect
     /// alias or a named item.
     fn report_deprecated_uses(&mut self) {
@@ -2031,7 +2031,7 @@ impl Lower<'_, '_> {
         }
     }
 
-    /// The handler member `member` opened through `local`, if it is an effect alias (E0453).
+    /// The handler member `member` opened through `local`, if it is an effect alias (E4404).
     fn member_through_alias(&mut self, local: LocalId, range: TextRange, member: &SmolStr) -> bool {
         let Some((effect, _)) = self.effect_aliases.get(&local) else {
             return false;
@@ -2345,7 +2345,7 @@ impl Lower<'_, '_> {
         match spread {
             Some(base) => {
                 // `Self` constructs a handler with its fields only (`[grammar.expr]`). Outside a
-                // handler it is already reported (E0219).
+                // handler it is already reported (E2108).
                 let callee_node = node.children().find(|c| is_expr(c.kind()));
                 if self.handler.is_some()
                     && callee_node.is_some_and(|c| {
@@ -2533,7 +2533,7 @@ impl Lower<'_, '_> {
     /// The arguments of init written on an item of `with` or `layer` (`WorkerKv(binding: "KV")`,
     /// `[effect.handler]`). `res` is what the item names. They are a call of init, not a
     /// construction of the handler value, so a trailing `..` (a record update, spec 5.3) is
-    /// E0222.
+    /// E2111.
     fn supply_args(&mut self, supply: &ast::Supply, res: Res) -> Option<SupplyArgs> {
         let list = supply.arg_list()?;
         let (args, spread) = self.arg_list(&list);
@@ -2653,7 +2653,7 @@ impl Lower<'_, '_> {
         let op = token.kind() == LOWER_NAME;
         let base = match base {
             Some(b) => {
-                // `x.op` with an effect alias x; `x.M` that opens a handler member is E0453.
+                // `x.op` with an effect alias x; `x.M` that opens a handler member is E4404.
                 self.alias_receiver = b.kind() == NAME_REF;
                 let e = self.expr(&b);
                 self.alias_receiver = false;
@@ -2884,7 +2884,7 @@ impl Lower<'_, '_> {
                     _ => PatKind::Missing,
                 }
             }
-            // `-1`: the syntax checks accept only `-` before a number literal (E0125).
+            // `-1`: the syntax checks accept only `-` before a number literal (E1111).
             PREFIX_EXPR => pat_literal(node),
             UNIT_EXPR => PatKind::Unit,
             PAREN_EXPR => {
@@ -3028,7 +3028,7 @@ fn pat_literal(node: &SyntaxNode) -> PatKind {
 /// The arguments of an fn's `@external(target, "a", "b")` or `@export(target, "a", "b")`
 /// (`attr`). Skips annotations whose first argument is not a name (`@external("x")`), and
 /// non-string remaining arguments (`@external(js, 1)`, `@external(js, k: "v")`). The parser
-/// reports them (E0138, E0146).
+/// reports them (E1301, E1301).
 fn attrs(f: &ast::FnDecl, attr: &str, module: ModuleId) -> Vec<ExternalAttr> {
     f.annotations()
         .filter(|a| a.name().is_some_and(|n| n.text() == attr))
@@ -3069,7 +3069,7 @@ fn attrs(f: &ast::FnDecl, attr: &str, module: ModuleId) -> Vec<ExternalAttr> {
 }
 
 /// The value of `@key("...")` or `@tag("...")` (`[kw.annotation]`): its one argument when that is
-/// a string literal without interpolation. `None` for any other argument, which is E0338.
+/// a string literal without interpolation. `None` for any other argument, which is E3310.
 pub fn string_attr_value(annotation: &ast::Annotation) -> Option<SmolStr> {
     let mut args = annotation.args();
     let arg = args.next()?;
@@ -3099,7 +3099,7 @@ pub fn string_attr_value(annotation: &ast::Annotation) -> Option<SmolStr> {
 }
 
 /// The argument of the first attribute `name` of `node`, if it is valid ([`string_attr_value`]).
-/// A second attribute of the same name is E0338.
+/// A second attribute of the same name is E3310.
 pub fn string_attr(node: &impl HasAttrs, name: &str) -> Option<SmolStr> {
     node.annotations()
         .find(|a| a.name().is_some_and(|n| n.text() == name))
@@ -3109,7 +3109,7 @@ pub fn string_attr(node: &impl HasAttrs, name: &str) -> Option<SmolStr> {
 /// The value of a STRING_TEXT token. In a multiline string (spec 2.4), the newline after the
 /// opening `"""` and the one before the closing `"""` are dropped, and the closing line's
 /// indentation is removed from the start of each line (whitespace-only lines may be shallower;
-/// the lexer reports other shallower lines, E0109). This works on the text as written, before
+/// the lexer reports other shallower lines, E1009). This works on the text as written, before
 /// unescaping, so that a `\n` escape does not start a line.
 fn string_text(token: &SyntaxToken) -> String {
     let Some(string) = token

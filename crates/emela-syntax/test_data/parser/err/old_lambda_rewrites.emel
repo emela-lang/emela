@@ -1,4 +1,4 @@
-# fn(...) の書き換え（E0148）: 引数の型，本体の形，括弧の要否
+# fn(...) の書き換え（E1405）: 引数の型，本体の形，括弧の要否
 fn params() {
   a = fn(f: fn() -> Int fails Timeout | Refused) { f() }
   b = fn(f: fn(Result[Int, Bool]) -> Int, x) { x }

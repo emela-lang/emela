@@ -53,13 +53,13 @@ pub fn resolve_files<'s>(
     let (_, graph_diagnostics) = build_import_graph(&modules, &import_lists);
     assert_eq!(graph_diagnostics, []);
     let (program, diagnostics) = resolve(&modules, &trees, &NoBuiltins);
-    // E0130 is still allowed: it used to be reported on the `@intrinsic` declarations of the
+    // E1204 is still allowed: it used to be reported on the `@intrinsic` declarations of the
     // bundled sources. The syntax check exempts them now (`emela_syntax` validation).
-    // W0403 (`use E` written as an expression is deprecated, `[effect.use]`) is checked by the
+    // W4401 (`use E` written as an expression is deprecated, `[effect.use]`) is checked by the
     // tests of diagnostics; the programs here still use the deprecated forms.
     let diagnostics: Vec<_> = diagnostics
         .iter()
-        .filter(|d| !d.to_string().contains("E0130"))
+        .filter(|d| !d.to_string().contains("E1204"))
         .filter(|d| !matches!(d.kind, emela_resolve::DiagnosticKind::DeprecatedUse { .. }))
         .collect();
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
@@ -231,7 +231,7 @@ fn try_lower_rooted_lowered_lang(
     let (program, modules, entry, texts) = resolve_files(files, core);
     let types = check_program(&program);
     // A program that tests how a type parameter that no call determines is instantiated gets
-    // W0305 (`[fn.decl]`).
+    // W3002 (`[fn.decl]`).
     let diags: Vec<_> = types
         .diags
         .iter()

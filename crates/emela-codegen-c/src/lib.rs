@@ -88,10 +88,10 @@ pub struct CError {
 pub enum CErrorKind {
     /// A feature the native target does not support yet (Unicode tables).
     Unsupported,
-    /// An external function reachable from the entry takes or returns a callback (E0427).
+    /// An external function reachable from the entry takes or returns a callback (E5201).
     Callback,
     /// An external function reachable from the entry, or an exported fn, takes or returns a type
-    /// the native target does not support at the boundary yet: an Array (E0443,
+    /// the native target does not support at the boundary yet: an Array (E5204,
     /// `[ext.boundary]`).
     BoundaryType,
     /// A bug in the compiler (the IR failed a verifier, ...).

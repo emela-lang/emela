@@ -41,5 +41,5 @@ ROOT@0..100
       NEWLINE@97..98 "\n"
       R_BRACE@98..99 "}"
   NEWLINE@99..100 "\n"
-error[E0118]@84..87: expected expression
-error[E0122]@88..89: expected newline or `}` after statement
+error[E1102]@84..87: expected expression
+error[E1109]@88..89: expected newline or `}` after statement

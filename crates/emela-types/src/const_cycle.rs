@@ -1,4 +1,4 @@
-//! Consts that refer to each other by name only (E0231, spec 5.6).
+//! Consts that refer to each other by name only (E2113, spec 5.6).
 //!
 //! A const's value is evaluated on its first reference. If evaluating it always evaluates
 //! another const, which in turn always evaluates the first (`const A = B`, `const B = A`), every

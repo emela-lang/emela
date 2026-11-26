@@ -97,11 +97,11 @@ ROOT@0..128
             TYPE_NAME@123..126 "Int"
       R_PAREN@126..127 ")"
   NEWLINE@127..128 "\n"
-error[E0110]@13..16: expected `:`
-error[E0128]@69..74: a variant cannot mix named and positional fields
-error[E0110]@78..82: expected variant name (a type name)
-error[E0110]@92..93: expected variant name (a type name)
-error[E0110]@94..95: expected `,` or newline between variants
-error[E0130]@98..102: a type without fields must be `@external`
-error[E0110]@102..103: expected type name
-error[E0110]@109..111: expected type name
+error[E1101]@13..16: expected `:`
+error[E1202]@69..74: a variant cannot mix named and positional fields
+error[E1101]@78..82: expected variant name (a type name)
+error[E1101]@92..93: expected variant name (a type name)
+error[E1101]@94..95: expected `,` or newline between variants
+error[E1204]@98..102: a type without fields must be `@external`
+error[E1101]@102..103: expected type name
+error[E1101]@109..111: expected type name

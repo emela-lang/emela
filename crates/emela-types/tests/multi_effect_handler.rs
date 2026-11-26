@@ -133,9 +133,9 @@ fn back(rw: use Query + Execute) -> use Query + Execute + Audit { rw }
 "#));
 }
 
-/// A missing operation of any effect is E0404, listing all of them; the same operation twice is
-/// E0405. Two effects with an operation of the same name, and the same effect listed twice, are
-/// compile errors (`[effect.handler]`). A label among them is E0433, and a host effect such as Async is a compile error too.
+/// A missing operation of any effect is E4001, listing all of them; the same operation twice is
+/// E4002. Two effects with an operation of the same name, and the same effect listed twice, are
+/// compile errors (`[effect.handler]`). A label among them is E4003, and a host effect such as Async is a compile error too.
 #[test]
 fn handler_errors() {
     insta::assert_snapshot!(run(r#"
@@ -208,7 +208,7 @@ fn wired() -> Int {
 "#));
 }
 
-/// A handler of several effects counts as providing each of them for E0421 (`[effect.layer]`).
+/// A handler of several effects counts as providing each of them for E4102 (`[effect.layer]`).
 /// In a with, a later item replaces it only for the effects it provides (`[effect.with]`).
 #[test]
 fn layers_and_overriding() {
@@ -245,7 +245,7 @@ fn from_layer() -> Int {
 }
 
 /// In `L by H`, H serves L through the effect it implements that is the underlying effect of L;
-/// if none is, E0431 (`[effect.label]`).
+/// if none is, E4203 (`[effect.label]`).
 #[test]
 fn labels_by_a_handler_of_several_effects() {
     insta::assert_snapshot!(run(r#"

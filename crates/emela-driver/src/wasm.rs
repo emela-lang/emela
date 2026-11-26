@@ -129,7 +129,7 @@ impl TestBackend<TestModule> for CoreWasm {
 
 /// emela-codegen-wasm's errors as diagnostics without a location (spec
 /// `[target.wasm.unsupported]`). Only external functions called back by the host get a code
-/// (E0427).
+/// (E5201).
 fn diagnostics(errors: Vec<WasmError>) -> Vec<Diagnostic> {
     errors
         .into_iter()
@@ -137,8 +137,8 @@ fn diagnostics(errors: Vec<WasmError>) -> Vec<Diagnostic> {
             let d = Diagnostic::error(e.message);
             match e.kind {
                 WasmErrorKind::Callback => d.with_code(code::CALLBACK_EXTERNAL),
-                // E0428 is retired: the native target now supports `suspend fn` external functions
-                // (12.6). WASM still does not, but there is no code for it any more.
+                // The native target supports `suspend fn` external functions (12.6). WASM does
+                // not, and reports it without a code (`[target.wasm.external]`).
                 WasmErrorKind::SuspendExternal
                 | WasmErrorKind::Unsupported
                 | WasmErrorKind::Internal => d,

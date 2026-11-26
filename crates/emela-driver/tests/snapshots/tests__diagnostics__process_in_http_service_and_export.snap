@@ -4,7 +4,7 @@ expression: out
 ---
 == service/main.emel
 == export/main.emel
-error[E0402]: effect `ProcessHost` is not provided in exported function `name`
+error[E4301]: effect `ProcessHost` is not provided in exported function `name`
    ╭─[ main.emel:6:3 ]
    │
  6 │   with Process { (use Env).get("NAME").or("") }

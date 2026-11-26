@@ -16,7 +16,7 @@ use crate::ty::Ty;
 /// Capability sets (`[type.rules]`).
 impl BodyInfer<'_> {
     /// The capability set of `use E` written as the expression `expr`. An effect alias (and
-    /// `(use E).op`) is the effect itself, resolved at the call. A value of `use E` (W0403) is a
+    /// `(use E).op`) is the effect itself, resolved at the call. A value of `use E` (W4401) is a
     /// capability of the name E ([`Self::anchor_name`]).
     pub(super) fn use_caps(&mut self, expr: ExprId, tag: &Tag) -> Row {
         if self.program.alias_uses.get(expr).is_some() {

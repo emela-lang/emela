@@ -2,7 +2,7 @@
 source: crates/emela-cli/tests/cli.rs
 expression: run.stderr
 ---
-error[E0214]: `secret` is private to module `Email`
+error[E2104]: `secret` is private to module `Email`
    ╭─[ src/main.emel:2:22 ]
    │
  2 │ import Email.{Email, secret}
@@ -10,7 +10,7 @@ error[E0214]: `secret` is private to module `Email`
    │                         ╰──── 
 ───╯
 
-error[E0215]: cannot construct opaque `Email` outside module `Email`
+error[E2105]: cannot construct opaque `Email` outside module `Email`
    ╭─[ src/main.emel:6:7 ]
    │
  6 │   e = Email(value: "a")
@@ -19,7 +19,7 @@ error[E0215]: cannot construct opaque `Email` outside module `Email`
 ───╯
    = help: `Email` is opaque: use the functions of module `Email` to make one
 
-error[E0211]: cannot find value `cout` in this scope
+error[E2101]: cannot find value `cout` in this scope
    ╭─[ src/main.emel:7:15 ]
    │
  7 │   Email.parse(cout)
@@ -28,7 +28,7 @@ error[E0211]: cannot find value `cout` in this scope
 ───╯
    = help: did you mean `count`?
 
-warning[W0201]: type parameter `Email` shadows an outer definition
+warning[W2101]: type parameter `Email` shadows an outer definition
     ╭─[ src/main.emel:10:10 ]
     │
  10 │ fn first[Email](e: Email) -> Email { e }
@@ -36,7 +36,7 @@ warning[W0201]: type parameter `Email` shadows an outer definition
     │            ╰──── 
 ────╯
 
-error[E0213]: `twice` is defined more than once
+error[E2103]: `twice` is defined more than once
     ╭─[ src/main.emel:13:4 ]
     │
  12 │ fn twice() { 1 }
@@ -47,7 +47,7 @@ error[E0213]: `twice` is defined more than once
     │      ╰──── 
 ────╯
 
-warning[W0304]: the value of type `Email` returned by `main` is discarded
+warning[W3001]: the value of type `Email` returned by `main` is discarded
    ╭─[ src/main.emel:4:4 ]
    │
  4 │ fn main() {

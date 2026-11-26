@@ -1,6 +1,6 @@
 //! The return type of the entry's `main` (`[dyn.error]`, `[effect.with]`): `()`, or `ExitCode` of
 //! `Std.Process` (`[api.std.process]`), whose value chooses the exit code of the program. Any other
-//! type, other than Never, is W0304: the value is discarded.
+//! type, other than Never, is W3001: the value is discarded.
 
 use emela_resolve::hir::{DefModule, Item, Program};
 use smol_str::SmolStr;
@@ -24,7 +24,7 @@ pub fn is_exit_code(program: &Program, table: &TyTable, ty: &Ty) -> bool {
             if program.modules.get(m).is_some_and(|items| items.name.segments() == ["Std", "Process"]))
 }
 
-/// Reports W0304 for the entry's `main` ([`CheckOptions::main`]) when it returns a type other than
+/// Reports W3001 for the entry's `main` ([`CheckOptions::main`]) when it returns a type other than
 /// `()`, `ExitCode` and Never. Decided from the return type fixed by inference, whether written or
 /// inferred.
 pub(crate) fn check(

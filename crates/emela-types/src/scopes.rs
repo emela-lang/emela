@@ -6,7 +6,7 @@
 //! nest as the source does. Every type variable and set variable records the scope it was made
 //! in. A variable made outside a scope stands for a type fixed outside it (the type argument of
 //! an outer `State`, the parameter types of an operation of an outer handler), so it cannot
-//! contain a capability of that scope: when it does, the capability leaves (E0455).
+//! contain a capability of that scope: when it does, the capability leaves (E4405).
 //!
 //! - Binding a type variable to a type lowers the scope of the variables in that type to the
 //!   nearest scope enclosing both: they are now reachable from the outer variable.

@@ -130,18 +130,18 @@ ROOT@0..152
     WHITESPACE@149..150 " "
     R_BRACE@150..151 "}"
     NEWLINE@151..152 "\n"
-error[E0130]@3..6: a function without a body must be `@external`
-error[E0111]@28..29: expected type
-error[E0110]@56..59: expected `}`
-error[E0110]@56..59: expected `]`
-error[E0110]@56..59: expected `)`
-error[E0122]@56..59: expected newline after declaration
-error[E0130]@74..83: a function without a body must be `@external`
-error[E0110]@99..100: expected `]`
-error[E0110]@99..100: expected `)`
-error[E0122]@99..100: expected newline after declaration
-error[E0130]@119..126: a function without a body must be `@external`
-error[E0111]@138..139: expected type
-error[E0110]@138..139: expected `]`
-error[E0110]@138..139: expected `)`
-error[E0122]@138..139: expected newline after declaration
+error[E1204]@3..6: a function without a body must be `@external`
+error[E1102]@28..29: expected type
+error[E1101]@56..59: expected `}`
+error[E1101]@56..59: expected `]`
+error[E1101]@56..59: expected `)`
+error[E1109]@56..59: expected newline after declaration
+error[E1204]@74..83: a function without a body must be `@external`
+error[E1101]@99..100: expected `]`
+error[E1101]@99..100: expected `)`
+error[E1109]@99..100: expected newline after declaration
+error[E1204]@119..126: a function without a body must be `@external`
+error[E1102]@138..139: expected type
+error[E1101]@138..139: expected `]`
+error[E1101]@138..139: expected `)`
+error[E1109]@138..139: expected newline after declaration

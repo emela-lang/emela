@@ -21,7 +21,7 @@
 //!   variant with positional contents first checks the number of items.
 //! - ObjectKey of an enum whose variants have no contents writes and reads the tags; of a type
 //!   with one field, it goes through the ObjectKey of that field. The type checker rejects other
-//!   forms (E0339).
+//!   forms (E3311).
 //! - Shaped is `Ref(name)` if `name` is in `visiting`, and otherwise a Record or Variants whose
 //!   fields are read with `name` added to `visiting`: what `Std.Shape.visit` gives.
 
@@ -127,7 +127,7 @@ impl Lowerer<'_> {
                 Item::Error(_) => (vec![ty_def], Vec::new(), false),
                 _ => return None,
             };
-        // A host type has no constructor (E0336 rejects deriving for it).
+        // A host type has no constructor (E3308 rejects deriving for it).
         if ctors.is_empty() && !is_enum {
             return None;
         }
@@ -486,7 +486,7 @@ impl Lowerer<'_> {
 
     fn derive_to_key(&mut self, to_key: DefId, d: &Deriving, x: Local) -> Expr {
         self.match_ctors(d, x, |cx, c, xs| match (c.fields.first(), xs.first()) {
-            // A type with one field (E0339 rejects the other forms).
+            // A type with one field (E3311 rejects the other forms).
             (Some(&(_, t)), Some(&x)) if !d.is_enum => cx.trait_call(to_key, t, vec![Expr::Var(x)]),
             _ => string(&c.tag),
         })

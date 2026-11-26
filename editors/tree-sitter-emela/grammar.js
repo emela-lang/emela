@@ -40,7 +40,7 @@ module.exports = grammar({
     $._multiline_string_content,
     '#{',
     // Never produced. They are valid only where a newline followed by the old clause `use`
-    // (E0147, read as a uses clause), or by `derive` ([grammar.decl]), continues the line, and
+    // (E1404, read as a uses clause), or by `derive` ([grammar.decl]), continues the line, and
     // tell the scanner so. Rule 4 (`fails` and `uses`) needs no state.
     $._signature_continues,
     $._derive_continues,
@@ -428,7 +428,7 @@ module.exports = grammar({
 
     fails_clause: $ => seq('fails', $._error_set),
 
-    // The old clause `use` (E0147) is read as a uses clause too, as the compiler does.
+    // The old clause `use` (E1404) is read as a uses clause too, as the compiler does.
     uses_clause: $ => seq(choice('uses', 'use'), $._effect_set),
 
     _error_set: $ => choice(
@@ -470,7 +470,7 @@ module.exports = grammar({
     ),
 
     // `fn name(x: Int) -> T { ... }` as a statement of a block ([fn.local]). Type parameters,
-    // attributes, `pub` and `suspend` are E0150 in the compiler; the head of a top-level fn is
+    // attributes, `pub` and `suspend` are E1212 and E1213 in the compiler; the head of a top-level fn is
     // read here so that they still highlight.
     local_function: $ => seq(
       optional($._modifiers),

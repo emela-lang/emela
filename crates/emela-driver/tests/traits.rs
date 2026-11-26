@@ -15,7 +15,7 @@ fn checked(files: &[(&str, &str)]) -> Analysis {
 /// The errors and warnings of `main.emel` as `code message @ source text`.
 fn diagnostics(main: &str) -> Vec<String> {
     let analysis = checked(&[("/app/src/main.emel", main)]);
-    // W0403: the programs still write `use E` as an expression (deprecated).
+    // W4401: the programs still write `use E` as an expression (deprecated).
     analysis
         .diagnostics
         .iter()
@@ -30,7 +30,7 @@ fn diagnostics(main: &str) -> Vec<String> {
         .collect()
 }
 
-/// [`diagnostics`] without warnings (the unused derives of test programs, W0303).
+/// [`diagnostics`] without warnings (the unused derives of test programs, W3301).
 fn errors(main: &str) -> Vec<String> {
     diagnostics(main)
         .into_iter()
@@ -65,8 +65,8 @@ fn impl_and_default_bodies_are_type_checked() {
     assert_eq!(
         diagnostics(&main),
         [
-            "E0301 type mismatch: expected `Int`, found `String` @ Label.label(self)",
-            "E0301 type mismatch: expected `String`, found `Int` @ self.x",
+            "E3001 type mismatch: expected `Int`, found `String` @ Label.label(self)",
+            "E3001 type mismatch: expected `String`, found `Int` @ self.x",
         ]
     );
 }
@@ -76,7 +76,7 @@ fn written_parameter_types_must_be_the_traits() {
     let main = format!("{POINT}impl Point: Eq {{\n  fn eq(self, other: Int) {{ True }}\n}}\n");
     assert_eq!(
         diagnostics(&main),
-        ["E0301 type mismatch: expected `Point`, found `Int` @ Int"]
+        ["E3001 type mismatch: expected `Point`, found `Int` @ Int"]
     );
 }
 
@@ -85,7 +85,7 @@ fn impl_functions_take_as_many_parameters_as_the_trait() {
     let main = format!("{POINT}impl Point: Show {{\n  fn show(self, extra) {{ \"p\" }}\n}}\n");
     assert_eq!(
         diagnostics(&main),
-        ["E0332 wrong number of parameters: `show` of `Show` takes 1, found 2 @ show"]
+        ["E3101 wrong number of parameters: `show` of `Show` takes 1, found 2 @ show"]
     );
 }
 
@@ -96,8 +96,8 @@ fn impl_errors_and_effects_stay_within_the_traits_declaration() {
     );
     let found = diagnostics(&main);
     assert_eq!(found.len(), 2, "{found:#?}");
-    assert!(found[0].starts_with("E0402 "), "{found:#?}");
-    assert!(found[1].starts_with("E0318 "), "{found:#?}");
+    assert!(found[0].starts_with("E4301 "), "{found:#?}");
+    assert!(found[1].starts_with("E3201 "), "{found:#?}");
 }
 
 #[test]
@@ -106,8 +106,8 @@ fn heads_are_a_type_with_distinct_type_parameters() {
     assert_eq!(
         diagnostics(main),
         [
-            "E0328 impl head must be a type with distinct type parameters: `List[Int]` @ List[Int]",
-            "E0328 impl head must be a type with distinct type parameters: `Pair[A, A]` @ Pair[A, A]",
+            "E3303 impl head must be a type with distinct type parameters: `List[Int]` @ List[Int]",
+            "E3303 impl head must be a type with distinct type parameters: `Pair[A, A]` @ Pair[A, A]",
         ]
     );
 }
@@ -117,7 +117,7 @@ fn one_impl_per_type_and_trait() {
     let main = "type Box[A](value: A)\ntrait Label { fn label(self) -> String }\nimpl Box[A]: Label {\n  fn label(self) { \"a\" }\n}\nimpl Box[B: Label]: Label {\n  fn label(self) { \"b\" }\n}\n";
     assert_eq!(
         diagnostics(main),
-        ["E0330 `Label` is already implemented for `Box[B]` @ Box[B: Label]"]
+        ["E3305 `Label` is already implemented for `Box[B]` @ Box[B: Label]"]
     );
 }
 
@@ -157,8 +157,8 @@ fn supertraits_cannot_form_a_cycle() {
     assert_eq!(
         diagnostics(main),
         [
-            "E0329 trait `Alpha` is its own supertrait: `Alpha` -> `Beta` -> `Gamma` -> `Alpha` @ Alpha",
-            "E0329 trait `Own` is its own supertrait: `Own` -> `Own` @ Own",
+            "E3304 trait `Alpha` is its own supertrait: `Alpha` -> `Beta` -> `Gamma` -> `Alpha` @ Alpha",
+            "E3304 trait `Own` is its own supertrait: `Own` -> `Own` @ Own",
         ]
     );
 }
@@ -170,7 +170,7 @@ fn an_impl_needs_the_supertraits_impls() {
     );
     assert_eq!(
         diagnostics(&main),
-        ["E0326 type `Point` does not implement `Show` @ Point"]
+        ["E3302 type `Point` does not implement `Show` @ Point"]
     );
     // A derive counts as the impl it generates.
     let main = "type Point(x: Int) derive Show\ntrait Named: Show { fn name(self) -> String }\nimpl Point: Named {\n  fn name(self) { \"p\" }\n}\n";
@@ -185,7 +185,7 @@ fn supertrait_constraints_follow_from_the_impls_constraints() {
     let main = "type Pair[A, B](first: A, second: B)\nimpl Pair[A: Eq, B: Eq]: Eq {\n  fn eq(self, other) { True }\n}\nimpl Pair[A: Ord, B]: Ord {\n  fn compare(self, other) { Equal }\n}\n";
     assert_eq!(
         diagnostics(main),
-        ["E0326 type `B` does not implement `Eq` @ Pair[A: Ord, B]"]
+        ["E3302 type `B` does not implement `Eq` @ Pair[A: Ord, B]"]
     );
 }
 
@@ -213,8 +213,8 @@ fn calls_need_an_impl() {
     assert_eq!(
         diagnostics(&main),
         [
-            "E0326 type `Point` does not implement `Show` @ Show.show",
-            "E0326 type `Point` does not implement `Eq` @ Eq.eq",
+            "E3302 type `Point` does not implement `Show` @ Show.show",
+            "E3302 type `Point` does not implement `Eq` @ Eq.eq",
         ]
     );
 }
@@ -226,7 +226,7 @@ fn constraints_are_checked_where_the_function_is_used() {
     );
     assert_eq!(
         diagnostics(&main),
-        ["E0326 type `Point` does not implement `Show` @ label"]
+        ["E3302 type `Point` does not implement `Show` @ label"]
     );
 }
 
@@ -237,7 +237,7 @@ fn constraints_include_supertraits() {
     );
     assert_eq!(
         diagnostics(&main),
-        ["E0326 type `A` does not implement `Show` @ Show.show"]
+        ["E3302 type `A` does not implement `Show` @ Show.show"]
     );
 }
 
@@ -249,8 +249,8 @@ fn impl_constraints_are_followed_into_type_arguments() {
     assert_eq!(
         diagnostics(&main),
         [
-            "E0326 type `A` does not implement `Show` @ Show.show",
-            "E0326 type `Point` does not implement `Show` @ Show.show",
+            "E3302 type `A` does not implement `Show` @ Show.show",
+            "E3302 type `Point` does not implement `Show` @ Show.show",
         ]
     );
 }
@@ -262,7 +262,7 @@ fn functions_without_self_are_chosen_by_the_expected_type() {
     );
     assert_eq!(
         diagnostics(&main),
-        ["E0326 type `Int` does not implement `Parse` @ Parse.parse"]
+        ["E3302 type `Int` does not implement `Parse` @ Parse.parse"]
     );
 }
 
@@ -283,7 +283,7 @@ fn undetermined_self_is_an_error() {
     let main = format!(
         "{USER}{PARSE}fn read(text: String) {{ Parse.parse(text) }}\nfn main() -> () {{\n  x = Parse.parse(\"1\")\n  f = Parse.parse\n  n: Int = Parse.parse(\"2\")\n  ()\n}}\n"
     );
-    let message = "E0333 cannot infer which impl of `Parse` to use: add a type annotation";
+    let message = "E3307 cannot infer which impl of `Parse` to use: add a type annotation";
     assert_eq!(
         diagnostics(&main),
         [
@@ -311,7 +311,7 @@ fn only_the_traits_the_compiler_derives_can_be_derived() {
     assert_eq!(
         errors(main),
         [format!(
-            "E0326 cannot derive `Label`: {ONLY_DERIVABLE} @ Label"
+            "E3302 cannot derive `Label`: {ONLY_DERIVABLE} @ Label"
         )]
     );
     // A user trait with the name of a derivable trait of std is not derivable (`[trait.derive]`).
@@ -319,7 +319,7 @@ fn only_the_traits_the_compiler_derives_can_be_derived() {
     assert_eq!(
         errors(main),
         [format!(
-            "E0326 cannot derive `Encode`: {ONLY_DERIVABLE} @ Encode"
+            "E3302 cannot derive `Encode`: {ONLY_DERIVABLE} @ Encode"
         )]
     );
 }
@@ -351,19 +351,19 @@ fn derived_fields_need_the_std_traits() {
     assert_eq!(
         errors(&main),
         [
-            "E0326 type `Plain` does not implement `Encode` @ Encode",
-            "E0326 type `fn() -> Int` does not implement `Encode` @ Encode",
-            "E0326 type `Plain` does not implement `Decode` @ Decode",
-            "E0326 type `fn() -> Int` does not implement `Decode` @ Decode",
-            "E0326 type `Plain` does not implement `Shaped` @ Shaped",
-            "E0326 type `fn() -> Int` does not implement `Shaped` @ Shaped",
+            "E3302 type `Plain` does not implement `Encode` @ Encode",
+            "E3302 type `fn() -> Int` does not implement `Encode` @ Encode",
+            "E3302 type `Plain` does not implement `Decode` @ Decode",
+            "E3302 type `fn() -> Int` does not implement `Decode` @ Decode",
+            "E3302 type `Plain` does not implement `Shaped` @ Shaped",
+            "E3302 type `fn() -> Int` does not implement `Shaped` @ Shaped",
         ]
     );
     // ObjectKey has Ord as its supertrait, which a derive does not derive.
     let main = format!("{STD_TRAITS}type Code(value: String) derive ObjectKey\n");
     assert_eq!(
         errors(&main),
-        ["E0326 type `Code` does not implement `Ord` @ ObjectKey"]
+        ["E3302 type `Code` does not implement `Ord` @ ObjectKey"]
     );
 }
 
@@ -375,8 +375,8 @@ fn decode_and_object_key_cannot_be_derived_for_an_opaque_type() {
     assert_eq!(
         errors(&main),
         [
-            "E0336 cannot derive `Decode` for opaque type `Email` @ Decode",
-            "E0336 cannot derive `ObjectKey` for opaque type `Email` @ ObjectKey",
+            "E3308 cannot derive `Decode` for opaque type `Email` @ Decode",
+            "E3308 cannot derive `ObjectKey` for opaque type `Email` @ ObjectKey",
         ]
     );
     let analysis = checked(&[("/app/src/main.emel", &main)]);
@@ -399,15 +399,15 @@ fn object_key_is_derived_only_for_enums_without_contents_and_types_with_one_fiel
     );
     let errors: Vec<String> = errors(&main)
         .into_iter()
-        .filter(|e| e.starts_with("E0339"))
+        .filter(|e| e.starts_with("E3311"))
         .collect();
     assert_eq!(
         errors,
         [
-            "E0339 cannot derive `ObjectKey` for `Shape`: variant `Circle` has contents @ ObjectKey",
-            "E0339 cannot derive `ObjectKey` for `Named`: variant `Some` has contents @ ObjectKey",
-            "E0339 cannot derive `ObjectKey` for `Point`: it has 2 fields @ ObjectKey",
-            "E0339 cannot derive `ObjectKey` for `Nothing`: it has no fields @ ObjectKey",
+            "E3311 cannot derive `ObjectKey` for `Shape`: variant `Circle` has contents @ ObjectKey",
+            "E3311 cannot derive `ObjectKey` for `Named`: variant `Some` has contents @ ObjectKey",
+            "E3311 cannot derive `ObjectKey` for `Point`: it has 2 fields @ ObjectKey",
+            "E3311 cannot derive `ObjectKey` for `Nothing`: it has no fields @ ObjectKey",
         ]
     );
 }
@@ -419,15 +419,15 @@ fn encode_decode_object_key_and_shaped_cannot_be_derived_for_a_host_type() {
     );
     let errors: Vec<String> = errors(&main)
         .into_iter()
-        .filter(|e| e.starts_with("E0336"))
+        .filter(|e| e.starts_with("E3308"))
         .collect();
     assert_eq!(
         errors,
         [
-            "E0336 cannot derive `Encode` for host type `Handle` @ Encode",
-            "E0336 cannot derive `Decode` for host type `Handle` @ Decode",
-            "E0336 cannot derive `ObjectKey` for host type `Handle` @ ObjectKey",
-            "E0336 cannot derive `Shaped` for host type `Handle` @ Shaped",
+            "E3308 cannot derive `Encode` for host type `Handle` @ Encode",
+            "E3308 cannot derive `Decode` for host type `Handle` @ Decode",
+            "E3308 cannot derive `ObjectKey` for host type `Handle` @ ObjectKey",
+            "E3308 cannot derive `Shaped` for host type `Handle` @ Shaped",
         ]
     );
 }
@@ -441,16 +441,16 @@ fn key_and_tag_take_one_string_literal_in_their_place() {
     assert_eq!(
         errors(main),
         [
-            "E0338 `@key` takes one string literal @ @key(x)",
-            "E0338 `@key` takes one string literal @ @key(\"a\", \"b\")",
-            "E0338 `@key` takes one string literal @ @key(\"#{1}\")",
-            "E0338 `@key` takes one string literal @ @key(1)",
-            "E0338 `@tag` can only be placed on a variant @ @tag(\"t\")",
-            "E0338 `@key` can only be placed on a field @ @key(\"k\")",
-            "E0338 `@tag` takes one string literal @ @tag",
-            "E0338 `@tag` can only be placed once @ @tag(\"b\")",
-            "E0338 `@key` can only be placed once @ @key(\"z\")",
-            "E0338 `@tag` can only be placed on a variant @ @tag(\"f\")",
+            "E3310 `@key` takes one string literal @ @key(x)",
+            "E3310 `@key` takes one string literal @ @key(\"a\", \"b\")",
+            "E3310 `@key` takes one string literal @ @key(\"#{1}\")",
+            "E3310 `@key` takes one string literal @ @key(1)",
+            "E3310 `@tag` can only be placed on a variant @ @tag(\"t\")",
+            "E3310 `@key` can only be placed on a field @ @key(\"k\")",
+            "E3310 `@tag` takes one string literal @ @tag",
+            "E3310 `@tag` can only be placed once @ @tag(\"b\")",
+            "E3310 `@key` can only be placed once @ @key(\"z\")",
+            "E3310 `@tag` can only be placed on a variant @ @tag(\"f\")",
         ]
     );
 }
@@ -463,27 +463,27 @@ fn keys_and_tags_are_distinct_after_the_attributes() {
     assert_eq!(
         errors(main),
         [
-            "E0337 key `due` is used by both `due` and `due_at` @ @key(\"due\") due_at: Int",
-            "E0337 key `x` is used by both `a` and `b` @ @key(\"x\") b: Int",
-            "E0337 tag `done` is used by both `Done` and `Closed` @ @tag(\"done\")\n  Closed",
-            "E0337 tag `Open` is used by both `Open` and `Again` @ @tag(\"Open\")\n  Again(@key(\"k\") p: Int, k: Int)",
-            "E0337 key `k` is used by both `p` and `k` @ k: Int",
-            "E0337 key `b` is used by both `a` and `b` @ b: Int",
+            "E3309 key `due` is used by both `due` and `due_at` @ @key(\"due\") due_at: Int",
+            "E3309 key `x` is used by both `a` and `b` @ @key(\"x\") b: Int",
+            "E3309 tag `done` is used by both `Done` and `Closed` @ @tag(\"done\")\n  Closed",
+            "E3309 tag `Open` is used by both `Open` and `Again` @ @tag(\"Open\")\n  Again(@key(\"k\") p: Int, k: Int)",
+            "E3309 key `k` is used by both `p` and `k` @ k: Int",
+            "E3309 key `b` is used by both `a` and `b` @ b: Int",
         ]
     );
 }
 
 #[test]
 fn derived_std_impls_count_as_used_when_a_bound_needs_them() {
-    // W0303 (`[trait.derive]`): `Json.encode(view)` requires Encode; Decode is required nowhere.
+    // W3301 (`[trait.derive]`): `Json.encode(view)` requires Encode; Decode is required nowhere.
     let main = format!(
         "{STD_TRAITS}import Std.Json\n\ntype View(id: String) derive Encode, Decode, Shaped\n\nfn main() {{\n  Json.encode(View(id: \"a\"))\n  ()\n}}\n"
     );
     assert_eq!(
         diagnostics(&main),
         [
-            "W0303 derived `Decode` for `View` is never used @ Decode",
-            "W0303 derived `Shaped` for `View` is never used @ Shaped",
+            "W3301 derived `Decode` for `View` is never used @ Decode",
+            "W3301 derived `Shaped` for `View` is never used @ Shaped",
         ]
     );
 }
@@ -496,9 +496,9 @@ fn derived_fields_need_the_trait() {
     assert_eq!(
         errors(main),
         [
-            "E0326 type `Float` does not implement `Ord` @ Ord",
-            "E0326 type `fn(Int) -> Int` does not implement `Show` @ Show",
-            "E0326 type `Plain` does not implement `Eq` @ Eq",
+            "E3302 type `Float` does not implement `Ord` @ Ord",
+            "E3302 type `fn(Int) -> Int` does not implement `Show` @ Show",
+            "E3302 type `Plain` does not implement `Eq` @ Eq",
         ]
     );
     // A field's own impl, written or derived, counts.
@@ -512,7 +512,7 @@ fn deriving_ord_needs_eq() {
     let main = "type Point(x: Int) derive Ord\n";
     assert_eq!(
         errors(main),
-        ["E0326 type `Point` does not implement `Eq` @ Ord"]
+        ["E3302 type `Point` does not implement `Eq` @ Ord"]
     );
     let main =
         "type Point(x: Int) derive Ord\nimpl Point: Eq {\n  fn eq(self, other) { True }\n}\n";
@@ -525,8 +525,8 @@ fn a_derive_and_an_impl_of_the_same_trait_conflict() {
     assert_eq!(
         errors(main),
         [
-            "E0330 `Show` is already implemented for `Point` @ Show",
-            "E0330 `Eq` is already implemented for `Point` @ Eq",
+            "E3305 `Show` is already implemented for `Point` @ Show",
+            "E3305 `Eq` is already implemented for `Point` @ Eq",
         ]
     );
 }
@@ -539,8 +539,8 @@ fn a_derive_constrains_every_type_parameter() {
     assert_eq!(
         diagnostics(main),
         [
-            "E0326 type `Plain` does not implement `Eq` @ same",
-            "E0326 type `Plain` does not implement `Eq` @ same",
+            "E3302 type `Plain` does not implement `Eq` @ same",
+            "E3302 type `Plain` does not implement `Eq` @ same",
         ]
     );
 }
@@ -562,13 +562,13 @@ fn unused_derives_of_private_types_are_reported() {
     assert_eq!(
         diagnostics(main),
         [
-            "W0303 derived `Eq` for `Unused` is never used @ Eq",
-            "W0303 derived `Show` for `Unused` is never used @ Show",
-            "W0303 derived `Eq` for `Outer` is never used @ Eq",
-            "W0303 derived `Eq` for `Tree` is never used @ Eq",
-            "W0303 derived `Show` for `ByDbg` is never used @ Show",
-            "W0303 derived `Show` for `ByAssert` is never used @ Show",
-            "W0303 derived `Eq` for `Down` is never used @ Eq",
+            "W3301 derived `Eq` for `Unused` is never used @ Eq",
+            "W3301 derived `Show` for `Unused` is never used @ Show",
+            "W3301 derived `Eq` for `Outer` is never used @ Eq",
+            "W3301 derived `Eq` for `Tree` is never used @ Eq",
+            "W3301 derived `Show` for `ByDbg` is never used @ Show",
+            "W3301 derived `Show` for `ByAssert` is never used @ Show",
+            "W3301 derived `Eq` for `Down` is never used @ Eq",
         ]
     );
 }
@@ -589,13 +589,13 @@ fn operators_and_interpolation_need_the_traits() {
     assert_eq!(
         diagnostics(&main),
         [
-            "E0326 type `Point` does not implement `Show` @ p",
-            "E0326 type `Point` does not implement `Eq` @ p == p",
-            "E0326 type `fn(Int) -> Int` does not implement `Eq` @ f == f",
-            "E0326 type `Float` does not implement `Ord` @ [1.0] < [2.0]",
-            "E0326 type `Point` does not implement `Ord` @ p < p",
-            "E0326 type `Point` does not implement `Show` @ inspect",
-            "E0326 type `fn(Int) -> Int` does not implement `Show` @ inspect",
+            "E3302 type `Point` does not implement `Show` @ p",
+            "E3302 type `Point` does not implement `Eq` @ p == p",
+            "E3302 type `fn(Int) -> Int` does not implement `Eq` @ f == f",
+            "E3302 type `Float` does not implement `Ord` @ [1.0] < [2.0]",
+            "E3302 type `Point` does not implement `Ord` @ p < p",
+            "E3302 type `Point` does not implement `Show` @ inspect",
+            "E3302 type `fn(Int) -> Int` does not implement `Show` @ inspect",
         ]
     );
 }
@@ -610,7 +610,7 @@ const CAPABILITY_EFFECTS: &str = "effect Db {\n  fn query(q: String) -> Int\n}\n
 
 /// `[trait.builtin]`, `[effect.use]`: Capability is satisfied only by capability types, with
 /// their type arguments and labels. A type that contains one, a function type and other types do
-/// not satisfy it (E0326).
+/// not satisfy it (E3302).
 #[test]
 fn capability_is_satisfied_only_by_capability_types() {
     let main = format!(
@@ -637,17 +637,17 @@ fn others(db: use Db) -> () {{
     assert_eq!(
         errors(&main),
         [
-            "E0326 type `Int` does not implement `Capability` @ keep",
-            "E0326 type `List[use Db]` does not implement `Capability` @ keep",
-            "E0326 type `(use Db, Int)` does not implement `Capability` @ keep",
-            "E0326 type `fn(Int) -> Int` does not implement `Capability` @ keep",
+            "E3302 type `Int` does not implement `Capability` @ keep",
+            "E3302 type `List[use Db]` does not implement `Capability` @ keep",
+            "E3302 type `(use Db, Int)` does not implement `Capability` @ keep",
+            "E3302 type `fn(Int) -> Int` does not implement `Capability` @ keep",
         ]
     );
 }
 
 /// `[trait.builtin]`: a value of a type parameter with `[C: Capability]` is used as the value of
 /// any other type parameter: passed, stored and returned. An ordinary type parameter without the
-/// constraint does not satisfy Capability (E0326, `[trait.call]`).
+/// constraint does not satisfy Capability (E3302, `[trait.call]`).
 #[test]
 fn capability_type_parameters_pass_store_and_return_their_values() {
     let main = format!(
@@ -669,12 +669,12 @@ fn uses_them(db: use Db) -> Int {{
     );
     assert_eq!(
         errors(&main),
-        ["E0326 type `A` does not implement `Capability` @ keep"]
+        ["E3302 type `A` does not implement `Capability` @ keep"]
     );
 }
 
 /// `[trait.builtin]`: Capability can be put only on an ordinary type parameter. On an error set
-/// or an effect set type parameter it is a compile error (E0340).
+/// or an effect set type parameter it is a compile error (E4408).
 #[test]
 fn capability_constrains_only_ordinary_type_parameters() {
     let main = "fn effects[R: Capability](f: fn() -> Int uses { R }) -> Int uses { R } { f() }
@@ -684,8 +684,8 @@ fn failures[E: Capability](f: fn() -> Int fails E) -> Int fails E { f() }
     assert_eq!(
         errors(main),
         [
-            "E0340 `Capability` can only constrain ordinary type parameters, but `R` is used in `uses` @ Capability",
-            "E0340 `Capability` can only constrain ordinary type parameters, but `E` is used in `fails` @ Capability",
+            "E4408 `Capability` can only constrain ordinary type parameters, but `R` is used in `uses` @ Capability",
+            "E4408 `Capability` can only constrain ordinary type parameters, but `E` is used in `fails` @ Capability",
         ]
     );
     assert!(
@@ -697,15 +697,15 @@ fn failures[E: Capability](f: fn() -> Int fails E) -> Int fails E { f() }
 }
 
 /// `[trait.builtin]`: Capability and Immediate are determined automatically, and an impl of
-/// either is a compile error (E0341).
+/// either is a compile error (E3312).
 #[test]
 fn capability_and_immediate_cannot_be_implemented() {
     let main = format!("{POINT}impl Point: Capability {{}}\n\nimpl Point: Immediate {{}}\n");
     assert_eq!(
         errors(&main),
         [
-            "E0341 `Capability` is determined automatically and cannot be implemented @ Point",
-            "E0341 `Immediate` is determined automatically and cannot be implemented @ Point",
+            "E3312 `Capability` is determined automatically and cannot be implemented @ Point",
+            "E3312 `Immediate` is determined automatically and cannot be implemented @ Point",
         ]
     );
 }

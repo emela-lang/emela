@@ -93,7 +93,7 @@ pub struct ProgramTypes {
     /// Handler members opened inside an init through a handler that a `with` inside the init
     /// provides → that `with`, at whose end they are released (`[effect.handler]`).
     pub member_open_withs: ArenaMap<ExprId, ExprId>,
-    /// The `use E` expressions (W0403) and the effect aliases written as a value (E0453) whose
+    /// The `use E` expressions (W4401) and the effect aliases written as a value (E4404) whose
     /// help does not suggest a bound item: a bound item provides nothing by name, and the body
     /// of the `with` that provides E also uses E by name (`[effect.with]`).
     pub bound_item_redirects: Vec<Span>,
@@ -185,7 +185,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
             closed.insert(def, EffectContext::Export { name, hosts });
         }
     }
-    // So is a fn made by `@entry`, given what its adapter declares; an error in it becomes E0440
+    // So is a fn made by `@entry`, given what its adapter declares; an error in it becomes E5105
     // (`crate::export::check`).
     for e in &program.entry_exports {
         let name = program.defs[e.entry].name.clone();
@@ -357,7 +357,7 @@ fn groups(program: &Program, sigs: &Signatures) -> Vec<Vec<DefId>> {
             Some(Item::TraitFn(item)) => item.body.is_some() && sigs.get(def).is_some(),
             Some(Item::Const(_) | Item::Handler(_)) => true,
             // The arguments of a layer's items are inferred, as the value of a const. Every
-            // layer is, since an item without arguments may need them (E0434).
+            // layer is, since an item without arguments may need them (E4104).
             Some(Item::Layer(_)) => true,
             // An impl function without a signature (its impl or trait function has an error) is
             // not inferred.

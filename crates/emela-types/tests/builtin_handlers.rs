@@ -3,7 +3,7 @@
 //! the name means the handler at an item of a with, a layer and the right of `by`, and the effect
 //! elsewhere; that the type arguments of an item are inferred or written; that the handler members
 //! `Permits` and `TryPermits` open a `Permit`; and that no other handler implements these effects
-//! (E0413) or takes the name of an effect (E0213).
+//! (E4003) or takes the name of an effect (E2103).
 //!
 //! The output is that of `generic_handler.rs`.
 
@@ -146,7 +146,7 @@ fn through() -> Option[Int] {
     ));
 }
 
-/// A Deferred whose type argument nothing determines is E0459 (`[effect.with]`).
+/// A Deferred whose type argument nothing determines is E4107 (`[effect.with]`).
 #[test]
 fn deferred_needs_its_type() {
     insta::assert_snapshot!(render(
@@ -237,7 +237,7 @@ fn wrapped() -> (Int, Option[Int]) fails Boom uses { Async } {
 
 /// The name of a built-in handler means the effect in a uses clause, `use E`, `x <- E` and the
 /// type of a parameter, and the handler at an item of a with and of a layer
-/// (`[module.resolution]`). A label cannot stand for a built-in effect (E0429, `[effect.label]`),
+/// (`[module.resolution]`). A label cannot stand for a built-in effect (E4201, `[effect.label]`),
 /// so the right of `by` never meets one.
 #[test]
 fn the_name_means_the_handler_only_where_a_handler_is_written() {
@@ -273,7 +273,7 @@ fn layered() -> Int {
 }
 
 /// Only the built-in handlers provide Deferred, Queue, Semaphore and Permit: a handler written
-/// for one is E0413, naming the handler that provides it (`[task.deferred]` to `[task.queue]`).
+/// for one is E4003, naming the handler that provides it (`[task.deferred]` to `[task.queue]`).
 #[test]
 fn no_handler_for_builtin_effects() {
     insta::assert_snapshot!(render(
@@ -309,7 +309,7 @@ handler MyPermit: Permit {
 }
 
 /// A handler written by a user with the name of an effect in the same module is still a
-/// duplicate (E0213), and `@intrinsic` is only for the bundled sources (E0224).
+/// duplicate (E2103), and `@intrinsic` is only for the bundled sources (E2201).
 #[test]
 fn users_cannot_share_the_name_of_an_effect() {
     insta::assert_snapshot!(render(

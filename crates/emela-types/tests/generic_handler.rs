@@ -1,7 +1,7 @@
 //! Handlers with type parameters (`[effect.handler]`, `[effect.with]`, `[effect.layer]`,
 //! `[effect.label]`, `[type.rules]`). Checks where the type arguments of an item are inferred
-//! from, that they are written where they cannot be inferred (E0459), and the errors of the
-//! declaration (E0424, E0460, E0462, E0301) and of the item (E0304, E0326).
+//! from, that they are written where they cannot be inferred (E4107), and the errors of the
+//! declaration (E4009, E1213, E4013, E3001) and of the item (E3101, E3302).
 //!
 //! The output shows declared types, local variable types, handler dependencies, the type
 //! arguments of each item of a `with` and of a layer, diagnostics of `main.emel`, and expressions
@@ -227,7 +227,7 @@ fn use_peek() -> Int uses { State[Int] } { peek() }
     ));
 }
 
-/// Type arguments that are not determined are E0459: nothing determines them, two effects of
+/// Type arguments that are not determined are E4107: nothing determines them, two effects of
 /// the body fit, or the item may override another item of the same `with`. A bound item provides
 /// nothing by name (`[effect.with]`): neither of the last two applies to it, and its type
 /// arguments come from how its capability is used.
@@ -287,7 +287,7 @@ fn bound_may_override() { with Fixed, x = Pass { x.get() + 1 } }
 }
 
 /// The items of a layer determine their type arguments from the arguments of init, or write
-/// them (`[effect.layer]`); otherwise E0459.
+/// them (`[effect.layer]`); otherwise E4107.
 #[test]
 fn layers() {
     insta::assert_snapshot!(repo(
@@ -331,9 +331,9 @@ fn from_init() { with Names by Constant(value: ["a"]) { names() } }
     ));
 }
 
-/// Errors in the declaration: a type parameter used as a set (E0424), one that appears in none
-/// of the effects, fields and init parameters (E0462), type parameters on an inner handler
-/// (E0460), and building the value with other type arguments in init (E0301).
+/// Errors in the declaration: a type parameter used as a set (E4009), one that appears in none
+/// of the effects, fields and init parameters (E4013), type parameters on an inner handler
+/// (E1213), and building the value with other type arguments in init (E3001).
 #[test]
 fn declaration_errors() {
     insta::assert_snapshot!(render(
@@ -413,7 +413,7 @@ handler Generic: State {
 }
 
 /// Errors at an item: type arguments on a handler without type parameters, or a wrong number of
-/// them (E0304), and unmet bounds (E0326).
+/// them (E3101), and unmet bounds (E3302).
 #[test]
 fn item_errors() {
     insta::assert_snapshot!(repo(

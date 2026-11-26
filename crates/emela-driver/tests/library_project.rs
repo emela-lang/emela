@@ -176,7 +176,7 @@ fn library_run_is_e0230_even_if_lib_defines_main() {
             assert_eq!(called, 1);
             assert!(output.is_none());
             assert_eq!(analysis.diagnostics.len(), 1);
-            assert_eq!(analysis.diagnostics[0].code, Some("E0230"));
+            assert_eq!(analysis.diagnostics[0].code, Some("E2009"));
             assert_eq!(
                 analysis.diagnostics[0].message,
                 "entry `src/lib.emel` has no `main` function"
@@ -215,7 +215,7 @@ fn library_build_and_run_do_not_hide_type_errors() {
     assert!(!options.out_dir.exists());
     for analysis in [checked, built, ran] {
         assert_eq!(analysis.diagnostics.len(), 1, "{:?}", analysis.diagnostics);
-        assert_eq!(analysis.diagnostics[0].code, Some("E0301"));
+        assert_eq!(analysis.diagnostics[0].code, Some("E3001"));
     }
 }
 
@@ -245,7 +245,7 @@ fn projects_with_neither_entry_still_report_e0209() {
     assert!(output.is_none());
     for analysis in [built, ran] {
         assert_eq!(analysis.diagnostics.len(), 1);
-        assert_eq!(analysis.diagnostics[0].code, Some("E0209"));
+        assert_eq!(analysis.diagnostics[0].code, Some("E2007"));
     }
     assert!(!options.out_dir.exists());
 }

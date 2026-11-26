@@ -46,5 +46,5 @@ ROOT@0..130
             TYPE_NAME@125..128 "Int"
       R_PAREN@128..129 ")"
   NEWLINE@129..130 "\n"
-error[E0110]@115..119: expected `}`
-error[E0110]@120..121: expected type name
+error[E1101]@115..119: expected `}`
+error[E1101]@120..121: expected type name

@@ -1,7 +1,7 @@
 ---
 title: Diagnostic codes in bands of 1000, and one code per kind of mistake
 authors: [Alliana]
-status: accepted
+status: implemented
 issue:
 touches: [diag, diag.bands]
 requires: []
@@ -94,8 +94,8 @@ The row `E0153 and up | Syntax errors` of `[diag.list]` is dropped by the renumb
 
 - [x] `[diag]`: the first two digits name the stage and the subject; a code names one kind of mistake.
 - [x] `[diag.bands]`: the new bands, and a note that `[diag.list]` stays in the earlier bands until the end of 0.29.
-- [ ] `[diag.list]`: renumbered into the new bands with a column of earlier codes, the merged rows and the retired rows dropped (implementation, end of 0.29).
-- [ ] The references to codes elsewhere in `spec/` (about 300) and the code actions of `[lsp]` (E0303, E0325, E0211, E0212, E0318, E0402, E0144, E0145, E0147, W0305) move to the new codes (implementation, end of 0.29).
+- [x] `[diag.list]`: renumbered into the new bands with a column of earlier codes, the merged rows and the retired rows dropped (implementation, end of 0.29).
+- [x] The references to codes elsewhere in `spec/` (about 300) and the code actions of `[lsp]` (E0303, E0325, E0211, E0212, E0318, E0402, E0144, E0145, E0147, W0305) move to the new codes (implementation, end of 0.29).
 
 ## Compatibility
 

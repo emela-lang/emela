@@ -1,7 +1,7 @@
 //! `Pome.toml` (spec 4.7).
 //!
 //! `[build]` is not read here: emela-driver reads `[build].target` on its own (spec
-//! `[module.pome]`, E0232), since only the build of the project itself uses it.
+//! `[module.pome]`, E2302), since only the build of the project itself uses it.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -20,7 +20,7 @@ pub struct Manifest {
     pub version: Version,
     /// The minimum compiler version the Pome needs, as written (`0.20.1`). Not compared here:
     /// emela-driver compares it with the compiler's version when it reads the dependencies (spec
-    /// `[module.pome]`, E0234 and W0203).
+    /// `[module.pome]`, E2304 and W2301).
     pub emela: String,
     /// `[pome].module`: the root name the author chose.
     pub module: Option<String>,
@@ -41,7 +41,7 @@ pub struct Manifest {
     /// `[module.pome]`, `[intro.experimental]`). Only boolean values are kept: a value that is not
     /// a boolean has no effect (`[pome.manifest]`), and an `[experimental]` that is not a table
     /// does not fail the parse. The names are not checked here; emela-driver knows the features
-    /// and reports W0206 and W0207 for the Pome being built, at the key or the value.
+    /// and reports W2304 and W2305 for the Pome being built, at the key or the value.
     pub experimental: BTreeMap<String, bool>,
 }
 

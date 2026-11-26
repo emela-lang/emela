@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "format!(\"{fiber}\\n{tasks}\")"
 ---
-error[E0205]: undefined module `Std.Fiber`
+error[E2004]: undefined module `Std.Fiber`
    ╭─[ main.emel:1:8 ]
    │
  1 │ import Std.Fiber.{Fiber}
@@ -13,7 +13,7 @@ error[E0205]: undefined module `Std.Fiber`
 
 1 error
 
-error[E0413]: handler `MyGroup` cannot implement `TaskGroup`: only `Task.Group` provides it
+error[E4003]: handler `MyGroup` cannot implement `TaskGroup`: only `Task.Group` provides it
     ╭─[ main.emel:13:9 ]
     │
  13 │ handler MyGroup: TaskGroup[{}, {}] {
@@ -21,7 +21,7 @@ error[E0413]: handler `MyGroup` cannot implement `TaskGroup`: only `Task.Group` 
     │            ╰───── 
 ────╯
 
-error[E0413]: handler `MySpawn` cannot implement `Spawn`: only `Task.Background` provides it
+error[E4003]: handler `MySpawn` cannot implement `Spawn`: only `Task.Background` provides it
     ╭─[ main.emel:17:9 ]
     │
  17 │ handler MySpawn: Spawn[{}, {}] {
@@ -29,7 +29,7 @@ error[E0413]: handler `MySpawn` cannot implement `Spawn`: only `Task.Background`
     │            ╰───── 
 ────╯
 
-error[E0402]: effect `Users` is not provided in `main`
+error[E4301]: effect `Users` is not provided in `main`
     ╭─[ main.emel:24:7 ]
     │
  24 │       tasks.start(|| (use Users).find(1))
@@ -39,7 +39,7 @@ error[E0402]: effect `Users` is not provided in `main`
    = note: tasks get their handlers from outside the `with` of their group, so `with` inside it does not reach them
    = help: provide it with `with` outside the group
 
-error[E0402]: effect `Users` is not declared in `uses`
+error[E4301]: effect `Users` is not declared in `uses`
     ╭─[ main.emel:33:7 ]
     │
  33 │       tasks.start(|| (use Users).find(1))

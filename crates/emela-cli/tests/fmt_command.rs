@@ -168,7 +168,7 @@ fn syntax_errors_are_reported_and_other_files_are_formatted() {
     // `--check` reports the same diagnostics and lists the files that need formatting.
     let run = project.emela(&["fmt", "--check", "src/broken.emel", "src/z.emel"]);
     assert_eq!((run.code, run.stdout.as_str()), (Some(1), ""));
-    assert!(run.stderr.starts_with("error[E0110]: "), "{}", run.stderr);
+    assert!(run.stderr.starts_with("error[E1101]: "), "{}", run.stderr);
     assert!(run.stderr.ends_with("\n5 errors\n"), "{}", run.stderr);
 }
 
@@ -177,7 +177,7 @@ fn unchanged_files_are_not_written() {
     let project = Project::new("unchanged", &[("Pome.toml", ""), ("src/main.emel", CLEAN)]);
     let path = project.dir.join("src/main.emel");
     let before = std::fs::metadata(&path).unwrap().modified().unwrap();
-    // Read-only, so a write fails with E0903.
+    // Read-only, so a write fails with E9003.
     let mut permissions = std::fs::metadata(&path).unwrap().permissions();
     permissions.set_readonly(true);
     std::fs::set_permissions(&path, permissions.clone()).unwrap();
@@ -196,7 +196,7 @@ fn unchanged_files_are_not_written() {
     let run = project.emela(&["fmt"]);
     assert_eq!(run.code, Some(1));
     assert!(
-        run.stderr.starts_with("error[E0903]: cannot write file: "),
+        run.stderr.starts_with("error[E9003]: cannot write file: "),
         "{}",
         run.stderr
     );
@@ -218,7 +218,7 @@ fn single_file_without_project() {
     // A directory needs Pome.toml, as with `check`.
     let run = project.emela(&["fmt"]);
     assert_eq!(run.code, Some(1));
-    assert!(run.stderr.starts_with("error[E0207]: "), "{}", run.stderr);
+    assert!(run.stderr.starts_with("error[E2301]: "), "{}", run.stderr);
 }
 
 #[test]
@@ -235,7 +235,7 @@ fn file_outside_source_root_is_an_error() {
     assert_eq!(run.code, Some(1));
     assert!(
         run.stderr
-            .starts_with("error[E0208]: file `scripts/x.emel` is outside the source root `src`"),
+            .starts_with("error[E2006]: file `scripts/x.emel` is outside the source root `src`"),
         "{}",
         run.stderr
     );
@@ -261,7 +261,7 @@ fn stdin_to_stdout() {
     assert_eq!((run.code, run.stdout.as_str()), (Some(1), ""));
     assert!(
         run.stderr
-            .starts_with("error[E0105]: unrecognized character `$`\n   ╭─[ <stdin>:1:11 ]\n"),
+            .starts_with("error[E1005]: unrecognized character `$`\n   ╭─[ <stdin>:1:11 ]\n"),
         "{}",
         run.stderr
     );

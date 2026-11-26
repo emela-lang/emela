@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/spec_examples.rs
-expression: "render_bodies(r#\"\neffect Logger {  # 補\n  fn info(msg: String) -> ()\n}\n\nhandler ConsoleLogger: Logger {  # 補\n  fn info(msg) { () }\n}\n\nfn make_greeter() {\n  with log = ConsoleLogger {\n    || log.info(\"hi\") # E0455: the R of the closure contains log, which leaves the with\n  }\n}\n\nfn used_up(names: List[String]) {  # 補\n  with log = ConsoleLogger {\n    List.map(names, |n| log.info(n))\n  }\n}\n\"#)"
+expression: "render_bodies(r#\"\neffect Logger {  # 補\n  fn info(msg: String) -> ()\n}\n\nhandler ConsoleLogger: Logger {  # 補\n  fn info(msg) { () }\n}\n\nfn make_greeter() {\n  with log = ConsoleLogger {\n    || log.info(\"hi\") # E4405: the R of the closure contains log, which leaves the with\n  }\n}\n\nfn used_up(names: List[String]) {  # 補\n  with log = ConsoleLogger {\n    List.map(names, |n| log.info(n))\n  }\n}\n\"#)"
 ---
 make_greeter: fn() -> fn() -> () uses { log }
   log: use Logger

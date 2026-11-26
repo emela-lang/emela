@@ -70,7 +70,7 @@ impl std::fmt::Display for Target {
 }
 
 /// The project's default target, `[build].target` of its `Pome.toml`; `None` if it has none (or
-/// for a single file). An unknown target is E0232. Other contents of the file are not read here.
+/// for a single file). An unknown target is E2302. Other contents of the file are not read here.
 pub fn project_target(fs: &dyn FileSystem, input: &Input) -> Result<Option<Target>, Diagnostic> {
     if input.single_file {
         return Ok(None);
@@ -163,12 +163,12 @@ mod tests {
         // `[target.native]`: `c` is an unknown target since 0.29.
         assert_eq!(
             target("[build]\ntarget = \"c\"\n"),
-            Err("Some(\"E0232\") unknown target `c` in `[build].target`".into())
+            Err("Some(\"E2302\") unknown target `c` in `[build].target`".into())
         );
         assert_eq!(target("[build]\ntarget = \"js\"\n"), Ok(Some(Target::Js)));
         assert_eq!(
             target("[build]\ntarget = \"node\"\n"),
-            Err("Some(\"E0232\") unknown target `node` in `[build].target`".into())
+            Err("Some(\"E2302\") unknown target `node` in `[build].target`".into())
         );
     }
 }

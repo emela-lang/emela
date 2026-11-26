@@ -1,4 +1,4 @@
-# Prefix match is E0142, read in that shape to recover (spec 6.5).
+# Prefix match is E1401, read in that shape to recover (spec 6.5).
 fn f(x: Int) -> Int {
   match x {
     0 -> 1

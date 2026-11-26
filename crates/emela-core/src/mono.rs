@@ -119,13 +119,13 @@ pub struct Monomorphized {
     /// The type checker accepts only types with an impl, so this guards against the two
     /// disagreeing: such a call reaches the trait function's body, which panics. A generic root
     /// instantiated at `Any` is an exported fn, whose parameters and return value are boundary
-    /// types (E0436), so it gets no value of a type parameter to call a trait function on.
+    /// types (E5101), so it gets no value of a type parameter to call a trait function on.
     pub missing_impls: Vec<(String, String)>,
 }
 
 /// Monomorphizes the module from `roots` (the exported functions or the test functions; lowering
 /// runs it for build, run and test). Also tells which input function each output function copies,
-/// so that what is found in the output can be reported at the source (E0412 in lowering).
+/// so that what is found in the output can be reported at the source (E5001 in lowering).
 ///
 /// Unlike [`monomorphize_from`], a generic root is instantiated whether or not it takes arguments.
 /// It has no single instantiation, so it is instantiated for callers that see every value the same
@@ -411,7 +411,7 @@ impl<'a> Mono<'a> {
             })
             .collect();
         self.out.effects[id].ops = ops;
-        // The base of a label has no type parameters (E0429 and its restriction).
+        // The base of a label has no type parameters (E4201 and its restriction).
         self.out.effects[id].label_of = label_of.map(|b| self.effect(b, &[]));
         id
     }

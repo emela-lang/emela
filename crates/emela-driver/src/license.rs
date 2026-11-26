@@ -1,4 +1,4 @@
-//! The warning for `[pome].license` of the Pome being built (spec `[pome.manifest]`, W0205).
+//! The warning for `[pome].license` of the Pome being built (spec `[pome.manifest]`, W2303).
 //!
 //! emela-pome reads `license` for every Pome and treats a value that is not an SPDX license
 //! expression as no license. Only the Pome being built reports it, at the value, so the check is
@@ -26,7 +26,7 @@ struct PomeSection {
     license: Option<Spanned<toml::Value>>,
 }
 
-/// W0205 for `[pome].license` in `text`, the `Pome.toml` at `path`, when it is not a string or not
+/// W2303 for `[pome].license` in `text`, the `Pome.toml` at `path`, when it is not a string or not
 /// an SPDX license expression. `Pome.toml` is added to `sources` only then. A file that is not
 /// TOML, or whose `[pome]` is not a table, is left to the stages that read the rest of it.
 pub(crate) fn check(text: &str, path: &Path, sources: &mut SourceDb) -> Option<Diagnostic> {

@@ -34,4 +34,4 @@ ROOT@0..104
       WHITESPACE@101..102 " "
       R_BRACE@102..103 "}"
   NEWLINE@103..104 "\n"
-error[E0110]@91..93: expected `}`
+error[E1101]@91..93: expected `}`

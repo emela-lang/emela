@@ -2,10 +2,10 @@
 source: crates/emela-cli/tests/cli.rs
 expression: run.stderr
 ---
-error[E0201]: file name `Util` cannot be a module name: not lower snake_case
+error[E2001]: file name `Util` cannot be a module name: not lower snake_case
    ─[ src/Util.emel ]
 
-error[E0104]: invalid number literal `3px`
+error[E1004]: invalid number literal `3px`
    ╭─[ src/http/client.emel:1:11 ]
    │
  1 │ const N = 3px
@@ -13,7 +13,7 @@ error[E0104]: invalid number literal `3px`
    │            ╰─── 
 ───╯
 
-error[E0118]: expected expression
+error[E1102]: expected expression
    ╭─[ src/http/client.emel:1:11 ]
    │
  1 │ const N = 3px
@@ -21,7 +21,7 @@ error[E0118]: expected expression
    │            ╰─── 
 ───╯
 
-error[E0101]: unterminated string literal
+error[E1001]: unterminated string literal
    ╭─[ src/main.emel:2:3 ]
    │
  2 │   "abc
@@ -29,7 +29,7 @@ error[E0101]: unterminated string literal
    │     ╰─── 
 ───╯
 
-error[E0105]: unrecognized character `$`
+error[E1005]: unrecognized character `$`
    ╭─[ src/main.emel:4:11 ]
    │
  4 │ const Y = $
@@ -37,7 +37,7 @@ error[E0105]: unrecognized character `$`
    │           ╰── 
 ───╯
 
-error[E0118]: expected expression
+error[E1102]: expected expression
    ╭─[ src/main.emel:4:11 ]
    │
  4 │ const Y = $
@@ -45,7 +45,7 @@ error[E0118]: expected expression
    │           ╰── 
 ───╯
 
-warning[W0304]: the value of type `String` returned by `main` is discarded
+warning[W3001]: the value of type `String` returned by `main` is discarded
    ╭─[ src/main.emel:1:4 ]
    │
  1 │ fn main() {

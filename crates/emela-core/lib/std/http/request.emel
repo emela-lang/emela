@@ -34,7 +34,7 @@ pub fn header(req: Request, name: String) -> Option[String] {
 }
 
 ## All values of the header `name` in order, compared without case. Not named `headers`, the
-## field (E0334).
+## field (E3109).
 pub fn header_values(req: Request, name: String) -> List[String] {
   key = name.to_ascii_lowercase()
   req.headers.filter(|(n, _)| n.to_ascii_lowercase() == key).map(|(_, value)| value)

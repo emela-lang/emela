@@ -5,7 +5,7 @@ This section defines the shape of the source the formatter outputs. The formatte
 ## Input and output `[fmt.io]`
 
 - The line width is 100. Width is counted as display width, and a full-width character counts as 2. A line that does not fit because a string or name is long can exceed the width.
-- A file with a syntax error is not formatted. E0147 (`use` in the place of the uses clause) and E0148 (`fn(...)` in an expression) are not syntax errors here: the formatter rewrites them (`[fmt.signature]`, `[fmt.closure]`).
+- A file with a syntax error is not formatted. E1404 (`use` in the place of the uses clause) and E1405 (`fn(...)` in an expression) are not syntax errors here: the formatter rewrites them (`[fmt.signature]`, `[fmt.closure]`).
 - The formatter re-reads the formatted result and confirms that it has no syntax error and that its token sequence and order of comments match the input, apart from these rewrites. If they do not match, it is an internal error, and the input is not rewritten.
 - Line endings are normalized to LF, trailing whitespace is removed, and the file ends with a single newline. An empty file is output empty.
 - The indentation and width cannot be changed. The formatting options the language server receives (`[lsp.formatting]`) do not change them either.
@@ -47,7 +47,7 @@ This section defines the shape of the source the formatter outputs. The formatte
 - Nested anonymous functions are separated by a space (`|x| |y| x`).
 - An anonymous function that is the right operand of a binary operator or `|>`, or the operand of a unary operator, is enclosed in parentheses (`a || (|| b)`).
 - When the whole body is a block that was written on one line with one expression, the braces are removed (`|x| { x + 1 }` becomes `|x| x + 1`). A block written over several lines keeps its braces, even with one expression, as the body of an if does: the line breaks are taken as the writer's intent.
-- The formatter rewrites `fn(params) { body }` in an expression (E0148) as an anonymous function: `|params| e` when the block has one expression on one line, and `|params| { ... }` otherwise. It adds the parentheses that the extent of the body requires (`fn(x) { x }(1)` becomes `(|x| x)(1)`).
+- The formatter rewrites `fn(params) { body }` in an expression (E1405) as an anonymous function: `|params| e` when the block has one expression on one line, and `|params| { ... }` otherwise. It adds the parentheses that the extent of the body requires (`fn(x) { x }(1)` becomes `(|x| x)(1)`).
 
 ## Signatures `[fmt.signature]`
 
@@ -58,7 +58,7 @@ The signatures of fn declarations and effect operations are formatted as follows
 - When the parameter sequence is broken, the clauses stay on the `)` line as long as they fit there.
 - The `{` of the body is attached to the last line of the signature.
 - The inside of a clause (the `|` sequence of `fails`, the set of `uses`) is not broken, except for things that force a line break, such as a comment inside `uses { ... }`.
-- A uses clause always has braces. The formatter adds them around a bare name (`uses Db` becomes `uses { Db }`, `uses R` becomes `uses { R }`), and rewrites the old clause (E0147: `use Db` becomes `uses { Db }`). Set type arguments of named types are not changed.
+- A uses clause always has braces. The formatter adds them around a bare name (`uses Db` becomes `uses { Db }`, `uses R` becomes `uses { R }`), and rewrites the old clause (E1404: `use Db` becomes `uses { Db }`). Set type arguments of named types are not changed.
 - A signature that fits is put on one line. However, if the original source wrote the clauses on the next line, they stay on the next line even if they fit. If either clause is on the next line, the whole group is broken, so both are lined up on the next line. Line breaks in the parameter sequence of the original source are not kept.
 
 ```emel

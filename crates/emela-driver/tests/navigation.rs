@@ -288,7 +288,7 @@ fn init_parameters_are_completed_in_init() {
 }
 
 /// `[lsp.completion]`: `@intrinsic` and `@internal` are offered only in the bundled core
-/// sources, where they can be written (E0224, E0229).
+/// sources, where they can be written (E2201, E2206).
 #[test]
 fn core_only_attributes_are_completed_in_core() {
     let text = "@\nfn main() {}\n";

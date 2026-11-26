@@ -100,7 +100,7 @@ fn escape(src: &str, i: usize, diagnostics: &mut Vec<Diagnostic>) -> Option<usiz
     }
 }
 
-/// Reports E0108 if the escape is malformed or its value is a surrogate or above 10FFFF.
+/// Reports E1008 if the escape is malformed or its value is a surrogate or above 10FFFF.
 fn unicode_escape(src: &str, i: usize, diagnostics: &mut Vec<Diagnostic>) -> usize {
     let after_u = i + 2;
     let mut report = |end: usize, message: String| {

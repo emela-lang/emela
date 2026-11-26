@@ -22,12 +22,12 @@ The kind of a name is determined by case, and the end of a statement is determin
 | Type name | PascalCase starting with an uppercase letter and containing at least one lowercase letter | Types, constructors, errors, effects, handlers, layers, Traits, modules, type parameters | `User` `Http` `Db` `Item` |
 | Uppercase name | Only uppercase letters, digits, and underscores | consts, type parameters | `MAX_SIZE` `A` |
 
-- A name that fits no class is a syntax error, which is a compile error (E0103). The whole name counts as one mistake, and only one diagnostic is reported (`Http_client`). `HTTP` and `DB` cannot be used as type names. Write `Http` and `Db`.
+- A name that fits no class is a syntax error, which is a compile error (E1003). The whole name counts as one mistake, and only one diagnostic is reported (`Http_client`). `HTTP` and `DB` cannot be used as type names. Write `Http` and `Db`.
 - Type names and uppercase names refer to existing definitions. They are never newly bound inside an expression or a pattern. As a result, a typo in a pattern is always a compile error as an undefined name.
 - `_` is a pattern that binds no value.
-- A type parameter can be written as either an uppercase name (`A`, `T`) or a type name (`Item`, `Key`). Type parameters can be declared only inside `[...]` and can be referenced only in type positions (writing one in an expression is E0217). Whether a type parameter written as a type name is a type or a type parameter is decided by name resolution.
-- A type parameter shadows an outer type, effect, error, or Trait with the same name. When a type parameter written as a type name shadows one, the compiler warns (W0201). This keeps existing code from breaking when types are added later (including additions to the Prelude).
-- Names can contain only ASCII characters. A non-ASCII character (`é`) is an unrecognized character (E0105).
+- A type parameter can be written as either an uppercase name (`A`, `T`) or a type name (`Item`, `Key`). Type parameters can be declared only inside `[...]` and can be referenced only in type positions (writing one in an expression is E2106). Whether a type parameter written as a type name is a type or a type parameter is decided by name resolution.
+- A type parameter shadows an outer type, effect, error, or Trait with the same name. When a type parameter written as a type name shadows one, the compiler warns (W2101). This keeps existing code from breaking when types are added later (including additions to the Prelude).
+- Names can contain only ASCII characters. A non-ASCII character (`é`) is an unrecognized character (E1005).
 - Lexical analysis follows the EBNF in 17.2. A lowercase name containing uppercase letters in the middle (`userId`) and a type name with consecutive uppercase letters (`HTTPServer`) are allowed lexically. The linter checks the snake_case and PascalCase conventions.
 
 From these rules, the meaning of `.` is clear from its left-hand side.
@@ -48,10 +48,10 @@ From these rules, the meaning of `.` is clear from its left-hand side.
 
 Boolean values are not literals. They are `True` and `False`, the constructors of Bool.
 
-- A floating-point exponent can be attached only to the form with a decimal point (17.2). `1e9` cannot be written. Write `1.0e9`. A number immediately followed by a letter (`1e9` `3px`) is a lexical error, which is a compile error (E0104).
-- A string cannot span a line break (E0101). Write multiple lines with a `"""` string.
-- Hexadecimal and binary prefixes are lowercase only (`0x`, `0b`). Hexadecimal digits can be either uppercase or lowercase. There is no octal. An uppercase prefix (`0XFF`), an unsupported prefix (`0o17`), a prefix with no digits (`0x`), and a hexadecimal or binary fraction (`0x1.5`) are E0104, with the whole chunk counted as one mistake. A value outside the range of the context type (Int or Int64) is a compile error (E0311). A negative number is a unary minus expression, so the range check applies to the literal itself as a positive number. As a result, the minimum Int value `-2147483648` cannot be written as a literal (core provides a constant such as `Int.MIN`). Literals are not reinterpreted as two's complement (`0xFFFF_FFFF` cannot be written as an Int but can be written as an Int64).
-- There are seven string escapes, listed below. Any other `\` is a compile error (E0107). The diagnostic points to the `\` and the one character after it.
+- A floating-point exponent can be attached only to the form with a decimal point (17.2). `1e9` cannot be written. Write `1.0e9`. A number immediately followed by a letter (`1e9` `3px`) is a lexical error, which is a compile error (E1004).
+- A string cannot span a line break (E1001). Write multiple lines with a `"""` string.
+- Hexadecimal and binary prefixes are lowercase only (`0x`, `0b`). Hexadecimal digits can be either uppercase or lowercase. There is no octal. An uppercase prefix (`0XFF`), an unsupported prefix (`0o17`), a prefix with no digits (`0x`), and a hexadecimal or binary fraction (`0x1.5`) are E1004, with the whole chunk counted as one mistake. A value outside the range of the context type (Int or Int64) is a compile error (E3004). A negative number is a unary minus expression, so the range check applies to the literal itself as a positive number. As a result, the minimum Int value `-2147483648` cannot be written as a literal (core provides a constant such as `Int.MIN`). Literals are not reinterpreted as two's complement (`0xFFFF_FFFF` cannot be written as an Int but can be written as an Int64).
+- There are seven string escapes, listed below. Any other `\` is a compile error (E1007). The diagnostic points to the `\` and the one character after it.
 
 | Escape | Meaning |
 |---|---|
@@ -63,9 +63,9 @@ Boolean values are not literals. They are `True` and `False`, the constructors o
 | `\#` | `#`. Used to write `#{` as characters instead of an interpolation |
 | `\u{...}` | A Unicode code point written as 1 to 6 hexadecimal digits. A surrogate (D800 to DFFF) or a value above 10FFFF is a compile error |
 
-- Errors in `\u{...}` are all E0108: a malformed escape (a missing `{` or `}`, or a digit count other than 1 to 6), a surrogate, and a value above 10FFFF. The diagnostic points from the `\` to the last character that was read.
+- Errors in `\u{...}` are all E1008: a malformed escape (a missing `{` or `}`, or a digit count other than 1 to 6), a surrogate, and a value above 10FFFF. The diagnostic points from the `\` to the last character that was read.
 
-- A multi-line string is enclosed in `"""`. The opening `"""` MUST be immediately followed by a line break, and the closing `"""` is placed alone on its own line. The indentation of the line with the closing `"""` is removed from the start of each line. The line break right after the opening `"""` and the line break right before the closing `"""` are not included. A line (other than an empty line) indented less than the closing `"""` is a compile error (E0109). Indentation is compared as a sequence of characters, and each line other than empty lines MUST start with the same sequence as the indentation of the closing `"""` line. A line that differs only in tabs versus spaces is also considered less indented. When the closing `"""` is not alone on its line, the indentation is not checked. A `\` at the end of a line inside a multi-line string is E0106, and the rest is read as part of the string body. Interpolation and escapes work the same as in ordinary strings.
+- A multi-line string is enclosed in `"""`. The opening `"""` MUST be immediately followed by a line break, and the closing `"""` is placed alone on its own line. The indentation of the line with the closing `"""` is removed from the start of each line. The line break right after the opening `"""` and the line break right before the closing `"""` are not included. A line (other than an empty line) indented less than the closing `"""` is a compile error (E1009). Indentation is compared as a sequence of characters, and each line other than empty lines MUST start with the same sequence as the indentation of the closing `"""` line. A line that differs only in tabs versus spaces is also considered less indented. When the closing `"""` is not alone on its line, the indentation is not checked. A `\` at the end of a line inside a multi-line string is E1006, and the rest is read as part of the string body. Interpolation and escapes work the same as in ordinary strings.
 
 ```emel
 query = """
@@ -84,7 +84,7 @@ query = """
 
 A line break ends a statement. In the following cases, however, the previous line continues.
 
-1. The next line starts with a binary operator, `.`, `escape`, or `match`. `match` continues the line only when the next meaningful token is `{` (a postfix match is always `match {`, so the reading of a correct program does not change. Any other line is read as a new statement with a prefix match, and E0142 is reported).
+1. The next line starts with a binary operator, `.`, `escape`, or `match`. `match` continues the line only when the next meaningful token is `{` (a postfix match is always `match {`, so the reading of a correct program does not change. Any other line is read as a new statement with a prefix match, and E1401 is reported).
 2. An opened `(` or `[` is not yet closed.
 3. The next line starts with `else` or `->`. Neither ever starts a statement, so treating them as continuations creates no ambiguity. The formatter aligns `else` into `} else {`.
 4. The next line starts with `fails` or `uses`, and the next token on that line is a type name, an uppercase name, or `{`. The fails clause and the uses clause always have this form, because a set follows the keyword. No statement has it: as ordinary identifiers, `fails` and `uses` are never followed by a name or `{`. The rule therefore applies anywhere, including after the signature of a declaration without a body (an effect operation, an `@external` fn) and in the type annotation of a binding. The body's `{` is written on the last line of the signature.

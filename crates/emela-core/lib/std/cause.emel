@@ -13,7 +13,7 @@
 # `Exit[A, E]` and of `attempt` would be a single error type (`[error.fail]`).
 
 # The runtime holds the value. The field only makes `E` an error set (`[type.fn]`); it is never
-# read. It is not named `raise`, the function that raises the cause again (E0334).
+# read. It is not named `raise`, the function that raises the cause again (E3109).
 ## The cause of a failure. `E` is the error set it can fail with.
 pub opaque type Cause[E](failure: fn() -> Never fails E)
 

@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-error[E0423]: handler `Generic` must implement `Cell[S]` with concrete types
+error[E4008]: handler `Generic` must implement `Cell[S]` with concrete types
     ╭─[ main.emel:18:9 ]
     │
  18 │ handler Generic: Cell {
@@ -11,7 +11,7 @@ error[E0423]: handler `Generic` must implement `Cell[S]` with concrete types
 ────╯
    = help: write the types, like `handler Generic: Cell[...]`, or give the handler type parameters, like `handler Generic[S]: Cell[S]`
 
-error[E0424]: type parameter `E` of handler `AsSet` is used as a set, but handler type parameters must be ordinary types
+error[E4009]: type parameter `E` of handler `AsSet` is used as a set, but handler type parameters must be ordinary types
     ╭─[ main.emel:22:15 ]
     │
  22 │ handler AsSet[E]: Cell[fn() -> () fails E] {
@@ -19,7 +19,7 @@ error[E0424]: type parameter `E` of handler `AsSet` is used as a set, but handle
     │               ╰── 
 ────╯
 
-error[E0462]: type parameter `A` of handler `Nowhere` does not appear in its effects, fields or init parameters
+error[E4013]: type parameter `A` of handler `Nowhere` does not appear in its effects, fields or init parameters
     ╭─[ main.emel:26:17 ]
     │
  26 │ handler Nowhere[A]: Logger {
@@ -27,7 +27,7 @@ error[E0462]: type parameter `A` of handler `Nowhere` does not appear in its eff
     │                 ╰── 
 ────╯
 
-error[E0460]: inner handler `Open` cannot have type parameters
+error[E1213]: inner handler `Open` cannot have type parameters
     ╭─[ main.emel:32:16 ]
     │
  32 │   handler Open[T](path: String): ReadFile {
@@ -36,7 +36,7 @@ error[E0460]: inner handler `Open` cannot have type parameters
 ────╯
    = help: an inner handler implements a handler member declared by the effect; use the type parameters of the outer handler
 
-error[E0459]: cannot infer the type arguments of handler `Blank[A]`
+error[E4107]: cannot infer the type arguments of handler `Blank[A]`
     ╭─[ main.emel:59:21 ]
     │
  59 │ fn unknown() { with Blank { () } }
@@ -45,7 +45,7 @@ error[E0459]: cannot infer the type arguments of handler `Blank[A]`
 ────╯
    = help: write them, like `Blank[...]`
 
-error[E0459]: cannot infer the type arguments of handler `Empty[A]`: both `Cell[List[Int]]` and `Cell[List[String]]` fit
+error[E4107]: cannot infer the type arguments of handler `Empty[A]`: both `Cell[List[Int]]` and `Cell[List[String]]` fit
     ╭─[ main.emel:61:21 ]
     │
  61 │ fn two_fit() { with Empty { (ints(), strings()) } }
@@ -54,7 +54,7 @@ error[E0459]: cannot infer the type arguments of handler `Empty[A]`: both `Cell[
 ────╯
    = help: write them, like `Empty[...]`
 
-error[E0459]: cannot infer the type arguments of handler `Pass[S]`: it may override `Cell[Int]` of `Fixed`
+error[E4107]: cannot infer the type arguments of handler `Pass[S]`: it may override `Cell[Int]` of `Fixed`
     ╭─[ main.emel:63:33 ]
     │
  63 │ fn may_override() { with Fixed, Pass { (use Cell[Int]).get() } }
@@ -65,7 +65,7 @@ error[E0459]: cannot infer the type arguments of handler `Pass[S]`: it may overr
 ────╯
    = help: write them, like `Pass[...]`
 
-error[E0304]: wrong number of type arguments: `Fixed` takes 0, found 1
+error[E3101]: wrong number of type arguments: `Fixed` takes 0, found 1
     ╭─[ main.emel:65:25 ]
     │
  65 │ fn not_generic() { with Fixed[Int] { () } }
@@ -73,7 +73,7 @@ error[E0304]: wrong number of type arguments: `Fixed` takes 0, found 1
     │                           ╰──── 
 ────╯
 
-error[E0459]: cannot infer the type arguments of handler `Blank[A]`
+error[E4107]: cannot infer the type arguments of handler `Blank[A]`
     ╭─[ main.emel:68:3 ]
     │
  68 │   Blank

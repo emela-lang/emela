@@ -48,11 +48,11 @@ pub struct Signatures {
     init_params: ArenaMap<DefId, InitParams>,
     /// Handler → the effects it implements and their type arguments (`H: State[Int]`, spec 8.1),
     /// in the order written (`[effect.handler]`). Host effects, built-in effects, labels
-    /// (E0433), unknown effects and an effect listed a second time (E0451) are left out; a
+    /// (E4003), unknown effects and an effect listed a second time (E4012) are left out; a
     /// handler with none left is absent.
     handler_effects: ArenaMap<DefId, Vec<Tag>>,
     /// Label → the effect it stands for (`effect AuditLog of Console`, issue #255). Labels whose
-    /// base cannot be used (E0429) are absent.
+    /// base cannot be used (E4201) are absent.
     label_bases: ArenaMap<DefId, Tag>,
     /// Effect → its labels declared `default`, in definition order. A `with` providing the effect
     /// also provides them (issue #255).
@@ -244,7 +244,7 @@ impl Signatures {
                             quant: None,
                         };
                         // The type arguments are written; they may name the handler's own type
-                        // parameters (`[effect.decl]`). Omitting them is E0423.
+                        // parameters (`[effect.decl]`). Omitting them is E4008.
                         let span = program.defs[def].span;
                         let name = program.defs[def].name.clone();
                         let Some(tag) = ty_table.effect_tag(
@@ -280,11 +280,11 @@ impl Signatures {
     }
 }
 
-/// The uses clause of an external function contains only ProcessHost and PageHost (E0445,
+/// The uses clause of an external function contains only ProcessHost and PageHost (E5002,
 /// `[ext.call]`). Async is declared with `suspend fn` instead, and a set type parameter or an
 /// effect of the program would let the host function run outside a handler.
 /// `@borrowed` can be written only on a parameter of function type of an external function
-/// (E0457, `[ext.boundary]`).
+/// (E5004, `[ext.boundary]`).
 fn check_borrowed(program: &Program, def: DefId, diags: &mut Vec<Diagnostic>) {
     let (params, external): (Vec<&Param>, bool) = match program.item(def) {
         Some(Item::Fn(f) | Item::TraitFn(f)) => (f.sig.params.iter().collect(), f.is_external),
@@ -343,8 +343,8 @@ pub(crate) fn is_label(program: &Program, effect: DefId) -> bool {
 }
 
 /// The base of label `def` as a tag with its type arguments (`State[Int]`), or `None` with a
-/// diagnostic if it cannot be used (E0429). A label has no type parameters of its own, so the
-/// arguments are concrete; omitting them is E0423.
+/// diagnostic if it cannot be used (E4201). A label has no type parameters of its own, so the
+/// arguments are concrete; omitting them is E4008.
 fn label_base(
     program: &Program,
     ty_table: &TyTable,
@@ -549,13 +549,13 @@ fn prelude_trait_fn_signature(
 /// Checks the bounds on a fn's type parameters (spec 9.5, `[trait.builtin]`).
 ///
 /// - Immediate can only be put on effect sets (type parameters written in a `uses` clause)
-///   (E0322).
+///   (E4304).
 /// - Capability can only be put on ordinary type parameters, not on error sets or effect sets
-///   (E0340).
+///   (E4408).
 /// - Bounds other than Immediate (traits) on an effect set are "not supported yet". Trait bounds
 ///   on ordinary type parameters are checked where the fn is referenced (spec 10.3).
 /// - A `uses` clause written in a function-typed parameter of an external function must be
-///   Immediate (E0416). An omitted `uses` clause is an invisible set and gets the Immediate bound
+///   Immediate (E4302). An omitted `uses` clause is an invisible set and gets the Immediate bound
 ///   ([`FnParams::new`]).
 fn check_bounds(
     program: &Program,
@@ -589,7 +589,7 @@ fn check_bounds(
                 .iter()
                 .flat_map(|u| &u.items)
                 .any(|item| item.res == Res::Def(tp.def));
-        // Capability constrains only ordinary type parameters (E0340, `[trait.builtin]`).
+        // Capability constrains only ordinary type parameters (E4408, `[trait.builtin]`).
         if let Some(set) = if in_uses {
             Some(SetKind::Effects)
         } else {
@@ -732,8 +732,8 @@ fn check_bounds(
 /// The type and labels of an effect operation (spec 8.1). Being inside a declaration, omitted
 /// `fails` and `uses` in function-typed parameters mean empty (spec 9.2). The operation's `fails`
 /// clause is its E. The operation type's R is empty; calls through a capability value add the
-/// effect. Operations cannot have a `uses` clause (E0137 in the syntax stage). An omitted return
-/// type is E0110 in the parser; it is read as `()` here to go on.
+/// effect. Operations cannot have a `uses` clause (E1211 in the syntax stage). An omitted return
+/// type is E1101 in the parser; it is read as `()` here to go on.
 ///
 /// Effect type parameters (the `S` of `effect State[S]`) become scheme type parameters as
 /// `Bound(i)`. Capability values and handler implementations substitute the tag's type
@@ -750,11 +750,11 @@ fn op_signature(
         .map(|e| effect_params(program, e).iter().map(|tp| tp.def).collect())
         .unwrap_or_default();
     // The operation's own type parameters (`start[A]`, spec 8.1) follow the effect's. Only
-    // built-in effects may have them (E0426, `check_effect_params`); they are kept either way so
+    // built-in effects may have them (E1213, `check_effect_params`); they are kept either way so
     // errors do not cascade.
     let mut defs = effect_defs.clone();
     defs.extend(sig.type_params.iter().map(|tp| tp.def));
-    // A type parameter of a user effect used as a set is E0424 (`check_effect_params`). Read it
+    // A type parameter of a user effect used as a set is E4009 (`check_effect_params`). Read it
     // as a set here so errors do not cascade. The set type parameters of a built-in effect
     // (`TaskGroup[E, R]`) are decided with the whole declaration (`decl_sets`).
     let types = sig.params.iter().filter_map(|p| p.ty).chain(sig.ret);
@@ -848,7 +848,7 @@ fn op_signature(
         Some(set) => ty_table.lower_error_set(program, &scope, set, diags),
         None => Row::empty(),
     };
-    // An operation's `uses` clause is E0137 in the syntax stage (spec 8.1); not read here.
+    // An operation's `uses` clause is E1211 in the syntax stage (spec 8.1); not read here.
     let mut ty_params: Vec<TyParam> = ty_params(program, &defs)
         .into_iter()
         .zip(&kinds)
@@ -872,7 +872,7 @@ fn op_signature(
     }
 }
 
-/// What makes the result type `ty` of an operation of `effect` E0456 (`[effect.handler]`), as
+/// What makes the result type `ty` of an operation of `effect` E4406 (`[effect.handler]`), as
 /// written: a capability type, or a type with hidden capability sets of another effect.
 fn caps_in_op_result(
     program: &Program,
@@ -942,8 +942,8 @@ fn mentions_bound(ty: &Ty, i: u32) -> bool {
 }
 
 /// The checks on one more effect `tag` listed after the `:` of `handler`, after `earlier`
-/// (`[effect.handler]`): the same effect listed again is E0451, and an operation or handler
-/// member whose name an earlier effect also has is E0450, since it would not be decided which
+/// (`[effect.handler]`): the same effect listed again is E4012, and an operation or handler
+/// member whose name an earlier effect also has is E4012, since it would not be decided which
 /// implementation is which. Both are reported at the effect written.
 fn check_listed_effect(
     program: &Program,
@@ -1074,7 +1074,7 @@ fn own_tag(ty_table: &TyTable, effect: DefId, n: usize) -> Tag {
 /// parameters (the first `n` scheme parameters).
 ///
 /// Without it, the task's `TaskGroup[?e, ?r]` would become a lower bound of `?r` itself: the
-/// group would demand `TaskGroup` from outside (E0402, and the checker could overflow its stack),
+/// group would demand `TaskGroup` from outside (E4301, and the checker could overflow its stack),
 /// and in nested groups the task's `TaskGroup` would be met by the outer group while lowering
 /// points it at the inner one.
 fn with_own_tag(ty: Ty, own: &Tag, n: usize) -> Ty {
@@ -1094,7 +1094,7 @@ fn with_own_tag(ty: Ty, own: &Tag, n: usize) -> Ty {
 
 /// Effect type parameters are ordinary types only (spec 8.1). A type parameter written only in
 /// the `fails` or `uses` of function types in an operation's parameters and return type becomes
-/// a set, so it is E0424. Operations cannot have their own type parameters (E0426).
+/// a set, so it is E4009. Operations cannot have their own type parameters (E1213).
 ///
 /// Built-in effects (`TaskGroup`, `[task.group]`) may have both.
 fn check_effect_params(
@@ -1144,10 +1144,10 @@ fn check_effect_params(
 }
 
 /// The type parameters of a handler (`[effect.handler]`). Each is an ordinary type: one that
-/// appears only in the `fails` or `uses` of a function type would be a set (E0424). Each appears
+/// appears only in the `fails` or `uses` of a function type would be a set (E4009). Each appears
 /// in the effects after the colon, in the type of a field or in the type of a parameter of init
-/// (E0462): the type of a handler cannot be written, so one that appears nowhere else would tell
-/// nothing apart. An inner handler cannot have its own (E0460); it reads the declaration with
+/// (E4013): the type of a handler cannot be written, so one that appears nowhere else would tell
+/// nothing apart. An inner handler cannot have its own (E1213); it reads the declaration with
 /// those of its outer handler.
 fn check_handler_params(
     program: &Program,
@@ -1264,7 +1264,7 @@ impl FnParams {
         };
         let skip = defs.len() - own.len();
         // Immediate is kept on effect sets and traits on ordinary type parameters. Immediate on a
-        // non-effect-set type parameter is made E0322 by [`check_bounds`], and a trait on an
+        // non-effect-set type parameter is made E4304 by [`check_bounds`], and a trait on an
         // effect set is "not supported yet".
         let own_params = ty_params(program, &own)
             .into_iter()
@@ -1319,7 +1319,7 @@ impl FnParams {
     }
 
     /// Function types with `fails` omitted get an invisible set type parameter. Parameters
-    /// without a type push E0316 (spec 6.1) and become `Ty::Error`.
+    /// without a type push E3006 (spec 6.1) and become `Ty::Error`.
     pub(crate) fn lower_params(
         &mut self,
         program: &Program,
@@ -1405,7 +1405,7 @@ impl FnParams {
 
 /// The type and labels of a constructor. `owner` is the type it constructs (type, enum, error or
 /// handler). A handler's constructor makes a handler value (spec 8.4) and may only be used in
-/// that handler's `init` (E0418).
+/// that handler's `init` (E4005).
 ///
 /// A constructor without fields (`None`, `Empty`) is a value, not a function, so its type is the
 /// constructed type itself.
@@ -1469,7 +1469,7 @@ fn ctor_signature(
     })
 }
 
-/// The parameters of a handler's init. Their types MUST be written (E0316, `[effect.handler]`);
+/// The parameters of a handler's init. Their types MUST be written (E3006, `[effect.handler]`);
 /// a missing one becomes `Ty::Error`. An omitted E or R in a function type is empty, as in the
 /// type of a const. The handler's type parameters (`type_params`) are `Ty::Bound(i)`.
 fn init_params(
@@ -1521,7 +1521,7 @@ fn init_params(
     }
 }
 
-/// The type of a top-level fn parameter. If none is written, pushes E0316 (spec 6.1) and returns
+/// The type of a top-level fn parameter. If none is written, pushes E3006 (spec 6.1) and returns
 /// `Ty::Error`.
 pub(crate) fn param_ty(
     program: &Program,
@@ -1546,7 +1546,7 @@ pub(crate) fn param_ty(
 }
 
 /// Adds the trait constraints written on an ordinary type parameter (`A: Ord + Show`). Immediate
-/// is not a trait here; on an ordinary type parameter it is E0322 ([`check_bounds`]).
+/// is not a trait here; on an ordinary type parameter it is E4304 ([`check_bounds`]).
 pub(crate) fn with_traits(program: &Program, param: &mut TyParam, tp: &TypeParam) {
     for &(res, _) in &tp.bounds {
         if let Res::Def(t) = res

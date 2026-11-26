@@ -75,6 +75,6 @@ ROOT@0..105
       NEWLINE@102..103 "\n"
       R_BRACE@103..104 "}"
   NEWLINE@104..105 "\n"
-error[E0110]@18..19: expected type name
-error[E0122]@46..47: expected newline after declaration
-error[E0110]@95..96: expected type name
+error[E1101]@18..19: expected type name
+error[E1109]@46..47: expected newline after declaration
+error[E1101]@95..96: expected type name

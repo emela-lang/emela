@@ -4,7 +4,7 @@ expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/old_use_clause.emel
 ---
 ROOT@0..687
-  COMMENT@0..79 "# 前の形の効果の節 use（E0147）．uses 節として読み続ける．"
+  COMMENT@0..79 "# 前の形の効果の節 use（E1404）．uses 節として読み続ける．"
   NEWLINE@79..80 "\n"
   FN_DECL@80..106
     FN_KW@80..82 "fn"
@@ -319,7 +319,7 @@ ROOT@0..687
       R_BRACE@433..434 "}"
   NEWLINE@434..435 "\n"
   NEWLINE@435..436 "\n"
-  COMMENT@436..503 "# effect の operation には uses 節を書けない（E0137）．"
+  COMMENT@436..503 "# effect の operation には uses 節を書けない（E1211）．"
   NEWLINE@503..504 "\n"
   EFFECT_DECL@504..613
     EFFECT_KW@504..510 "effect"
@@ -446,16 +446,16 @@ ROOT@0..687
       NEWLINE@684..685 "\n"
       R_BRACE@685..686 "}"
   NEWLINE@686..687 "\n"
-error[E0147]@94..97: write `uses { Db }` instead of `use Db`
-error[E0147]@129..132: write `uses { Db, Log }` instead of `use { Db, Log }`
-error[E0147]@179..182: write `uses {}` instead of `use {}`
-error[E0147]@205..208: write `uses { R }` instead of `use R`
-error[E0147]@233..236: write `uses { State[Int] }` instead of `use State[Int]`
-error[E0147]@315..318: write `uses { Db }` instead of `use Db`
-error[E0147]@387..390: write `uses {}` instead of `use {}`
-error[E0147]@426..429: write `uses { Db }` instead of `use Db`
-error[E0147]@537..540: write `uses { Db }` instead of `use Db`
-error[E0137]@537..543: effect operations cannot have a `uses` clause
-error[E0147]@565..568: write `uses { Db, Log }` instead of `use { Db, Log }`
-error[E0137]@565..586: effect operations cannot have a `uses` clause
-error[E0137]@604..611: effect operations cannot have a `uses` clause
+error[E1404]@94..97: write `uses { Db }` instead of `use Db`
+error[E1404]@129..132: write `uses { Db, Log }` instead of `use { Db, Log }`
+error[E1404]@179..182: write `uses {}` instead of `use {}`
+error[E1404]@205..208: write `uses { R }` instead of `use R`
+error[E1404]@233..236: write `uses { State[Int] }` instead of `use State[Int]`
+error[E1404]@315..318: write `uses { Db }` instead of `use Db`
+error[E1404]@387..390: write `uses {}` instead of `use {}`
+error[E1404]@426..429: write `uses { Db }` instead of `use Db`
+error[E1404]@537..540: write `uses { Db }` instead of `use Db`
+error[E1211]@537..543: effect operations cannot have a `uses` clause
+error[E1404]@565..568: write `uses { Db, Log }` instead of `use { Db, Log }`
+error[E1211]@565..586: effect operations cannot have a `uses` clause
+error[E1211]@604..611: effect operations cannot have a `uses` clause

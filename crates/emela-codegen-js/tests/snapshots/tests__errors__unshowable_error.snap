@@ -300,7 +300,7 @@ class $Root {
     }
     const waits = [...this.waits].reverse().filter((wait) => !wait.closing);
     for (const wait of waits) {
-      // An operation's implementation waits only before it resumes (after resume it does not suspend, E0461), and
+      // An operation's implementation waits only before it resumes (after resume it does not suspend, E4305), and
       // is unwound by dropping its caller (`onDrop`).
       if (!wait.live || wait.end !== wait.fiber.end) continue;
       $drop(this, wait);
@@ -692,7 +692,7 @@ function $performOp(root, fiber, cont, request, wait) {
   try {
     const result = request.op(...request.args, resume);
     // A suspending implementation (a generator) waits as a separate continuation of the same fiber until it
-    // resumes; after resume it does not suspend (E0461), so it runs to its end inside resume or right after it. If
+    // resumes; after resume it does not suspend (E4305), so it runs to its end inside resume or right after it. If
     // the caller is dropped (interrupted) before it is resumed, the implementation is unwound too, which aborts what
     // it waits for (12.2).
     if ($isGenerator(result)) {

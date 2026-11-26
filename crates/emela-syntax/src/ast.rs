@@ -243,7 +243,7 @@ impl EffectAlias {
     pub fn path(&self) -> Option<Path> {
         child(&self.0)
     }
-    /// Whether the right side is not an effect name (E0152, reported by validation).
+    /// Whether the right side is not an effect name (E1113, reported by validation).
     pub fn is_malformed(&self) -> bool {
         self.path().is_none() || self.0.children().any(|c| c.kind() == ERROR)
     }

@@ -246,7 +246,7 @@ fn never_resumed() {
 }
 
 /// An fn-operation implementation that only calls fn operations does not suspend (spec 8.1,
-/// E0417). The inner InstantTimer's `now` returns the outer JsTimer's `now`, and `now` does not
+/// E4303). The inner InstantTimer's `now` returns the outer JsTimer's `now`, and `now` does not
 /// become a generator.
 #[test]
 fn fn_op_calls_outer_fn_op() {

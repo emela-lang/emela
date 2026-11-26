@@ -40,7 +40,7 @@ impl Parse {
     }
 
     /// Dumps the tree one element per line, followed by the diagnostics as
-    /// `error[E0101]@start..end: message`.
+    /// `error[E1001]@start..end: message`.
     pub fn debug_dump(&self) -> String {
         let mut out = debug_tree(&self.syntax());
         for diagnostic in &self.diagnostics {

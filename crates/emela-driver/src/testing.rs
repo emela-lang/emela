@@ -78,7 +78,7 @@ pub struct TestDef {
 }
 
 /// Maps collected `@test` functions to HIR definitions, and reports references to test functions
-/// from normal code as E0227. Test functions are removed from the normal build (spec 13.1), so
+/// from normal code as E2204. Test functions are removed from the normal build (spec 13.1), so
 /// they cannot be referenced. References between test functions are allowed.
 pub(crate) fn resolve_tests(
     analysis: &Analysis,

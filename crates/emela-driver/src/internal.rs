@@ -1,11 +1,11 @@
 //! Checks for fns visible only inside the bundled core (`@internal`).
 //!
-//! `@internal` may only be put on top-level fns in bundled core sources (E0229), and such fns
-//! cannot be referenced from outside core modules (E0228). It is for fns that only core should
+//! `@internal` may only be put on top-level fns in bundled core sources (E2206), and such fns
+//! cannot be referenced from outside core modules (E2205). It is for fns that only core should
 //! use, such as passing the contents of an opaque type to another core module. No fn in the
 //! current bundled core uses it; the check is kept for when one does.
 //!
-//! The check runs in the type checking frontend, like E0227, after name resolution: it walks the
+//! The check runs in the type checking frontend, like E2204, after name resolution: it walks the
 //! references in HIR bodies (`emela_types::body_refs`). It is kept apart from `pub` visibility so
 //! that name resolution needs no change.
 
@@ -21,8 +21,8 @@ use crate::pipeline::Analysis;
 
 pub const INTERNAL_ANNOTATION: &str = "internal";
 
-/// Checks where `@internal` is placed (E0229) and reports references to `@internal` fns from
-/// outside core as E0228. References include uses as values, not just calls.
+/// Checks where `@internal` is placed (E2206) and reports references to `@internal` fns from
+/// outside core as E2205. References include uses as values, not just calls.
 pub(crate) fn check_internal<'p>(
     analysis: &Analysis,
     hir: &Program,
@@ -59,7 +59,7 @@ pub(crate) fn check_internal<'p>(
                 ));
                 continue;
             }
-            // On a local fn, E0150 already reports it (`[fn.local]`).
+            // On a local fn, E1212 already reports it (`[fn.local]`).
             if annotation
                 .syntax()
                 .parent()
@@ -127,7 +127,7 @@ pub(crate) fn check_internal<'p>(
 }
 
 /// `@external` in the modules of a dependency (spec 4.7): only in a Pome that `[external] allow`
-/// of the project allows (E0233). It MAY be on a `pub` fn: the function keeps the External of
+/// of the project allows (E2303). It MAY be on a `pub` fn: the function keeps the External of
 /// the module that declares it, so the host is still reached only through the handlers of that
 /// module (`[effect.external]`).
 pub(crate) fn check_external_in_dependencies<'p>(

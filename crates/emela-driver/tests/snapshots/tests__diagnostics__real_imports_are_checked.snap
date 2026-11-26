@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-error[E0206]: import cycle: Http.Client → Json → Http.Client
+error[E2005]: import cycle: Http.Client → Json → Http.Client
    ╭─[ src/http/client.emel:2:8 ]
    │
  2 │ import Json
@@ -10,7 +10,7 @@ error[E0206]: import cycle: Http.Client → Json → Http.Client
    │          ╰─── 
 ───╯
 
-error[E0205]: undefined module `Missing.Thing`
+error[E2004]: undefined module `Missing.Thing`
    ╭─[ src/main.emel:2:8 ]
    │
  2 │ import Missing.Thing
@@ -18,7 +18,7 @@ error[E0205]: undefined module `Missing.Thing`
    │              ╰──────── 
 ───╯
 
-error[E0206]: module `Selfish` imports itself
+error[E2005]: module `Selfish` imports itself
    ╭─[ src/selfish.emel:1:8 ]
    │
  1 │ import Selfish

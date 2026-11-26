@@ -719,7 +719,7 @@ fn f(o: Option[Int], xs: List[Int], u: User, p: (Int, Bool)) -> Int {
 "#));
 }
 
-/// Patterns of lambda parameters must always match, as bindings do (E0317, spec 6.1). Their names
+/// Patterns of lambda parameters must always match, as bindings do (E3108, spec 6.1). Their names
 /// get types from the parameter.
 #[test]
 fn lambda_param_patterns() {
@@ -737,7 +737,7 @@ fn f(us: List[User], ps: List[(Int, Bool)], os: List[Option[Int]]) -> List[Int] 
 "#));
 }
 
-/// Consts whose values certainly evaluate each other are an error (E0231, spec 5.6). References
+/// Consts whose values certainly evaluate each other are an error (E2113, spec 5.6). References
 /// in a branch, on the right of `&&`, in a lambda, or through a function are left to the defect
 /// at run time.
 #[test]
@@ -918,7 +918,7 @@ fn f() {
 "#));
 }
 
-/// The parameter types of a local fn are written (E0316). A wrong label and a wrong number of
+/// The parameter types of a local fn are written (E3006). A wrong label and a wrong number of
 /// arguments are reported with its name. A method call does not find a local fn
 /// (`[fn.local]`).
 #[test]

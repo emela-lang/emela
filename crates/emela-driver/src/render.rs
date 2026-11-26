@@ -46,7 +46,7 @@ pub fn summary(diagnostics: &[Diagnostic]) -> Option<String> {
 }
 
 pub fn render_one(diagnostic: &Diagnostic, sources: &SourceDb, color: bool) -> String {
-    // The heading follows rustc: `error[E0204]`, or just `error` without a code.
+    // The heading follows rustc: `error[E2003]`, or just `error` without a code.
     let (word, kind_color) = match diagnostic.severity {
         Severity::Error => ("error", Color::Red),
         Severity::Warning => ("warning", Color::Yellow),

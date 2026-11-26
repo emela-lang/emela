@@ -297,7 +297,7 @@ fn serve[E, R](h: Handler[E, R], req: Request) -> Response fails E uses { R } { 
   h.run(req)
 }
 
-fn not_found() -> Handler[NotFound, Never] {  # 補．効果の集合の位置に型を書くと E0323
+fn not_found() -> Handler[NotFound, Never] {  # 補．効果の集合の位置に型を書くと E3007
   Handler(run: |req| fail NotFound)
 }
 "#
@@ -802,7 +802,7 @@ fn f(shape: Shape, o: Option[Int], u: User) -> Float {
 
 /// 6.5 A pattern may put `-` before a number literal. The range is checked on the `-` and the
 /// digits as one value, so the minimums of Int and Int64 can be written and anything below is
-/// E0311. `-0.0` is the same value as `0.0`, also for redundancy.
+/// E3004. `-0.0` is the same value as `0.0`, also for redundancy.
 #[test]
 fn spec_6_5_negative_patterns() {
     insta::assert_snapshot!(render_bodies(
@@ -1206,7 +1206,7 @@ fn callers() {  # 補
 }
 
 /// 7.4 `-> T` forces no errors, and `fails X` is exactly that set. Unhandled errors in the body are
-/// E0318.
+/// E3201.
 #[test]
 fn spec_7_4_annotation_errors() {
     insta::assert_snapshot!(render_bodies(
@@ -1266,7 +1266,7 @@ fn catch_all_guarded(c: Bool) -> Int {
 }
 
 /// 8.6 A closure whose R contains the capability of a named item, as the value of the `with`
-/// that made it, is E0455 (`[effect.escape]`). A closure used up inside the `with` is fine.
+/// that made it, is E4405 (`[effect.escape]`). A closure used up inside the `with` is fine.
 #[test]
 fn spec_8_6_capabilities_must_not_leak() {
     insta::assert_snapshot!(render_bodies(
@@ -1281,7 +1281,7 @@ handler ConsoleLogger: Logger {  # 補
 
 fn make_greeter() {
   with log = ConsoleLogger {
-    || log.info("hi") # E0455: the R of the closure contains log, which leaves the with
+    || log.info("hi") # E4405: the R of the closure contains log, which leaves the with
   }
 }
 
@@ -1294,7 +1294,7 @@ fn used_up(names: List[String]) {  # 補
     ));
 }
 
-/// 9.2 Only functions that cannot fail can be passed to a `fails {}` parameter (E0321).
+/// 9.2 Only functions that cannot fail can be passed to a `fails {}` parameter (E3201).
 #[test]
 fn spec_9_2_pure_parameter() {
     insta::assert_snapshot!(render_bodies(

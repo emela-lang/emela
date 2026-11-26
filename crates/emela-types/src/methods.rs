@@ -123,7 +123,7 @@ pub(crate) fn takes_self(sigs: &Signatures, f: DefId) -> bool {
 
 /// The type with its type arguments replaced by `Ty::Error`, which satisfies every trait.
 /// Whether a type implements a trait for a method call does not depend on its type arguments: a
-/// `List[fn() -> Int]` finds `Show.show`, and the call is E0326.
+/// `List[fn() -> Int]` finds `Show.show`, and the call is E3302.
 pub(crate) fn erase_args(ty: &Ty) -> Ty {
     match ty {
         Ty::Named(id, args) => Ty::Named(*id, vec![Ty::Error; args.len()]),

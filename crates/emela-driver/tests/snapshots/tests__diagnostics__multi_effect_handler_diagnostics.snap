@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-error[E0212]: effect `Query + Execute` has no `exec`
+error[E2102]: effect `Query + Execute` has no `exec`
     ╭─[ main.emel:24:6 ]
     │
  24 │   fn exec(sql) { () }
@@ -10,7 +10,7 @@ error[E0212]: effect `Query + Execute` has no `exec`
     │        ╰─── 
 ────╯
 
-error[E0450]: effects `Query` and `Reader` of handler `Clash` both have `query`
+error[E4012]: effects `Query` and `Reader` of handler `Clash` both have `query`
     ╭─[ main.emel:15:24 ]
     │
  15 │ handler Clash: Query + Reader {
@@ -19,7 +19,7 @@ error[E0450]: effects `Query` and `Reader` of handler `Clash` both have `query`
 ────╯
    = help: implement `Query` and `Reader` in separate handlers
 
-error[E0451]: effect `Execute` is listed more than once in handler `Repeated`
+error[E4012]: effect `Execute` is listed more than once in handler `Repeated`
     ╭─[ main.emel:19:29 ]
     │
  19 │ handler Repeated: Execute + Execute {
@@ -27,7 +27,7 @@ error[E0451]: effect `Execute` is listed more than once in handler `Repeated`
     │                                ╰───── 
 ────╯
 
-error[E0404]: handler `Half` does not implement operations `query`, `execute`
+error[E4001]: handler `Half` does not implement operations `query`, `execute`
     ╭─[ main.emel:23:9 ]
     │
  23 │ handler Half: Query + Execute {
@@ -35,7 +35,7 @@ error[E0404]: handler `Half` does not implement operations `query`, `execute`
     │           ╰─── 
 ────╯
 
-error[E0421]: effect `Execute` is provided by both `Plain` and `Only` in layer `Both`
+error[E4102]: effect `Execute` is provided by both `Plain` and `Only` in layer `Both`
     ╭─[ main.emel:38:3 ]
     │
  38 │   Only
@@ -44,7 +44,7 @@ error[E0421]: effect `Execute` is provided by both `Plain` and `Only` in layer `
 ────╯
    = help: keep one of them, or override it with `with Both, Only { ... }`
 
-error[E0452]: expected `use Query + Execute`, found `use Query`, which does not have `Execute`
+error[E4403]: expected `use Query + Execute`, found `use Query`, which does not have `Execute`
     ╭─[ main.emel:44:14 ]
     │
  44 │   read_write(q)
@@ -53,7 +53,7 @@ error[E0452]: expected `use Query + Execute`, found `use Query`, which does not 
 ────╯
    = note: a capability can be passed as fewer of its effects, but not as more
 
-error[E0401]: effect `Query` has no operation `execute`
+error[E4401]: effect `Query` has no operation `execute`
     ╭─[ main.emel:45:5 ]
     │
  45 │   q.execute("b")
@@ -61,7 +61,7 @@ error[E0401]: effect `Query` has no operation `execute`
     │        ╰───── 
 ────╯
 
-error[E0431]: label `Replica` stands for `Query`, but `Only` provides `Execute`
+error[E4203]: label `Replica` stands for `Query`, but `Only` provides `Execute`
     ╭─[ main.emel:49:19 ]
     │
  49 │   with Replica by Only { (use Replica).query("a") }

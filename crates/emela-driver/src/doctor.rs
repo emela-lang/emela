@@ -1053,7 +1053,7 @@ mod process_tests {
                 node.display()
             ))
         );
-        // The note of E0904 for a JS host that is too old.
+        // The note of E9101 for a JS host that is too old.
         assert_eq!(
             check.help.as_deref(),
             Some(
@@ -1306,7 +1306,7 @@ mod process_tests {
     }
 
     /// `[target.native.cc]`: a value of `EMELA_CC` with whitespace names one program, so it is
-    /// not found, and the help is that of E0907 for it.
+    /// not found, and the help is that of E9101 for it.
     #[test]
     fn a_c_compiler_with_flags_in_emela_cc() {
         let empty = tempfile::tempdir().unwrap();
@@ -1330,7 +1330,7 @@ mod process_tests {
             check.message.as_deref(),
             Some("target `native` needs a C compiler, but `cc` is not on PATH")
         );
-        // The help of E0907.
+        // The help of E9101.
         assert_eq!(
             check.help.as_deref(),
             Some(

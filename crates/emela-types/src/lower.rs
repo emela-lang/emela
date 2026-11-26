@@ -238,7 +238,7 @@ pub(crate) struct Scope<'a> {
     /// declarations.
     pub(crate) sets: bool,
     /// What `Self` stands for: `Bound(0)` in a trait's functions, the impl's type in an impl.
-    /// `None` elsewhere, where name resolution has reported `Self` (E0219).
+    /// `None` elsewhere, where name resolution has reported `Self` (E2108).
     pub(crate) self_ty: Option<&'a Ty>,
     /// In the result type of a function: the capability sets of its parameter types
     /// ([`Hidden::caps`]). A capability type there records the union of the sets of the same
@@ -807,8 +807,8 @@ impl TyTable {
     /// ordinary types; omitted `fails` and `uses` on function types inside them are empty (as in
     /// declarations).
     ///
-    /// Missing type arguments on an effect with type parameters are E0423 (`handler` names the
-    /// handler when written in a handler head); a wrong count is E0304. Both return a tag with the
+    /// Missing type arguments on an effect with type parameters are E4008 (`handler` names the
+    /// handler when written in a handler head); a wrong count is E3101. Both return a tag with the
     /// arguments filled with `Ty::Error`, which unifies with anything so errors do not cascade.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn effect_tag(
@@ -1024,7 +1024,7 @@ impl TyTable {
     }
 }
 
-/// Pushes the diagnostic for something that does not fit a set type parameter (E0323). Takes the
+/// Pushes the diagnostic for something that does not fit a set type parameter (E3007). Takes the
 /// span and a description of what was written.
 type ReportMismatch<'a> = dyn Fn(Option<Span>, SmolStr, &mut Vec<Diagnostic>) + 'a;
 
@@ -1033,7 +1033,7 @@ impl TyTable {
     /// (`Handler[NotFound, Db]`, `Handler[NotFound | Timeout, { Db, Log }]`, `Handler[E, R]`,
     /// `Handler[{}, {}]`). Elements may be tags of the right kind (error or effect names) and set
     /// type parameters. Error sets are joined with `|`; effect sets are wrapped in braces. An empty
-    /// `{}` fits either position. Anything else is E0323, and that element is skipped.
+    /// `{}` fits either position. Anything else is E3007, and that element is skipped.
     #[allow(clippy::too_many_arguments)]
     fn lower_set_arg(
         &self,
@@ -1200,7 +1200,7 @@ fn decl_params(program: &Program, def: DefId, sets: &[Option<SetKind>]) -> Vec<T
     let type_params: &[TypeParam] = match program.item(def) {
         Some(Item::Type(TypeItem { type_params, .. }))
         | Some(Item::Enum(EnumItem { type_params, .. })) => type_params,
-        // The type parameters of a handler are ordinary types (E0424), with the traits of their
+        // The type parameters of a handler are ordinary types (E4009), with the traits of their
         // bounds, which are checked at each item (`[effect.with]`).
         Some(Item::Handler(_)) => {
             return handler_type_params(program, def)
@@ -1239,7 +1239,7 @@ fn decl_params(program: &Program, def: DefId, sets: &[Option<SetKind>]) -> Vec<T
         .collect()
 }
 
-/// Returns true if the type argument count is `expected`; otherwise pushes E0304 and returns
+/// Returns true if the type argument count is `expected`; otherwise pushes E3101 and returns
 /// false.
 ///
 /// Checked here rather than in name resolution, because the type checker is what knows the
@@ -1281,7 +1281,7 @@ pub(crate) fn type_param_defs(program: &Program, def: DefId) -> Vec<DefId> {
 
 /// The type parameters a handler's declaration is read with (`[effect.handler]`): its own, or for
 /// an inner handler, those of its outer handler. The type parameters written on an inner handler
-/// are E0460 and are not among them.
+/// are E1213 and are not among them.
 pub(crate) fn handler_type_params(program: &Program, handler: DefId) -> &[TypeParam] {
     let mut def = handler;
     while let Some(outer) = program.defs[def].parent
@@ -1624,7 +1624,7 @@ fn decl_sets(program: &Program) -> DeclSets {
     let mut sets = DeclSets::default();
     // Built-in effects decide the kinds of their type parameters from the operation signatures,
     // like the field types of a type (`TaskGroup[E, R]`, spec 11.2). Other effects take ordinary
-    // types only (E0424, spec 8.1).
+    // types only (E4009, spec 8.1).
     for (def, _) in program.defs.iter() {
         if !is_intrinsic_effect(program, def) {
             continue;

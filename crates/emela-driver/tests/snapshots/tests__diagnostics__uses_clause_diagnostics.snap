@@ -3,7 +3,7 @@ source: crates/emela-driver/tests/diagnostics.rs
 assertion_line: 673
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-error[E0147]: write `uses { Logger }` instead of `use Logger`
+error[E1404]: write `uses { Logger }` instead of `use Logger`
    ╭─[ main.emel:6:19 ]
    │
  6 │   fn get() -> Int use Logger
@@ -11,7 +11,7 @@ error[E0147]: write `uses { Logger }` instead of `use Logger`
    │                    ╰─── 
 ───╯
 
-error[E0137]: effect operations cannot have a `uses` clause
+error[E1211]: effect operations cannot have a `uses` clause
    ╭─[ main.emel:6:19 ]
    │
  6 │   fn get() -> Int use Logger
@@ -19,7 +19,7 @@ error[E0137]: effect operations cannot have a `uses` clause
    │                        ╰────── 
 ───╯
 
-error[E0147]: write `uses { Db }` instead of `use Db`
+error[E1404]: write `uses { Db }` instead of `use Db`
     ╭─[ main.emel:13:17 ]
     │
  13 │ fn old() -> Int use Db {
@@ -27,7 +27,7 @@ error[E0147]: write `uses { Db }` instead of `use Db`
     │                  ╰─── 
 ────╯
 
-error[E0147]: write `uses { Db, Logger }` instead of `use { Db, Logger }`
+error[E1404]: write `uses { Db, Logger }` instead of `use { Db, Logger }`
     ╭─[ main.emel:18:3 ]
     │
  18 │   use { Db, Logger } {
@@ -35,7 +35,7 @@ error[E0147]: write `uses { Db, Logger }` instead of `use { Db, Logger }`
     │    ╰─── 
 ────╯
 
-error[E0147]: write `uses {}` instead of `use {}`
+error[E1404]: write `uses {}` instead of `use {}`
     ╭─[ main.emel:22:27 ]
     │
  22 │ fn old_type(f: fn() -> () use {}) -> () uses {} {
@@ -43,7 +43,7 @@ error[E0147]: write `uses {}` instead of `use {}`
     │                            ╰─── 
 ────╯
 
-error[E0402]: effect `Logger` is not declared in `uses`
+error[E4301]: effect `Logger` is not declared in `uses`
     ╭─[ main.emel:27:4 ]
     │
  27 │   (use Logger).info("x")
@@ -52,7 +52,7 @@ error[E0402]: effect `Logger` is not declared in `uses`
 ────╯
    = help: add it to `uses` or provide it with `with`
 
-error[E0402]: effect `Logger` is not declared in `uses`
+error[E4301]: effect `Logger` is not declared in `uses`
     ╭─[ main.emel:31:4 ]
     │
  31 │   (use Logger).info("x")
@@ -61,7 +61,7 @@ error[E0402]: effect `Logger` is not declared in `uses`
 ────╯
    = help: add it to `uses` or provide it with `with`
 
-error[E0402]: effect `Db` is not declared in `uses`
+error[E4301]: effect `Db` is not declared in `uses`
     ╭─[ main.emel:32:4 ]
     │
  32 │   (use Db).get()
@@ -70,7 +70,7 @@ error[E0402]: effect `Db` is not declared in `uses`
 ────╯
    = help: add it to `uses` or provide it with `with`
 
-error[E0403]: effect set mismatch: expected `uses {}`, found `uses { Logger }`
+error[E4301]: effect set mismatch: expected `uses {}`, found `uses { Logger }`
     ╭─[ main.emel:37:12 ]
     │
  37 │   old_type(|| (use Logger).info("x"))
@@ -78,7 +78,7 @@ error[E0403]: effect set mismatch: expected `uses {}`, found `uses { Logger }`
     │                        ╰────────────── 
 ────╯
 
-error[E0423]: missing type arguments for effect `State[S]`
+error[E4008]: missing type arguments for effect `State[S]`
     ╭─[ main.emel:40:26 ]
     │
  40 │ fn untyped() -> Int uses State {

@@ -120,7 +120,7 @@ pub struct CapElem {
     /// without a name, `self`, or `any`.
     pub name: SmolStr,
     /// The effect of the capability. In R it is the effect of the operation called, which
-    /// decides whether the call may suspend (E0417); it is not widened to it.
+    /// decides whether the call may suspend (E4303); it is not widened to it.
     pub tag: Tag,
 }
 

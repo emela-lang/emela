@@ -1,4 +1,4 @@
-//! Rewrites of the old forms the parser still reads (E0144, E0145, E0147, E0148). Validation shows them
+//! Rewrites of the old forms the parser still reads (E1402, E1403, E1404, E1405). Validation shows them
 //! in the message, and the driver's quick fixes apply them, so both come from here.
 
 use rowan::{NodeOrToken, TextRange};
@@ -118,7 +118,7 @@ pub fn old_handler_head(node: &SyntaxNode) -> Option<(SyntaxToken, TextRange, St
     Some((implements, range, head))
 }
 
-/// The old form of an anonymous function (`fn(x) { x + 1 }`, E0148, `[fn.decl]`), and the text to
+/// The old form of an anonymous function (`fn(x) { x + 1 }`, E1405, `[fn.decl]`), and the text to
 /// write instead (`|x| x + 1`).
 ///
 /// The range covers the whole function. The braces are dropped when the block is on one line and
@@ -227,7 +227,7 @@ pub fn needs_parens(node: &SyntaxNode) -> bool {
     }
 }
 
-/// The help for a line that starts with `||` (E0149, and E0301 in the driver).
+/// The help for a line that starts with `||` (E1112, and E3001 in the driver).
 pub const OR_AT_LINE_START_HELP: &str = "a line that starts with `||` starts an anonymous function; to continue the previous line with `||`, enclose the expression in parentheses";
 
 /// Whether the anonymous function starts with `||` at the start of a line.
@@ -282,7 +282,7 @@ pub fn canonical_uses_clause(node: &SyntaxNode) -> Option<String> {
     })
 }
 
-/// The old clause as written, for the message of E0147: its text without comments, compacted.
+/// The old clause as written, for the message of E1404: its text without comments, compacted.
 pub(crate) fn old_uses_text(node: &SyntaxNode) -> String {
     compact(&without_comments(node))
 }

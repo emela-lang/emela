@@ -42,11 +42,7 @@ pub(crate) fn pattern(p: &mut Parser<'_>) {
         TYPE_NAME => variant_pat(p),
         L_PAREN => paren_pat(p),
         L_BRACK => list_pat(p),
-        _ => p.err_recover(
-            DiagnosticCode::ExpectedPattern,
-            "expected pattern",
-            RECOVERY,
-        ),
+        _ => p.err_recover(DiagnosticCode::ExpectedNode, "expected pattern", RECOVERY),
     }
 }
 
@@ -92,7 +88,7 @@ fn pat_args(p: &mut Parser<'_>) {
     let mut seen_rest = false;
     while !p.at(R_PAREN) && !p.at_eof() {
         if seen_rest {
-            p.error(DiagnosticCode::RestNotLast, "`..` must come last");
+            p.error(DiagnosticCode::MisplacedListRest, "`..` must come last");
         }
         if p.at(DOT2) {
             rest_pat(p, false);
@@ -146,12 +142,12 @@ fn list_pat(p: &mut Parser<'_>) {
     let mut seen_rest = false;
     while !p.at(R_BRACK) && !p.at_eof() {
         if seen_rest {
-            p.error(DiagnosticCode::RestNotLast, "`..` must come last");
+            p.error(DiagnosticCode::MisplacedListRest, "`..` must come last");
         }
         if p.at(DOT2) {
             if !has_element {
                 p.error(
-                    DiagnosticCode::RestWithoutElements,
+                    DiagnosticCode::MisplacedListRest,
                     "`..` needs at least one element before it",
                 );
             }

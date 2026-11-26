@@ -49,11 +49,11 @@ pub handler Group[E, R]: TaskGroup[E, R]
 pub fn join[A](task: Task[A]) -> A uses { Async }
 ```
 
-- TaskGroup is a built-in effect, and only `Task.Group` implements it. Users cannot write a handler for it (E0413). Its set type parameters E and R, and the type parameter of `start`, are allowed only for built-in effects (8.1). `Group` and `Background` (11.3) are the only handlers with set type parameters.
+- TaskGroup is a built-in effect, and only `Task.Group` implements it. Users cannot write a handler for it (E4003). Its set type parameters E and R, and the type parameter of `start`, are allowed only for built-in effects (8.1). `Group` and `Background` (11.3) are the only handlers with set type parameters.
 - `with tasks = Task.Group { body }` makes a group. Its E and R are inferred from the tasks started in it (`[effect.with]`).
 - `tasks.start(f)` starts f as a task of the group and returns a `Task[A]`. start is not a suspension point (it is a fn operation). The task goes into the queue and starts running the next time the starting task suspends. A task interrupted before it starts running ends without calling f.
 - The E and R of f MUST be included in the E and R of the group. The exception is the capability of the group itself (and TaskGroup, which a group without a name provides by name): the R of f MAY contain it, so that a task can start siblings. A task of a named group starts siblings through the capability of the group, since a named item provides nothing by name (`[effect.with]`).
-- A `use` expression and an effect alias of TaskGroup MAY omit its type arguments (`use TaskGroup`, `tasks <- TaskGroup`); they are inferred. A uses clause, the type of a parameter and the other type positions MUST write them (E0423, the same rule as for State in 8.1).
+- A `use` expression and an effect alias of TaskGroup MAY omit its type arguments (`use TaskGroup`, `tasks <- TaskGroup`); they are inferred. A uses clause, the type of a parameter and the other type positions MUST write them (E4008, the same rule as for State in 8.1).
 - A requirement `TaskGroup[E1, R1]` in an R is satisfied by a group `TaskGroup[E2, R2]` with E1 ⊆ E2 and R1 ⊆ R2. A function that starts tasks in a group it does not make writes the type arguments with type parameters, and puts the effects its tasks use in the set, so that another task can add a different error or effect to the same group:
 
 ```emel
@@ -71,12 +71,12 @@ fn crawl[E, R](tasks: use TaskGroup[E, { Http, Async, R }], url: String) -> () {
 - The group closes when its body ends or a task fails. A start on a closed group is a defect (`task group was used after it closed`), and goes into the notes when it happens during the unwinding caused by a task's failure.
 - `Task[A]` is a capability-bound type of TaskGroup (9.4). The task returned by `tasks.start` records tasks, so it cannot leave the with of the group, and a task that captures a Task of its own group has the group in its R, which the R of the group cannot contain.
 - There are no tasks that outlive the with that started them. Long-running work is started in a group or a background whose with encloses the work that depends on it.
-- For E0402 about a missing effect, if the effect comes from the R of a task of a group, a note points at the call of start, and the help suggests providing the effect outside the with of the group.
+- For E4301 about a missing effect, if the effect comes from the R of a task of a group, a note points at the call of start, and the help suggests providing the effect outside the with of the group.
 
 ```emel
 with tasks = Task.Group {
   with PostgresUsers {
-    tasks.start(|| (use Users).find(1)) # error[E0402]: effect `Users` is not provided
+    tasks.start(|| (use Users).find(1)) # error[E4301]: effect `Users` is not provided
   }
   ()
 }
@@ -106,7 +106,7 @@ pub handler Background[E, R]: Spawn[E, R] {
 }
 ```
 
-- Spawn is a built-in effect, and only `Task.Background` implements it (E0413). Its type arguments are treated as those of TaskGroup (11.2): they MAY be omitted in a `use` expression and an effect alias, and a requirement `Spawn[E1, R1]` is satisfied by a provided `Spawn[E2, R2]` with E1 ⊆ E2 and R1 ⊆ R2.
+- Spawn is a built-in effect, and only `Task.Background` implements it (E4003). Its type arguments are treated as those of TaskGroup (11.2): they MAY be omitted in a `use` expression and an effect alias, and a requirement `Spawn[E1, R1]` is satisfied by a provided `Spawn[E2, R2]` with E1 ⊆ E2 and R1 ⊆ R2.
 - `bg.start(f)` starts f as a task and returns `()`. f returns `()`: a task whose value is wanted is started in a group. As in 11.2, start is not a suspension point, the task starts running the next time the starting task suspends, and a task interrupted before it starts running ends without calling f. The rules of 11.2 on the E and R of f and on where R is provided apply to a background as they are.
 - A background does not close. `bg.start(f)` is allowed while the body runs, after a task has failed, and after the body has ended while the release waits. A start on a background is never a defect.
 - The release of a background waits until all its tasks have ended, including the tasks started while it waits. It does not interrupt them, whether the body ended with a value or a failure. The value or failure of the with is that of the body.

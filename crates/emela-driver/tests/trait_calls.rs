@@ -341,7 +341,7 @@ fn operators_and_interpolation_go_through_the_impls() {
 #[test]
 fn an_assert_through_an_impl_shows_both_sides() {
     // `==` and `<` through impls still show both sides with inspect (spec 13.2), here by the
-    // derived Show (`pub`, as the assert alone does not use it, W0303).
+    // derived Show (`pub`, as the assert alone does not use it, W3301).
     let main = r##"
 pub type Ver(major: Int, note: String) derive Show
 

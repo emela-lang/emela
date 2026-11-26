@@ -2,7 +2,7 @@
 source: crates/emela-driver/tests/diagnostics.rs
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
-error[E0446]: effect `Marker` has no operations
+error[E4010]: effect `Marker` has no operations
    ╭─[ main.emel:4:8 ]
    │
  4 │ effect Marker {}
@@ -11,7 +11,7 @@ error[E0446]: effect `Marker` has no operations
 ───╯
    = help: an effect needs at least one operation; only host effects have none
 
-error[E0445]: the uses of external function `write_host` can contain only `ProcessHost` and `PageHost`
+error[E5002]: the uses of external function `write_host` can contain only `ProcessHost` and `PageHost`
     ╭─[ main.emel:11:42 ]
     │
  11 │ fn write_host(text: String) -> () uses { Files }
@@ -19,7 +19,7 @@ error[E0445]: the uses of external function `write_host` can contain only `Proce
     │                                            ╰──── 
 ────╯
 
-error[E0413]: handler `Host` cannot implement `ProcessHost`: only the host provides it
+error[E4003]: handler `Host` cannot implement `ProcessHost`: only the host provides it
     ╭─[ main.emel:20:9 ]
     │
  20 │ handler Host: ProcessHost {
@@ -27,7 +27,7 @@ error[E0413]: handler `Host` cannot implement `ProcessHost`: only the host provi
     │           ╰─── 
 ────╯
 
-error[E0414]: `ProcessHost` is a host effect and cannot be used with `use`
+error[E4402]: `ProcessHost` is a host effect and cannot be used with `use`
     ╭─[ main.emel:23:13 ]
     │
  23 │ fn grab() { use ProcessHost }
@@ -35,7 +35,7 @@ error[E0414]: `ProcessHost` is a host effect and cannot be used with `use`
     │                    ╰───────── 
 ────╯
 
-error[E0402]: effect `PageHost` is not provided in exported function `f`
+error[E4301]: effect `PageHost` is not provided in exported function `f`
     ╭─[ main.emel:26:24 ]
     │
  26 │ pub fn f() -> String { with PageFiles { (use Files).title() } }
@@ -44,7 +44,7 @@ error[E0402]: effect `PageHost` is not provided in exported function `f`
 ────╯
    = note: the host of an exported function provides only `Async`, not `PageHost`
 
-error[E0402]: effect `PageHost` is not provided in `main`
+error[E4301]: effect `PageHost` is not provided in `main`
     ╭─[ main.emel:29:3 ]
     │
  29 │   with PageFiles { (use Files).title() }
@@ -53,7 +53,7 @@ error[E0402]: effect `PageHost` is not provided in `main`
 ────╯
    = note: `main` provides `Async` and `ProcessHost`, not `PageHost`
 
-error[E0402]: effect `FileSystem` is not provided in `main`
+error[E4301]: effect `FileSystem` is not provided in `main`
     ╭─[ main.emel:30:20 ]
     │
  30 │   with Platform { (use FileSystem).exists("x") }

@@ -116,7 +116,7 @@ fn the_source_root_cannot_import_a_dev_dependency() {
     let (code, _, err) = emela(&app, &["check"]);
     assert_eq!(code, Some(1), "{err}");
     assert!(
-        err.contains("error[E0239]: `Gen` can only be imported under `test/`"),
+        err.contains("error[E2010]: `Gen` can only be imported under `test/`"),
         "{err}"
     );
 }

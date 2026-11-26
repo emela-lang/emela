@@ -42,7 +42,7 @@ fn run_with_core(files: &[(&str, &str)], core: &[(&str, &str)]) -> String {
     run_impl(files, core, false)
 }
 
-/// W0403 (`use E` written as an expression is deprecated) is left out unless `deprecated`: most
+/// W4401 (`use E` written as an expression is deprecated) is left out unless `deprecated`: most
 /// programs here still use the deprecated forms.
 fn run_impl(files: &[(&str, &str)], core: &[(&str, &str)], deprecated: bool) -> String {
     let fs = MemoryFs::new(files.iter().map(|(path, _)| format!("src/{path}")));
@@ -494,7 +494,7 @@ fn g[A](a: B) -> A fails NotFonud uses { Loger } { a }
     )]));
 }
 
-/// The top-level pattern of an escape arm is limited to errors (E0217); `_` and a variable pass
+/// The top-level pattern of an escape arm is limited to errors (E2106); `_` and a variable pass
 /// name resolution (`[module.resolution]`), and only the constructor that is not an error is
 /// reported.
 #[test]
@@ -528,7 +528,7 @@ fn lambda_param_patterns() {
     )]));
 }
 
-/// Names bound by different parameters of a lambda clash too (E0220, spec 6.1).
+/// Names bound by different parameters of a lambda clash too (E2109, spec 6.1).
 #[test]
 fn lambda_param_duplicates() {
     insta::assert_snapshot!(diagnostics(&[(
@@ -828,7 +828,7 @@ fn with_body() -> Int { 1 }
 }
 
 /// `[kw.annotation]`: in the bundled sources, `@intrinsic` may be put on a type without fields (a
-/// built-in type such as `Bytes`), not on one with fields (E0225).
+/// built-in type such as `Bytes`), not on one with fields (E2202).
 #[test]
 fn intrinsic_types_in_core() {
     insta::assert_snapshot!(run_with_core(
@@ -896,7 +896,7 @@ fn main() {
 }
 
 /// `H(...)` at a `with` is a call of init, not a construction of the handler value, so it is not
-/// a record update (E0222). The parameters of init are not seen outside it.
+/// a record update (E2111). The parameters of init are not seen outside it.
 #[test]
 fn handler_init_argument_errors() {
     insta::assert_snapshot!(diagnostics(&[(
@@ -962,7 +962,7 @@ pub fn serve(app: fn(Int) -> Int, x: Int) -> Int { app(x) }
 }
 
 /// In the module of a type, an fn whose first parameter has that type at its head cannot have
-/// the name of one of its fields (E0334, `[data.type]`), so that a method call never finds both.
+/// the name of one of its fields (E3109, `[data.type]`), so that a method call never finds both.
 /// A fn of another module, or whose first parameter has another type, may.
 #[test]
 fn fn_named_like_a_field() {
@@ -1307,7 +1307,7 @@ fn literals_keep_their_kind_and_a_block_ends_in_its_value() {
 }
 
 /// Scopes and declarations at their edges: type parameters do not outlive their declaration, a
-/// handler's field and an fn of the same name clash (E0334), `self` in a lambda inside an impl, a
+/// handler's field and an fn of the same name clash (E3109), `self` in a lambda inside an impl, a
 /// duplicate operation keeps the first signature, a handler of a label does not look up its
 /// operations, qualified traits, and the type arguments of `use` and of `by`.
 #[test]
@@ -1546,7 +1546,7 @@ fn local_fn_not_hoisted() {
     )]));
 }
 
-/// The parameters of a local fn share one binder, as those of a top-level fn do (E0220).
+/// The parameters of a local fn share one binder, as those of a top-level fn do (E2109).
 #[test]
 fn local_fn_param_duplicates() {
     insta::assert_snapshot!(diagnostics(&[(
@@ -1586,7 +1586,7 @@ fn take(f: fn(use State[Int]) -> Int, s: (use State[Int], Int)) -> Int { 0 }
     )]));
 }
 
-/// `use E` where E is not an effect is E0217, as for `use E` in an expression: a type, a type
+/// `use E` where E is not an effect is E2106, as for `use E` in an expression: a type, a type
 /// parameter, a handler.
 #[test]
 fn capability_type_of_a_non_effect() {
@@ -1657,7 +1657,7 @@ fn copy(src: use Query, dst: use Query + Execute + State[Int]) -> () {
     )]));
 }
 
-/// An operation or an inner handler that none of the listed effects has is E0212, which names
+/// An operation or an inner handler that none of the listed effects has is E2102, which names
 /// all of them.
 #[test]
 fn multi_effect_handler_unknown_operation() {
@@ -1787,7 +1787,7 @@ fn greet() {
     )]));
 }
 
-/// E0453: an effect alias written as a value, and a handler member opened through one
+/// E4404: an effect alias written as a value, and a handler member opened through one
 /// (`[effect.use]`).
 #[test]
 fn effect_alias_misuse() {
@@ -1837,7 +1837,7 @@ handler Quiet: Logger {
     )]));
 }
 
-/// W0403: `use E` written as an expression is deprecated, in either form (`[effect.use]`). The
+/// W4401: `use E` written as an expression is deprecated, in either form (`[effect.use]`). The
 /// help names an effect alias where it means the same: for `(use E).op(...)`, and for `x = use E`
 /// whose x is only the receiver of operations in the same function and outside later `with`s.
 #[test]
@@ -1919,7 +1919,7 @@ fn outside(x: S) -> () { () }
 }
 
 /// `External` names the External of the module where it is written, and `M.External` that of
-/// M. A definition or an import named `External` shadows it (W0202), and `M.External` then names
+/// M. A definition or an import named `External` shadows it (W2102), and `M.External` then names
 /// that definition of M (`[effect.external]`).
 #[test]
 fn external_effect_names() {

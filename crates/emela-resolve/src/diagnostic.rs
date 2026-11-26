@@ -31,20 +31,20 @@ pub enum DiagnosticKind {
     DuplicateModule { name: ModuleName, first: PathBuf },
     /// The imported module does not exist.
     UndefinedModule { name: ModuleName },
-    /// E0239. A module of the source root imports a module of the test root or a
+    /// E2010. A module of the source root imports a module of the test root or a
     /// `[dev-dependencies]` Pome, which only the test root may import (spec 4.7, 13.1).
     TestOnlyModule { name: ModuleName },
     /// `modules` goes around the cycle once (the edge back to the first module is omitted).
     ImportCycle { modules: Vec<ModuleName> },
     /// A directory could not be read.
     Io { message: SmolStr },
-    /// E0211. `expected` is the position the name was looked up in.
+    /// E2101. `expected` is the position the name was looked up in.
     UndefinedName {
         name: SmolStr,
         expected: Expected,
         suggestion: Option<SmolStr>,
     },
-    /// A module, trait or effect has no item with that name (E0212). Used for import lists,
+    /// A module, trait or effect has no item with that name (E2102). Used for import lists,
     /// `Module.f`, `Trait.f`, handler operations and impl functions.
     UndefinedMember {
         name: SmolStr,
@@ -52,79 +52,79 @@ pub enum DiagnosticKind {
         owner_kind: &'static str,
         suggestion: Option<SmolStr>,
     },
-    /// A duplicate in the same namespace (E0213). `first` is the earlier definition or import in
+    /// A duplicate in the same namespace (E2103). `first` is the earlier definition or import in
     /// the same file.
     Duplicate {
         name: SmolStr,
         first: Option<TextRange>,
     },
-    /// A non-pub definition imported or referenced qualified from another module (E0214).
+    /// A non-pub definition imported or referenced qualified from another module (E2104).
     Private { name: SmolStr, module: ModuleName },
-    /// An opaque type constructed outside its defining module (E0215).
+    /// An opaque type constructed outside its defining module (E2105).
     OpaqueConstruction { name: SmolStr, module: ModuleName },
-    /// An opaque type used in a pattern outside its defining module (E0216).
+    /// An opaque type used in a pattern outside its defining module (E2105).
     OpaquePattern { name: SmolStr, module: ModuleName },
-    /// The name was found, but its kind cannot be written in that position (E0217).
+    /// The name was found, but its kind cannot be written in that position (E2106).
     WrongKind {
         name: SmolStr,
         expected: Expected,
         found: &'static str,
     },
-    /// The name left of `.` refers to both a module and a trait (E0218).
+    /// The name left of `.` refers to both a module and a trait (E2107).
     Ambiguous { name: SmolStr },
-    /// `self` or `Self` where it cannot be used (E0219).
+    /// `self` or `Self` where it cannot be used (E2108).
     SelfOutside { self_type: bool },
-    /// `Self` as an expression outside a handler (E0219, `[grammar.expr]`). Inside a handler it
-    /// names the handler's constructor, and outside its init that is E0418.
+    /// `Self` as an expression outside a handler (E2108, `[grammar.expr]`). Inside a handler it
+    /// names the handler's constructor, and outside its init that is E4005.
     SelfValueOutside,
-    /// `use E` written as an expression, which is deprecated (W0403, `[effect.use]`). `rewrite`
+    /// `use E` written as an expression, which is deprecated (W4401, `[effect.use]`). `rewrite`
     /// is the effect alias that means the same, when there is one.
     DeprecatedUse {
         effect: SmolStr,
         rewrite: Option<DeprecatedRewrite>,
     },
-    /// An effect alias written other than as the receiver of `x.op(...)` or `x.op` (E0453,
+    /// An effect alias written other than as the receiver of `x.op(...)` or `x.op` (E4404,
     /// `[effect.use]`).
     EffectAliasAsValue { name: SmolStr },
-    /// A handler member opened through an effect alias (`fs.Temporary()`, E0453,
+    /// A handler member opened through an effect alias (`fs.Temporary()`, E4404,
     /// `[effect.use]`).
     MemberThroughEffectAlias {
         alias: SmolStr,
         effect: SmolStr,
         member: SmolStr,
     },
-    /// `Self` as the target of a record update `Self(f: e, ..r)` (E0222, `[grammar.expr]`).
+    /// `Self` as the target of a record update `Self(f: e, ..r)` (E2111, `[grammar.expr]`).
     SelfUpdate,
-    /// An effect name in a type position (E0221). The type of a capability value cannot be
+    /// An effect name in a type position (E2110). The type of a capability value cannot be
     /// written in source (spec 8.2).
     EffectAsType { name: SmolStr },
-    /// The same name bound twice in one pattern or parameter list (E0220).
+    /// The same name bound twice in one pattern or parameter list (E2109).
     DuplicateBinding {
         name: SmolStr,
         first: Option<TextRange>,
     },
     /// The target of a record update `C(f: e, ..r)` is not something with a single constructor
-    /// (a type, an error, or a handler with fields) (E0222, spec 5.3). `found` is the kind of
+    /// (a type, an error, or a handler with fields) (E2111, spec 5.3). `found` is the kind of
     /// name that was found.
     InvalidUpdateTarget {
         name: Option<SmolStr>,
         found: &'static str,
     },
-    /// A record update gives a changed field by position (E0223, spec 5.3).
+    /// A record update gives a changed field by position (E2112, spec 5.3).
     PositionalInUpdate,
-    /// `@intrinsic` used outside the core sources bundled with the compiler (E0224).
+    /// `@intrinsic` used outside the core sources bundled with the compiler (E2201).
     IntrinsicOutsideCore,
-    /// `@intrinsic` on something other than an fn without a body (E0225).
+    /// `@intrinsic` on something other than an fn without a body (E2202).
     MisplacedIntrinsic,
-    /// A type parameter hides an outer type of the same name (W0201, spec 2.3).
+    /// A type parameter hides an outer type of the same name (W2101, spec 2.3).
     ShadowedByTypeParam { name: SmolStr },
-    /// A module definition or import hides a Prelude name of the same name (W0202).
+    /// A module definition or import hides a Prelude name of the same name (W2102).
     ShadowsPrelude { name: SmolStr },
-    /// An impl head that is not a type name with distinct type parameters (E0328, spec 10.2):
+    /// An impl head that is not a type name with distinct type parameters (E3303, spec 10.2):
     /// `impl List[Int]: Show`, `impl Pair[A, A]: Eq`. `head` is the head as written.
     ImplHead { head: SmolStr },
     /// In the module of a type, an fn whose first parameter has that type at its head has the
-    /// name of one of its fields (E0334, `[data.type]`). A method call would find both.
+    /// name of one of its fields (E3109, `[data.type]`). A method call would find both.
     FnNamedLikeField { name: SmolStr, ty: SmolStr },
 }
 
@@ -145,7 +145,7 @@ pub enum Expected {
     /// The contents of a layer.
     HandlerOrLayer,
     /// `with X`: a handler, a layer, or a label. Any effect fits here: whether it is a label is
-    /// left to type checking (E0430).
+    /// left to type checking (E4202).
     WithItem,
     /// The left of `by` in `with L by P`.
     Label,

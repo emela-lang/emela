@@ -1,4 +1,4 @@
-//! No call that may suspend after resume (E0461, `[effect.handler]`, `[dyn.suspend]`).
+//! No call that may suspend after resume (E4305, `[effect.handler]`, `[dyn.suspend]`).
 //!
 //! In the implementation of a suspend fn, a call that may suspend is reported when some path
 //! through the body reaches it after a direct call of resume, or after another use of resume
@@ -34,7 +34,7 @@ fn render(src: &str) -> String {
     render_bodies(&format!("{DECLS}{src}"))
 }
 
-/// A suspending call after a direct call of resume is E0461: an operation, an `@external suspend
+/// A suspending call after a direct call of resume is E4305: an operation, an `@external suspend
 /// fn`, a function whose R may suspend, and a function value. Calls that do not suspend (an fn
 /// operation, a function whose R is Immediate) are allowed, and so is a second resume.
 #[test]

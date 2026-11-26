@@ -443,7 +443,7 @@ impl<'a> Resolver<'a> {
     /// The effect that `item`, a handler named `name`, may share its name with: one declared
     /// earlier in the same module, when `item` is a built-in handler of the bundled sources
     /// (`@intrinsic`, without a body) that implements only that effect (`[module.resolution]`).
-    /// Any other handler with the name of an effect is a duplicate (E0213).
+    /// Any other handler with the name of an effect is a duplicate (E2103).
     fn twin_of(&self, module: ModuleId, item: &ast::Item, name: &SmolStr) -> Option<DefId> {
         let ast::Item::Handler(h) = item else {
             return None;

@@ -109,5 +109,5 @@ ROOT@0..106
       WHITESPACE@103..104 " "
       R_BRACE@104..105 "}"
   NEWLINE@105..106 "\n"
-error[E0110]@40..41: expected `->`
-error[E0110]@94..99: expected `->`
+error[E1101]@40..41: expected `->`
+error[E1101]@94..99: expected `->`

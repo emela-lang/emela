@@ -269,7 +269,7 @@ fn peek_int() { State.run(1, || peek()) }
     ));
 }
 
-/// Omitted type arguments (E0423), wrong counts (E0304), type parameters used as sets (E0424),
+/// Omitted type arguments (E4008), wrong counts (E3101), type parameters used as sets (E4009),
 /// and operations with mismatched types.
 #[test]
 fn errors() {
@@ -315,7 +315,7 @@ fn as_type(x: State[Int]) { () }
 }
 
 /// State handlers with different type arguments in layers and `with`. Only those with the same
-/// type arguments are duplicates (E0421), and the later one wins. Handler operation
+/// type arguments are duplicates (E4102), and the later one wins. Handler operation
 /// implementations are checked against the types in the handler head.
 #[test]
 fn handlers_and_layers() {

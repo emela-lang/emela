@@ -1,6 +1,6 @@
 //! Experimental features (spec `[intro.experimental]`): the features the compiler knows, which of
-//! them each Pome enables, and the warnings for the names it does not know (W0206) and for values
-//! that are not booleans (W0207).
+//! them each Pome enables, and the warnings for the names it does not know (W2304) and for values
+//! that are not booleans (W2305).
 //!
 //! A Pome enables a feature in the `[experimental]` table of its `Pome.toml` (`[module.pome]`);
 //! the commands add the flags `--experimental-<name>` for the Pome being built (`[cmd.build]`).
@@ -26,9 +26,9 @@ pub const FLAG_PREFIX: &str = "--experimental-";
 pub enum Stage {
     /// Enabled by `[experimental]` or by a flag.
     Experimental,
-    /// Always on. Its name is still accepted, with W0206, for at least one minor version.
+    /// Always on. Its name is still accepted, with W2304, for at least one minor version.
     Stable,
-    /// Gone. Its name is accepted with W0206.
+    /// Gone. Its name is accepted with W2304.
     Removed,
 }
 
@@ -46,16 +46,16 @@ pub struct Feature {
 
 /// Every feature the compiler knows, in the order of the table of `[intro.experimental]`. A
 /// feature that becomes stable or is removed stays here with its [`Stage`], so that its name is
-/// still accepted with W0206.
+/// still accepted with W2304.
 pub const FEATURES: &[Feature] = &[Feature {
     name: CAPTURE_CHECKING,
     since: "0.28.0",
     stage: Stage::Removed,
     summary: "Removed in 0.29: the types tell capabilities apart, and a capability that leaves \
-              the with that made it is E0455",
+              the with that made it is E4405",
 }];
 
-/// `capture-checking`, removed in 0.29 (`[effect.escape]`): its name is accepted with W0206.
+/// `capture-checking`, removed in 0.29 (`[effect.escape]`): its name is accepted with W2304.
 pub const CAPTURE_CHECKING: &str = "capture-checking";
 
 /// The features that can be enabled now, for the flags `--help` lists (`[cmd.build]`).
@@ -88,7 +88,7 @@ impl Features {
 
 /// The features a dependency enables, from the `[experimental]` of its own `Pome.toml`
 /// (`[module.pome]`). Names that are not experimental features are left out without a warning:
-/// W0206 is reported only when building that Pome (`[pome.manifest]`).
+/// W2304 is reported only when building that Pome (`[pome.manifest]`).
 pub fn dependency_features(settings: &BTreeMap<String, bool>) -> Features {
     enabled_in(FEATURES, settings)
 }
@@ -103,7 +103,7 @@ fn enabled_in(registry: &[Feature], settings: &BTreeMap<String, bool>) -> Featur
 }
 
 /// The features of the Pome being built, from its `Pome.toml` (`text` at `path`; `None` in
-/// single-file mode) and the flags of the command, with W0206 and W0207. `Pome.toml` is added to
+/// single-file mode) and the flags of the command, with W2304 and W2305. `Pome.toml` is added to
 /// `sources` only when a diagnostic points into it.
 pub(crate) fn project_features(
     manifest: Option<(&str, &Path)>,
@@ -186,7 +186,7 @@ fn project_features_in(
     (Features(enabled), diagnostics)
 }
 
-/// The feature `name` if it can be enabled now; otherwise W0206 without a location.
+/// The feature `name` if it can be enabled now; otherwise W2304 without a location.
 fn lookup<'a>(registry: &'a [Feature], name: &str) -> Result<&'a Feature, Diagnostic> {
     let message = match registry.iter().find(|f| f.name == name) {
         Some(feature) => match feature.stage {
@@ -242,14 +242,14 @@ mod tests {
     }
 
     /// `[intro.experimental]`, `[pome.manifest]`: an experimental feature set to `true` is
-    /// enabled; `false` leaves it off. A stable or removed name is W0206 with its own message, at
+    /// enabled; `false` leaves it off. A stable or removed name is W2304 with its own message, at
     /// the key, and enables nothing.
     #[test]
     fn reads_the_table() {
         let (enabled, rendered) = project("trying = true\nsettled = true\ndropped = false\n", &[]);
         assert_eq!(enabled, ["trying"]);
         insta::assert_snapshot!(rendered, @r"
-        warning[W0206]: experimental feature `settled` is now stable and always on
+        warning[W2304]: experimental feature `settled` is now stable and always on
            ╭─[ Pome.toml:3:1 ]
            │
          3 │ settled = true
@@ -257,7 +257,7 @@ mod tests {
            │    ╰───── 
         ───╯
 
-        warning[W0206]: experimental feature `dropped` was removed
+        warning[W2304]: experimental feature `dropped` was removed
            ╭─[ Pome.toml:4:1 ]
            │
          4 │ dropped = false
@@ -270,14 +270,14 @@ mod tests {
         assert_eq!(project("trying = false\n", &[]), (vec![], String::new()));
     }
 
-    /// `[pome.manifest]`: a value that is not a boolean is W0207 at the value, and the key has
+    /// `[pome.manifest]`: a value that is not a boolean is W2305 at the value, and the key has
     /// no effect.
     #[test]
     fn a_value_that_is_not_a_boolean_has_no_effect() {
         let (enabled, rendered) = project("trying = \"yes\"\n", &[]);
         assert!(enabled.is_empty());
         insta::assert_snapshot!(rendered, @r#"
-        warning[W0207]: `[experimental].trying` must be `true` or `false`
+        warning[W2305]: `[experimental].trying` must be `true` or `false`
            ╭─[ Pome.toml:2:10 ]
            │
          2 │ trying = "yes"
@@ -290,7 +290,7 @@ mod tests {
     }
 
     /// `[cmd.build]`: a flag adds to `[experimental]` and cannot disable what it enables. A flag
-    /// of a stable, removed or unknown feature is W0206 without a location.
+    /// of a stable, removed or unknown feature is W2304 without a location.
     #[test]
     fn flags_add_to_the_table() {
         assert_eq!(
@@ -304,11 +304,11 @@ mod tests {
         let (enabled, rendered) = project("", &["settled", "dropped", "nope", "nope"]);
         assert!(enabled.is_empty());
         insta::assert_snapshot!(rendered, @r"
-        warning[W0206]: experimental feature `dropped` was removed
+        warning[W2304]: experimental feature `dropped` was removed
 
-        warning[W0206]: unknown experimental feature `nope`
+        warning[W2304]: unknown experimental feature `nope`
 
-        warning[W0206]: experimental feature `settled` is now stable and always on
+        warning[W2304]: experimental feature `settled` is now stable and always on
 
         3 warnings
         ");

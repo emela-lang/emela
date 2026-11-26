@@ -30,7 +30,7 @@ pub struct TestFn {
 /// declaration order.
 ///
 /// `@test` may only be put on top-level fns without parameters that have a body (not
-/// `@external`). `@test` elsewhere, and arguments like `@test(...)`, are E0226. Functions with
+/// `@external`). `@test` elsewhere, and arguments like `@test(...)`, are E2203. Functions with
 /// errors are not collected.
 pub fn collect_tests<'p>(
     analysis: &Analysis,
@@ -73,7 +73,7 @@ pub fn collect_tests<'p>(
                 diagnostics.push(error("`@test` takes no arguments".into(), range));
                 continue;
             }
-            // On a local fn, E0150 already reports it (`[fn.local]`).
+            // On a local fn, E1212 already reports it (`[fn.local]`).
             if annotation
                 .syntax()
                 .parent()
@@ -118,7 +118,7 @@ pub fn collect_tests<'p>(
                 continue;
             }
             if decl.body().is_none() {
-                // A missing body itself is handled by the syntax stage (E0130) or as `@external`.
+                // A missing body itself is handled by the syntax stage (E1204) or as `@external`.
                 diagnostics.push(error(
                     format!("test function `{}` needs a body", name.text()),
                     name.text_range(),

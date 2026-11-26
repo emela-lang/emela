@@ -130,7 +130,7 @@ fn opener() -> () fails Missing uses { Files } {
 "#));
 }
 
-/// E0447, E0448, E0449, E0404 and E0405 for handler members.
+/// E4105, E4106, E4011, E4001 and E4002 for handler members.
 #[test]
 fn handler_member_errors() {
     insta::assert_snapshot!(run(r#"
@@ -190,8 +190,8 @@ fn f() -> () fails Missing uses { Files } {
 }
 
 /// A handler member without `suspend` checks the init and the release of its inner handlers as
-/// the body of an fn operation (E0417), and an effect with a `suspend handler` member is not
-/// Immediate (E0416, `[type.effect-bound]`).
+/// the body of an fn operation (E4303), and an effect with a `suspend handler` member is not
+/// Immediate (E4302, `[type.effect-bound]`).
 #[test]
 fn suspending_handler_members() {
     insta::assert_snapshot!(run(r#"
@@ -239,7 +239,7 @@ fn g() -> () uses { Quick, Slow } {
 }
 
 /// An operation of a capability in a field of `self` is not required by name, but it counts as
-/// its effect for suspension: an fn operation that calls a suspend fn through a field is E0417.
+/// its effect for suspension: an fn operation that calls a suspend fn through a field is E4303.
 /// In release, a suspend fn called that way makes Async a requirement, so that the `with` shows
 /// that leaving it may suspend (`[effect.use]`). A field bound to a local variable first is the
 /// same (#866).

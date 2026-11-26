@@ -50,10 +50,10 @@ WHITESPACE@68..69 " "
 LOWER_NAME@69..72 "caf"
 ERROR_TOKEN@72..74 "é"
 NEWLINE@74..75 "\n"
-error[E0103]@0..11: invalid name `Http_client`: not a lower, type, or upper name
-error[E0103]@16..24: invalid name `Max_SIZE`: not a lower, type, or upper name
-error[E0104]@29..32: invalid number literal `1e9`
-error[E0104]@35..39: invalid number literal `1.0e`
-error[E0104]@42..45: invalid number literal `3px`
-error[E0105]@61..62: unrecognized character `&`
-error[E0105]@72..74: unrecognized character `é`
+error[E1003]@0..11: invalid name `Http_client`: not a lower, type, or upper name
+error[E1003]@16..24: invalid name `Max_SIZE`: not a lower, type, or upper name
+error[E1004]@29..32: invalid number literal `1e9`
+error[E1004]@35..39: invalid number literal `1.0e`
+error[E1004]@42..45: invalid number literal `3px`
+error[E1005]@61..62: unrecognized character `&`
+error[E1005]@72..74: unrecognized character `é`

@@ -1093,7 +1093,7 @@ fn main() {
     insta::assert_snapshot!(mine.join("\n\n"));
 }
 
-/// An fn-operation implementation may suspend depending on the calls in its body (E0417, spec 8.1).
+/// An fn-operation implementation may suspend depending on the calls in its body (E4303, spec 8.1).
 /// Even with a Clock that has a suspend fn in the body's R, it is not a generator if it only calls
 /// the fn operation `now`, and the `now` call is not marked as suspending. If the body's R is
 /// Immediate, calling sleep inside a `with` of PureClock, which resumes immediately, does not make

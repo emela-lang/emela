@@ -342,7 +342,7 @@ pub struct Function {
     /// For an external function (spec chapter 12), the host function. `body` is then unused.
     ///
     /// Lowering checks the build target's binding only for external functions reachable from the
-    /// roots (main and the exported fns, or the test functions; E0412). One without a binding can
+    /// roots (main and the exported fns, or the test functions; E5001). One without a binding can
     /// still be lowered when nothing reaches it from them (`Roots::All`); backends then emit a
     /// function that is a defect when called.
     pub external: Option<External>,

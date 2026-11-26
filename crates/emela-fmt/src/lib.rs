@@ -5,8 +5,8 @@
 //! `pretty` (Wadler-style).
 //!
 //! Files with syntax errors are not formatted: the contents of an ERROR node do not follow the
-//! grammar, so reprinting them could break the file. The old effect clause (E0147) and the old
-//! form of an anonymous function (E0148) are not syntax errors here: the parser reads the old
+//! grammar, so reprinting them could break the file. The old effect clause (E1404) and the old
+//! form of an anonymous function (E1405) are not syntax errors here: the parser reads the old
 //! clause into the tree of a uses clause, which the printer writes in its canonical form, and the
 //! old anonymous function is printed in the new form (`[fmt.io]`, `[fmt.signature]`,
 //! `[fmt.closure]`).

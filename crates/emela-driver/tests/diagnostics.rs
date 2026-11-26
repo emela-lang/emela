@@ -11,7 +11,7 @@ use emela_resolve::{Import, ModuleId, ModuleName};
 use emela_types::{InferCtx, Prim, Ty, TyCons};
 use line_index::{TextRange, TextSize};
 
-/// The diagnostics of checking `path`, but W0403: most programs here still write `use E` as an
+/// The diagnostics of checking `path`, but W4401: most programs here still write `use E` as an
 /// expression (deprecated, `[effect.use]`). [`check_files_with_deprecated`] keeps them.
 fn check_files(files: &[(&str, &str)], path: &str, frontend: &mut impl Frontend) -> Analysis {
     let mut analysis = check_files_with_deprecated(files, path, frontend);
@@ -258,19 +258,19 @@ fn lexical_errors_are_reported_once() {
             "fn main() {\n  \"abc\n}\nconst y = $\n",
         ),
     ];
-    // Only lexer diagnostics (E0101 to E0109).
+    // Only lexer diagnostics (E1001 to E1009).
     let codes = |analysis: &Analysis| -> Vec<&'static str> {
         analysis
             .diagnostics
             .iter()
             .filter_map(|d| d.code)
-            .filter(|c| *c < "E0110")
+            .filter(|c| *c < "E1101")
             .collect()
     };
     let parsed = check_files(&files, "app", &mut ParseOnly::new());
-    assert_eq!(codes(&parsed), ["E0101", "E0105"]);
+    assert_eq!(codes(&parsed), ["E1001", "E1005"]);
     let lexed = check_files(&files, "app", &mut LexOnly);
-    assert_eq!(codes(&lexed), ["E0101", "E0105"]);
+    assert_eq!(codes(&lexed), ["E1001", "E1005"]);
 }
 
 #[test]
@@ -307,7 +307,7 @@ fn broken_import_is_not_resolved() {
         &mut ParseOnly::new(),
     );
     let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
-    assert_eq!(codes, ["E0110", "E0122"]);
+    assert_eq!(codes, ["E1101", "E1109"]);
 }
 
 #[test]
@@ -358,7 +358,7 @@ fn single_file_reports_duplicates_it_reaches() {
         &mut ParseOnly::new(),
     );
     let codes: Vec<_> = analysis.diagnostics.iter().filter_map(|d| d.code).collect();
-    assert_eq!(codes, ["E0204"]);
+    assert_eq!(codes, ["E2003"]);
 }
 
 #[test]
@@ -508,7 +508,7 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// The diagnostics of an escape arm `_` and of a variable arm (E0320, W0301, W0302,
+/// The diagnostics of an escape arm `_` and of a variable arm (E3203, W3101, W3201,
 /// `[error.escape]`).
 #[test]
 fn escape_wildcard_diagnostics() {
@@ -539,7 +539,7 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// The messages of effect diagnostics (E04xx). The driver also passes main and test functions to
+/// The messages of effect diagnostics (E4xxx). The driver also passes main and test functions to
 /// inference to check that their R is empty (spec 8.3, 13.3).
 #[test]
 fn effect_diagnostics() {
@@ -607,8 +607,8 @@ fn logs() {
 }
 
 /// The diagnostics about the uses clause (`[grammar.decl]`, `[diag.list]`): the old clause
-/// (E0147) in a signature, in a function type, on its own line and on an effect operation, read
-/// on as a uses clause; and the sets of E0402, E0403 and E0423 shown in the canonical
+/// (E1404) in a signature, in a function type, on its own line and on an effect operation, read
+/// on as a uses clause; and the sets of E4301, E4301 and E4008 shown in the canonical
 /// form `uses { ... }`.
 #[test]
 fn uses_clause_diagnostics() {
@@ -674,7 +674,7 @@ fn outside() {
 }
 
 /// The messages of suspend, Async, Immediate and declaration type argument set diagnostics
-/// (E0221, E0322 to E0324, E0413 to E0416). Only Async may remain in main's R (spec 8.3).
+/// (E2110, E4304 to E3008, E4003 to E4302). Only Async may remain in main's R (spec 8.3).
 #[test]
 fn suspend_diagnostics() {
     let mut frontend = Typecheck::default();
@@ -749,7 +749,7 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// The messages of stateful handler and layer diagnostics (E0411, E0418 to E0422; spec 8.4, 8.5).
+/// The messages of stateful handler and layer diagnostics (E4101, E4005 to E4103; spec 8.4, 8.5).
 #[test]
 fn stateful_handler_diagnostics() {
     let mut frontend = Typecheck::default();
@@ -819,8 +819,8 @@ fn make() { Counter(n: 1) }
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// The messages of the diagnostics of handlers of several effects (E0450, E0451, E0452, and E0212,
-/// E0401, E0404, E0421, E0431 with several effects; `[effect.handler]`, `[effect.use]`,
+/// The messages of the diagnostics of handlers of several effects (E4012, E4012, E4403, and E2102,
+/// E4401, E4001, E4102, E4203 with several effects; `[effect.handler]`, `[effect.use]`,
 /// `[effect.layer]`, `[effect.label]`).
 #[test]
 fn multi_effect_handler_diagnostics() {
@@ -887,8 +887,8 @@ fn wrong() -> Int {
 }
 
 /// `Self` as an expression where it cannot construct a handler (`[effect.handler]`,
-/// `[grammar.expr]`): inside a handler outside its init (E0418), outside a handler (E0219, also in
-/// an impl), and as the target of a record update (E0222).
+/// `[grammar.expr]`): inside a handler outside its init (E4005), outside a handler (E2108, also in
+/// an impl), and as the target of a record update (E2111).
 #[test]
 fn handler_self_diagnostics() {
     let mut frontend = Typecheck::default();
@@ -926,7 +926,7 @@ fn make() { Self(n: 1) }
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// The messages of effect type parameter diagnostics (E0423, E0424, E0304, E0402; spec 8.1).
+/// The messages of effect type parameter diagnostics (E4008, E4009, E3101, E4301; spec 8.1).
 #[test]
 fn effect_type_param_diagnostics() {
     let mut frontend = Typecheck::default();
@@ -1037,7 +1037,7 @@ fn reachable_external_without_target() {
 }
 
 /// `pub` fns of the entry with trait-bounded type parameters. Only `@export` fns are exported
-/// (`[target.js.module]`), so they are not roots and build on every target (E0327 is unused).
+/// (`[target.js.module]`), so they are not roots and build on every target.
 const CONSTRAINED_PUB_FNS: &str = r#"type User(name: String)
 
 impl User: Show {
@@ -1074,7 +1074,7 @@ fn export_diagnostics(files: &[(&str, &str)]) -> String {
 
 /// A JS host export may not take a name that `main.mjs` already exports (`[target.js.module]`):
 /// `main` when the entry has it, and `$start` when the launcher or a host export may suspend.
-/// They are duplicates of those exports (E0438).
+/// They are duplicates of those exports (E5103).
 #[test]
 fn reserved_js_host_names_are_diagnosed() {
     insta::assert_snapshot!(export_diagnostics(&[(
@@ -1160,7 +1160,7 @@ fn slow() uses { Async } { () }
 fn start() -> Int { 1 }
 "#,
     )]);
-    assert_eq!(output.matches("error[E0438]").count(), 1, "{output}");
+    assert_eq!(output.matches("error[E5103]").count(), 1, "{output}");
     insta::assert_snapshot!(output);
 }
 
@@ -1200,7 +1200,7 @@ fn main() {}
 }
 
 /// A reserved name and a duplicate are reported once each: the first export collides with the
-/// launcher's `main`, and the second is a duplicate of the first (E0438).
+/// launcher's `main`, and the second is a duplicate of the first (E5103).
 #[test]
 fn a_reserved_name_and_a_duplicate_are_two_diagnostics() {
     let output = export_diagnostics(&[(
@@ -1214,7 +1214,7 @@ fn b() -> Int { 1 }
 fn main() {}
 "#,
     )]);
-    assert_eq!(output.matches("error[E0438]").count(), 2, "{output}");
+    assert_eq!(output.matches("error[E5103]").count(), 2, "{output}");
     insta::assert_snapshot!(output);
 }
 
@@ -1234,8 +1234,8 @@ fn main() {}
     )]));
 }
 
-/// `[ext.export]`: the parameters and the return value are boundary types (E0436), E is empty and
-/// R is empty except for Async (E0402).
+/// `[ext.export]`: the parameters and the return value are boundary types (E5101), E is empty and
+/// R is empty except for Async (E4301).
 #[test]
 fn export_types_and_effects() {
     insta::assert_snapshot!(export_diagnostics(&[(
@@ -1275,7 +1275,7 @@ fn main() {}
     )]));
 }
 
-/// What each target cannot expose: an export that may suspend on `c` (E0441,
+/// What each target cannot expose: an export that may suspend on `c` (E5202,
 /// `[target.native.export]`), a callback on `c` (not supported yet), and on `wasm` any `@export(wasm, ...)`
 /// a user writes (`[target.wasm.external]`), also through `@entry`. Each target reports only its
 /// own exports, and check (no target) reports none.
@@ -1324,8 +1324,8 @@ fn main() {}
 
 /// `[lib.http-service]`: `@entry(Http.serve)` takes an fn from `Request` to `Response` whose E is
 /// anything and whose R has only Async and Spawn, whose tasks may fail with anything and use only
-/// Async (E0440 otherwise). The native target does not support
-/// HTTP services (E0442); an entry adapter of the program's own named `serve` in a module `Http`
+/// Async (E5105 otherwise). The native target does not support
+/// HTTP services (E5203); an entry adapter of the program's own named `serve` in a module `Http`
 /// is not one. check (no target) reports nothing.
 #[test]
 fn http_service_targets() {
@@ -1433,8 +1433,8 @@ pub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }
 }
 
 /// `[ext.export]` and `[ext.entry]`: an `@export` fn that is not an entry adapter only in the
-/// entry module (E0437), `@entry` only in the entry module (E0437) and naming an entry adapter
-/// (E0439), and the same name exported twice for the same target (E0438).
+/// entry module (E5102), `@entry` only in the entry module (E5102) and naming an entry adapter
+/// (E5104), and the same name exported twice for the same target (E5103).
 #[test]
 fn export_placement() {
     insta::assert_snapshot!(export_diagnostics(&[
@@ -1481,8 +1481,8 @@ pub fn misplaced(x: Int) -> Int { x }
 }
 
 /// `[ext.entry]`: the fn with `@entry` MUST be accepted as the first argument of the adapter
-/// (E0440). A generic fn is instantiated. An adapter that lets the E or R of the fn through has
-/// them in its own E and R (E0402), and so does the fn made by `@entry` (E0440).
+/// (E5105). A generic fn is instantiated. An adapter that lets the E or R of the fn through has
+/// them in its own E and R (E4301), and so does the fn made by `@entry` (E5105).
 #[test]
 fn entry_fits_the_adapter() {
     insta::assert_snapshot!(export_diagnostics(&[(
@@ -1621,8 +1621,8 @@ fn operations_are_checked_per_effect_instance() {
 
 #[test]
 fn internal_fns_are_core_only() {
-    // `@internal` fns can be called from core modules but not from source modules (E0228), and
-    // `@internal` cannot be written in source modules (E0229). The bundled core has no `@internal`
+    // `@internal` fns can be called from core modules but not from source modules (E2205), and
+    // `@internal` cannot be written in source modules (E2206). The bundled core has no `@internal`
     // fn, so a test core module is added.
     let mut core = CoreSource::bundled();
     core.push(CoreSource {
@@ -1654,14 +1654,14 @@ fn mine() -> Int { 1 }
         &mut frontend,
     );
     let codes: Vec<_> = analysis.diagnostics.iter().map(|d| d.code).collect();
-    assert_eq!(codes, [Some("E0228"), Some("E0228"), Some("E0229")]);
+    assert_eq!(codes, [Some("E2205"), Some("E2205"), Some("E2206")]);
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
 #[test]
 fn std_and_core_module_files_are_reserved() {
     // Files named like core modules, and `std.emel` and `std/`, cannot sit directly under the
-    // source root (spec 4.1, E0203). Std modules live under `Std`, so `instant.emel` is allowed
+    // source root (spec 4.1, E2002). Std modules live under `Std`, so `instant.emel` is allowed
     // (spec 15.2).
     let analysis = check_files(
         &[
@@ -1681,8 +1681,8 @@ fn std_and_core_module_files_are_reserved() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// The messages of the diagnostics on the arguments of handler init (E0434, E0435, E0316, and
-/// E0318 and E0402 in a layer; `[effect.handler]`, `[effect.layer]`).
+/// The messages of the diagnostics on the arguments of handler init (E4104, E4104, E3006, and
+/// E3201 and E4301 in a layer; `[effect.handler]`, `[effect.layer]`).
 #[test]
 fn handler_init_argument_diagnostics() {
     let mut frontend = Typecheck::default();
@@ -1740,9 +1740,9 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// The diagnostics of method calls (`[type.rules]`, `[data.type]`): no field or function (E0312,
-/// also for a function written without a call), a type without fields (E0313), an undetermined
-/// type (E0314), a fn named like a field (E0334) and more than one candidate (E0335). A trait
+/// The diagnostics of method calls (`[type.rules]`, `[data.type]`): no field or function (E3106,
+/// also for a function written without a call), a type without fields (E3107), an undetermined
+/// type (E3005), a fn named like a field (E3109) and more than one candidate (E3110). A trait
 /// reached only as `Traits.Named` is not looked up, and a private fn is not found outside its
 /// module.
 #[test]
@@ -2010,7 +2010,7 @@ fn main() {
 
 /// `[ext.boundary]`: `Array[A]` is a boundary type when `A` is a boundary type other than a
 /// function type, nested arrays and Bytes included. An array of functions, or of a type that is not
-/// a boundary type, is not one (E0436 for an exported fn).
+/// a boundary type, is not one (E5101 for an exported fn).
 #[test]
 fn array_boundary_types() {
     insta::assert_snapshot!(export_diagnostics(&[(
@@ -2038,9 +2038,9 @@ fn main() {}
     )]));
 }
 
-/// The old form of an anonymous function (E0148) shows its rewrite; an anonymous function before
-/// the last statement of a block is E0149; a line that starts with `||` gets a help on E0149 and
-/// on E0301 (`[fn.decl]`, `[fn.block]`, `[diag.list]`).
+/// The old form of an anonymous function (E1405) shows its rewrite; an anonymous function before
+/// the last statement of a block is E1112; a line that starts with `||` gets a help on E1112 and
+/// on E3001 (`[fn.decl]`, `[fn.block]`, `[diag.list]`).
 #[test]
 fn closure_diagnostics() {
     let mut frontend = Typecheck::default();
@@ -2082,7 +2082,7 @@ fn main() -> Int {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// `[pome.manifest]`: a `[pome].license` that is not an SPDX license expression is W0205 at the
+/// `[pome.manifest]`: a `[pome].license` that is not an SPDX license expression is W2303 at the
 /// value, and the check goes on.
 #[test]
 fn license_that_is_not_an_spdx_expression() {
@@ -2134,8 +2134,8 @@ fn license_that_is_not_an_spdx_expression() {
     }
 }
 
-/// `[pome.manifest]`: an unknown name in `[experimental]` is W0206 at the key, whatever its value,
-/// and a value that is not a boolean is W0207 at the value. The check goes on.
+/// `[pome.manifest]`: an unknown name in `[experimental]` is W2304 at the key, whatever its value,
+/// and a value that is not a boolean is W2305 at the value. The check goes on.
 #[test]
 fn experimental_settings_of_the_project() {
     let manifest = |table: &str| {
@@ -2185,7 +2185,7 @@ fn experimental_settings_of_the_project() {
 }
 
 /// `[cmd.build]`: a flag `--experimental-<name>` that names no known experimental feature is not
-/// an error but W0206, without a location. The same name twice is reported once. In single-file
+/// an error but W2304, without a location. The same name twice is reported once. In single-file
 /// mode the flags are read too.
 #[test]
 fn experimental_flags() {
@@ -2222,9 +2222,9 @@ fn experimental_feature_note() {
 }
 
 /// `[effect.use]`, `[diag.list]`: the type `use E` names an effect; another kind of name is
-/// E0217. An operation that E does not have, called on a value of type `use E`, is E0401. A
-/// capability value passed, stored and returned is not an error (E0408 to E0410 are retired),
-/// and one that leaves the `with` that made it is E0455.
+/// E2106. An operation that E does not have, called on a value of type `use E`, is E4401. A
+/// capability value passed, stored and returned is not an error,
+/// and one that leaves the `with` that made it is E4405.
 #[test]
 fn capability_types() {
     let main = "\
@@ -2263,10 +2263,10 @@ fn leaks() -> use Db {
 
 /// The diagnostics of capabilities told apart in types (`[effect.escape]`, `[effect.handler]`,
 /// `[type.rules]`, `[ext.boundary]`, `[diag.list]`): a capability that leaves the `with` that
-/// made it (E0455), a capability type in the result of an operation (E0456), `@borrowed` on a
-/// parameter that is not a callback of an external function (E0457), a value of a
-/// capability-bound type made outside a handler of its effect (E0458), and a capability in the R
-/// of a callback (E0454).
+/// made it (E4405), a capability type in the result of an operation (E4406), `@borrowed` on a
+/// parameter that is not a callback of an external function (E5004), a value of a
+/// capability-bound type made outside a handler of its effect (E4407), and a capability in the R
+/// of a callback (E5003).
 #[test]
 fn capability_identity() {
     let main = "\
@@ -2317,9 +2317,9 @@ handler Late: Db {
 }
 
 /// Handler members (`[effect.decl]`, `[effect.handler]`, `[effect.with]`): an item without
-/// `x =`, a member in a layer and a bound layer (E0447), a member opened outside `with` and an
-/// init (E0448), an inner handler that does not fit its member (E0449), a missing member
-/// (E0404), and an init of a member without `suspend` that may suspend (E0417).
+/// `x =`, a member in a layer and a bound layer (E4105), a member opened outside `with` and an
+/// init (E4106), an inner handler that does not fit its member (E4011), a missing member
+/// (E4001), and an init of a member without `suspend` that may suspend (E4303).
 #[test]
 fn handler_members() {
     let main = "\
@@ -2383,7 +2383,7 @@ fn f() -> () uses { Files } {
 }
 
 /// A handler member whose init takes parameters, written as an item of `with` without them, is
-/// E0434, as a handler is (`[effect.with]`, issue #700). A member without parameters is not.
+/// E4104, as a handler is (`[effect.with]`, issue #700). A member without parameters is not.
 #[test]
 fn member_items_need_init_arguments() {
     let main = "effect ReadFile {
@@ -2419,7 +2419,7 @@ fn main() {
     );
     let output = render(&analysis.diagnostics, &analysis.sources, false);
     assert!(
-        output.contains("error[E0434]: handler member `Open` needs arguments"),
+        output.contains("error[E4104]: handler member `Open` needs arguments"),
         "{output}"
     );
     assert!(
@@ -2429,7 +2429,7 @@ fn main() {
     assert_eq!(output.matches("error[").count(), 1, "{output}");
 }
 
-/// A handler member named through a label without its arguments is E0434, and the help names
+/// A handler member named through a label without its arguments is E4104, and the help names
 /// the label as written (`[effect.label]`, issue #700).
 #[test]
 fn member_items_through_a_label_need_init_arguments() {
@@ -2463,7 +2463,7 @@ fn main() {
     );
     let output = render(&analysis.diagnostics, &analysis.sources, false);
     assert!(
-        output.contains("error[E0434]: handler member `Open` needs arguments"),
+        output.contains("error[E4104]: handler member `Open` needs arguments"),
         "{output}"
     );
     assert!(
@@ -2492,7 +2492,7 @@ fn single_file_does_not_read_a_license() {
 }
 
 /// The launcher exports the entry's `main` even when that fn has a `js` `@export` of its own
-/// (`[target.js.module]`), so `@export(js, "main")` on `main` duplicates it (E0438).
+/// (`[target.js.module]`), so `@export(js, "main")` on `main` duplicates it (E5103).
 #[test]
 fn main_exported_as_main_duplicates_the_launcher_export() {
     let output = export_diagnostics(&[(
@@ -2501,7 +2501,7 @@ fn main_exported_as_main_duplicates_the_launcher_export() {
 fn main() -> Int { 1 }
 "#,
     )]);
-    assert_eq!(output.matches("error[E0438]").count(), 1, "{output}");
+    assert_eq!(output.matches("error[E5103]").count(), 1, "{output}");
 }
 
 /// A bare entry adapter is not exposed by itself (`[ext.entry]`), so its `@export(js, "main")`
@@ -2521,8 +2521,8 @@ fn main() {}
     );
 }
 
-/// What a local fn cannot have (E0150), a local fn as the last statement of its block (E0151),
-/// a parameter without a type (E0316), and its written `fails` and `uses` (E0318, E0402), as the
+/// What a local fn cannot have (E1212, E1213), a local fn as the last statement of its block (E1214),
+/// a parameter without a type (E3006), and its written `fails` and `uses` (E3201, E4301), as the
 /// user sees them (`[fn.local]`, `[diag.list]`).
 #[test]
 fn local_fn_diagnostics() {
@@ -2574,7 +2574,7 @@ fn undeclared() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// W0304: a `main` whose return type is none of `()`, `ExitCode` and Never (`[dyn.error]`,
+/// W3001: a `main` whose return type is none of `()`, `ExitCode` and Never (`[dyn.error]`,
 /// `[effect.with]`). Points at the annotation of the return type, or at the name `main` when the
 /// type is inferred.
 #[test]
@@ -2592,7 +2592,7 @@ fn main_return_value_discarded() {
     insta::assert_snapshot!(out);
 }
 
-/// A `main` that returns `()`, an `ExitCode` or Never gets no W0304 (`[dyn.error]`), and neither
+/// A `main` that returns `()`, an `ExitCode` or Never gets no W3001 (`[dyn.error]`), and neither
 /// does a fn named `main` that is not the entry's.
 #[test]
 fn main_return_types_without_warning() {
@@ -2648,9 +2648,9 @@ fn main_return_types_without_warning() {
     }
 }
 
-/// The messages of host effects (`[effect.host]`): E0413 and E0414 for `ProcessHost`, E0445 at an
-/// effect in the uses of an external function that is not a host effect, E0446 at an effect
-/// without operations, and E0402 for a host effect with a note that names the entry and what it
+/// The messages of host effects (`[effect.host]`): E4003 and E4402 for `ProcessHost`, E5002 at an
+/// effect in the uses of an external function that is not a host effect, E4010 at an effect
+/// without operations, and E4301 for a host effect with a note that names the entry and what it
 /// provides, without the help to provide it with `with`. A process handler reached through
 /// `with Platform` gets the help to use `Process` (`[lib.layers]`).
 #[test]
@@ -2701,7 +2701,7 @@ fn main() {
 
 /// `Http.serve` provides ProcessHost (`[lib.http-service]`), so its fn can write
 /// `with Process { ... }`, while an `@export` fn is given only Async (`[ext.export]`) and a
-/// `with Process` in it is E0402 for ProcessHost.
+/// `with Process` in it is E4301 for ProcessHost.
 #[test]
 fn process_in_http_service_and_export() {
     let files = [
@@ -2748,7 +2748,7 @@ fn main() {}
     insta::assert_snapshot!(out);
 }
 
-/// E0152 (`[grammar.lex]`): `<-` is one token. In an expression it is an error that shows the
+/// E1113 (`[grammar.lex]`): `<-` is one token. In an expression it is an error that shows the
 /// comparison; at the head of a statement, a right side that is not an effect gets the comparison
 /// built from what was written as a help.
 #[test]
@@ -2776,7 +2776,7 @@ fn head(x: Int) {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// E0453 (`[effect.use]`): an effect alias is not a value, and a handler member cannot be opened
+/// E4404 (`[effect.use]`): an effect alias is not a value, and a handler member cannot be opened
 /// through one. `x <- E` where E is not an effect is the usual error of a name of the wrong kind.
 #[test]
 fn effect_alias_diagnostics() {
@@ -2824,7 +2824,7 @@ fn not_an_effect() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// E0454 (`[ext.boundary]`): the R of a callback cannot contain an effect, since the host calls it
+/// E5003 (`[ext.boundary]`): the R of a callback cannot contain an effect, since the host calls it
 /// without handlers; a callback that captures the capability of a named item can be passed.
 #[test]
 fn callback_effect_diagnostics() {
@@ -2866,7 +2866,7 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// W0403 (`[effect.use]`): `use E` written as an expression is deprecated, in either form. The
+/// W4401 (`[effect.use]`): `use E` written as an expression is deprecated, in either form. The
 /// help names the effect alias that means the same where there is one.
 #[test]
 fn deprecated_use_diagnostics() {
@@ -2899,7 +2899,7 @@ fn forms() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// W0305 (`[fn.decl]`, `[trait.decl]`, `[ext.decl]`): a type parameter of a top-level fn, of a
+/// W3002 (`[fn.decl]`, `[trait.decl]`, `[ext.decl]`): a type parameter of a top-level fn, of a
 /// trait function or of an `@external` fn that does not appear in the type of the fn. One that
 /// appears only in a bound or in type annotations inside the body is warned about too, and set
 /// type parameters are treated as ordinary ones. The warning points at the type parameter in the
@@ -2952,7 +2952,7 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// No W0305 for a type parameter that appears in the type of the fn (`[fn.decl]`): in a
+/// No W3002 for a type parameter that appears in the type of the fn (`[fn.decl]`): in a
 /// parameter, the return type, fails or uses, inside a function type or a type argument, or in a
 /// return type, fails or uses inferred from the body. Nor for type parameters of types and enums
 /// (phantom types), of an impl head, the `Self` of a trait function, or a fn whose signature
@@ -3021,14 +3021,14 @@ fn main() {
     let warnings: Vec<_> = analysis
         .diagnostics
         .iter()
-        .filter(|d| d.code == Some("W0305"))
+        .filter(|d| d.code == Some("W3002"))
         .collect();
     let rendered = render(&analysis.diagnostics, &analysis.sources, false);
     assert!(warnings.is_empty(), "{rendered}");
     assert!(!analysis.has_errors(), "{rendered}");
 }
 
-/// No W0305 when a type in the signature could not be read: the error is reported instead.
+/// No W3002 when a type in the signature could not be read: the error is reported instead.
 #[test]
 fn unused_type_parameter_not_reported_for_a_broken_signature() {
     let analysis = check_files(
@@ -3037,12 +3037,12 @@ fn unused_type_parameter_not_reported_for_a_broken_signature() {
         &mut Typecheck::default(),
     );
     let codes: Vec<_> = analysis.diagnostics.iter().map(|d| d.code).collect();
-    assert!(!codes.contains(&Some("W0305")), "{codes:?}");
-    assert!(codes.contains(&Some("E0211")), "{codes:?}");
+    assert!(!codes.contains(&Some("W3002")), "{codes:?}");
+    assert!(codes.contains(&Some("E2101")), "{codes:?}");
 }
 
 /// The diagnostics of handlers with type parameters (`[effect.handler]`, `[effect.with]`,
-/// `[effect.layer]`): E0424, E0459, E0460, E0462, E0304 on an item, and the help of E0423 in the
+/// `[effect.layer]`): E4009, E4107, E1213, E4013, E3101 on an item, and the help of E4008 in the
 /// head of a handler.
 #[test]
 fn generic_handler_diagnostics() {
@@ -3127,7 +3127,7 @@ layer Missing {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// A call that may suspend after resume in a suspend fn implementation (E0461,
+/// A call that may suspend after resume in a suspend fn implementation (E4305,
 /// `[effect.handler]`): at the call, with a label at the resume it follows, which is a direct call
 /// or another use of resume (`[effect.async]`).
 #[test]
@@ -3168,10 +3168,10 @@ handler LaterLog: Logger {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
-/// The diagnostics of tasks (`[task]`, `[diag.list]`): importing `Std.Fiber` is E0205 with a help
+/// The diagnostics of tasks (`[task]`, `[diag.list]`): importing `Std.Fiber` is E2004 with a help
 /// that names `Std.Task`; an effect that a task uses and that a with inside the body of its group
-/// provides is E0402 at the call of start, with the note and the help to provide it outside the
-/// group; a handler for TaskGroup or Spawn is E0413 naming the built-in handler that provides it.
+/// provides is E4301 at the call of start, with the note and the help to provide it outside the
+/// group; a handler for TaskGroup or Spawn is E4003 naming the built-in handler that provides it.
 #[test]
 fn task_diagnostics() {
     let mut frontend = Typecheck::default();
@@ -3235,9 +3235,9 @@ fn declared() -> () uses { Async } {
     insta::assert_snapshot!(format!("{fiber}\n{tasks}"));
 }
 
-/// `[effect.with]`: a bound item provides nothing by name. E0402 names the bound item on the way
-/// to the use by name; a label item that makes no handler cannot be bound (E0447). The helps
-/// that suggest a bound item (W0403, E0453, E0454) are left out when the body of the `with` that
+/// `[effect.with]`: a bound item provides nothing by name. E4301 names the bound item on the way
+/// to the use by name; a label item that makes no handler cannot be bound (E4105). The helps
+/// that suggest a bound item (W4401, E4404, E5003) are left out when the body of the `with` that
 /// provides the effect also uses it by name, since a bound item would send those uses elsewhere.
 #[test]
 fn bound_item_diagnostics() {
@@ -3336,9 +3336,9 @@ fn callback_alone() {
 /// before External, and the diagnostics about External. Each value that calls an external
 /// function has the External of its module in its type: put where a pure function type is
 /// expected (a State, a parameter, the field of an error, the result of an operation) it is
-/// E0403; called outside the handlers of its module it is E0402. A handler for External is
-/// E0413, `use External` is E0414, External in the uses of an external function is E0445, and
-/// the External of another module in a callback is E0454.
+/// E4301; called outside the handlers of its module it is E4301. A handler for External is
+/// E4003, `use External` is E4402, External in the uses of an external function is E5002, and
+/// the External of another module in a callback is E5003.
 #[test]
 fn external_effect_diagnostics() {
     let mut frontend = Typecheck::default();
@@ -3446,7 +3446,7 @@ fn main() -> () uses { Async } {
 }
 
 /// `[effect.external]`, `[ext.call]`, `[ext.decl]`: the forms that stay silent. A private fn
-/// calls an external function and a handler of its module calls it (E0407 is retired); a pub
+/// calls an external function and a handler of its module calls it; a pub
 /// `@external` fn declared with `uses {}` is called from another module; a pub `@external` fn
 /// that adds External is referred to as a value by another module and passed to a handler of its
 /// module, as is the result of a factory, to an operation and to an init; an effect and a handler

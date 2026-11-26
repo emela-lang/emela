@@ -47,7 +47,7 @@ fn build_service_with(name: &str, main: &str, more: &[(&str, &str)]) -> PathBuf 
     let input = Input::resolve(&fs, Path::new("app")).unwrap();
     let dir = out_dir(name);
     let (analysis, entry) = build(&fs, &input, &mut Lower::default(), &mut CoreJs, &dir);
-    // The programs still write `use E` as an expression (W0403, deprecated).
+    // The programs still write `use E` as an expression (W4401, deprecated).
     assert!(
         analysis
             .diagnostics
@@ -424,7 +424,7 @@ fn echo_node(dir: &Path) -> PathBuf {
     path
 }
 
-/// `emela run` of an HTTP service needs no `main` (no E0230) and runs `node serve.mjs` with the
+/// `emela run` of an HTTP service needs no `main` (no E2009) and runs `node serve.mjs` with the
 /// arguments after `--` (`[cmd.build]`). [`echo_node`] stands in for node, so the command shows.
 #[cfg(unix)]
 #[test]
@@ -451,7 +451,7 @@ fn run_starts_serve_mjs() {
     let exists = serve.exists();
     let _ = std::fs::remove_dir_all(&options.out_dir);
     let _ = std::fs::remove_dir_all(&node_dir);
-    // The programs still write `use E` as an expression (W0403, deprecated).
+    // The programs still write `use E` as an expression (W4401, deprecated).
     assert!(
         analysis
             .diagnostics
@@ -686,7 +686,7 @@ fn wasm_serves_the_same_as_js() {
         &mut CoreWasm::default(),
         &wasm,
     );
-    // The programs still write `use E` as an expression (W0403, deprecated).
+    // The programs still write `use E` as an expression (W4401, deprecated).
     assert!(
         analysis
             .diagnostics
@@ -800,7 +800,7 @@ await show(new Request("http://example.com/ok"));
         &mut CoreWasm::default(),
         &wasm,
     );
-    // The programs still write `use E` as an expression (W0403, deprecated).
+    // The programs still write `use E` as an expression (W4401, deprecated).
     assert!(
         analysis
             .diagnostics

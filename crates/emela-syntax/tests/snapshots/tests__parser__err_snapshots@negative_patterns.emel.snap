@@ -132,11 +132,11 @@ ROOT@0..181
       NEWLINE@178..179 "\n"
       R_BRACE@179..180 "}"
   NEWLINE@180..181 "\n"
-error[E0125]@105..107: invalid left-hand side of binding: expected a pattern
-error[E0125]@118..121: invalid left-hand side of binding: expected a pattern
-error[E0113]@142..143: expected pattern
-error[E0110]@143..144: expected `->`
-error[E0122]@145..147: expected newline or `}` after match arm
-error[E0113]@154..155: expected pattern
-error[E0110]@155..156: expected `->`
-error[E0122]@159..161: expected newline or `}` after match arm
+error[E1111]@105..107: invalid left-hand side of binding: expected a pattern
+error[E1111]@118..121: invalid left-hand side of binding: expected a pattern
+error[E1102]@142..143: expected pattern
+error[E1101]@143..144: expected `->`
+error[E1109]@145..147: expected newline or `}` after match arm
+error[E1102]@154..155: expected pattern
+error[E1101]@155..156: expected `->`
+error[E1109]@159..161: expected newline or `}` after match arm

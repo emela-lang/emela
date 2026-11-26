@@ -2,7 +2,7 @@
 //! functions, and whether a type satisfies a trait.
 //!
 //! An impl is keyed by its trait and the definition of its type (`impl Pair[A: Eq]: Eq` is
-//! `(Eq, Pair)`). The head has only distinct type parameters (E0328), so one key has one impl and
+//! `(Eq, Pair)`). The head has only distinct type parameters (E3303), so one key has one impl and
 //! impls never overlap (spec 10.2).
 
 use emela_resolve::hir::{DefId, DefKind, DefModule, ImplItem, Item, Program, Res, Span, TypeKind};
@@ -25,7 +25,7 @@ use crate::ty::{ParamKind, Prim, Ty, TyParam};
 const BUILTIN_TRAITS: &[&str] = &["Eq", "Ord", "Show"];
 
 /// The built-in traits determined automatically from the type, which no impl may implement
-/// (`[trait.builtin]`, E0341). Immediate is a constraint on effect sets (spec 9.5); Capability is
+/// (`[trait.builtin]`, E3312). Immediate is a constraint on effect sets (spec 9.5); Capability is
 /// satisfied by capability types ([`is_capability_type`]).
 const AUTO_TRAITS: &[&str] = &["Immediate", "Capability"];
 
@@ -49,7 +49,7 @@ pub fn is_capability_type(ty: &Ty) -> bool {
 }
 
 /// The traits a `derive` may list (spec 10.5), by the module that defines them and their name.
-/// They are recognized only there, so a user trait of the same name is not derivable (E0326).
+/// They are recognized only there, so a user trait of the same name is not derivable (E3302).
 const DERIVABLE: &[(&str, &str)] = &[
     ("Prelude", "Eq"),
     ("Prelude", "Ord"),
@@ -90,7 +90,7 @@ pub struct Traits {
     /// (trait, the definition of the type) → the impl a `derive` generates (spec 10.5): every
     /// type parameter constrained by the trait.
     derived: FxHashMap<(DefId, DefId), Derived>,
-    /// Derived impls that something required (W0303, spec 10.5): every success of
+    /// Derived impls that something required (W3301, spec 10.5): every success of
     /// [`Traits::satisfies`] that went through one, except from [`Traits::exempt`].
     used: RefCell<FxHashSet<(DefId, DefId)>>,
     /// A type whose derived impls do not count as used while its own derive is checked: a
@@ -118,7 +118,7 @@ pub struct ImplHead {
     pub params: Vec<TyParam>,
 }
 
-/// A type and a trait it does not satisfy (E0326). Within a type, the innermost part that fails:
+/// A type and a trait it does not satisfy (E3302). Within a type, the innermost part that fails:
 /// for `Pair[User, Int]: Eq` with `impl Pair[A: Eq, B: Eq]: Eq`, it is `User: Eq`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unsatisfied {
@@ -306,8 +306,8 @@ fn in_core(program: &Program, module: &DefModule) -> bool {
 }
 
 /// Collects supertraits and impls, adds the signatures of impl functions to `sigs`, and checks
-/// supertrait cycles (E0329), impl heads (one impl per type and trait, E0330; the orphan rule,
-/// E0331), impl function parameter counts (E0332) and supertrait impls (E0326).
+/// supertrait cycles (E3304), impl heads (one impl per type and trait, E3305; the orphan rule,
+/// E3306), impl function parameter counts (E3101) and supertrait impls (E3302).
 pub(crate) fn collect(
     program: &Program,
     ty_table: &TyTable,
@@ -372,8 +372,8 @@ pub(crate) fn collect(
 }
 
 /// Registers the impls `derive` generates (spec 10.5): `derive Eq` on `Tree[A]` is
-/// `impl Tree[A: Eq]: Eq`. A trait that cannot be derived is E0326; a pair of type and trait that
-/// already has an impl (written or derived) is E0330.
+/// `impl Tree[A: Eq]: Eq`. A trait that cannot be derived is E3302; a pair of type and trait that
+/// already has an impl (written or derived) is E3305.
 fn register_derives(
     program: &Program,
     ty_table: &TyTable,
@@ -408,7 +408,7 @@ fn register_derives(
                 });
                 continue;
             };
-            // Registered all the same, so that its uses are not E0326 as well.
+            // Registered all the same, so that its uses are not E3302 as well.
             if let Some(kind) = derive_form_error(program, ty_def, derivable) {
                 diags.push(Diagnostic {
                     span: Some(span),
@@ -459,8 +459,8 @@ fn register_derives(
 }
 
 /// Why `trait_name` cannot be derived for `ty_def` whatever its fields (spec 10.5): Decode and
-/// ObjectKey on an opaque type (E0336), and ObjectKey on anything but an enum whose variants have no
-/// contents or a type with one field (E0339).
+/// ObjectKey on an opaque type (E3308), and ObjectKey on anything but an enum whose variants have no
+/// contents or a type with one field (E3311).
 fn derive_form_error(program: &Program, ty_def: DefId, trait_name: &str) -> Option<DiagnosticKind> {
     let ty = program.defs[ty_def].name.clone();
     if matches!(trait_name, "Encode" | "Decode" | "ObjectKey" | "Shaped")
@@ -511,7 +511,7 @@ fn fields_reason(n: usize) -> String {
     }
 }
 
-/// Checks that each derived impl can be generated (E0326, spec 10.5): the type satisfies the
+/// Checks that each derived impl can be generated (E3302, spec 10.5): the type satisfies the
 /// trait's supertraits (a derive does not derive them), and every field's type satisfies the
 /// trait, under the impl's constraints. Reported at the trait's name in the `derive` clause.
 fn check_derives(
@@ -532,7 +532,7 @@ fn check_derives(
             }
         }
         traits.exempt.set(Some(head.ty_def));
-        // A form that cannot be derived (E0336, E0339) is reported already.
+        // A form that cannot be derived (E3308, E3311) is reported already.
         let fields = match derivable(program, head.trait_def) {
             Some(name) if derive_form_error(program, head.ty_def, name).is_some() => Vec::new(),
             _ => field_tys(program, sigs, head.ty_def),
@@ -555,7 +555,7 @@ fn check_derives(
     }
 }
 
-/// W0303 (spec 10.5): a derived impl of a type that is not `pub`, which nothing required. Called
+/// W3301 (spec 10.5): a derived impl of a type that is not `pub`, which nothing required. Called
 /// once every body is checked.
 ///
 /// An error's Show is not reported: it is the display of the error when it reaches `main` or a
@@ -609,7 +609,7 @@ pub fn field_tys(program: &Program, sigs: &Signatures, ty_def: DefId) -> Vec<Ty>
         .collect()
 }
 
-/// E0326 for `e`, with `Bound(i)` named after `params`.
+/// E3302 for `e`, with `Bound(i)` named after `params`.
 pub(crate) fn not_implemented(
     program: &Program,
     ty_table: &TyTable,
@@ -629,7 +629,7 @@ fn head_span(program: &Program, def: DefId, item: &ImplItem) -> Option<Span> {
         .or(program.defs[def].span)
 }
 
-/// Reports each cycle of supertraits once, at the trait of the cycle defined first (E0329).
+/// Reports each cycle of supertraits once, at the trait of the cycle defined first (E3304).
 fn check_cycles(program: &Program, traits: &mut Traits, diags: &mut Vec<Diagnostic>) {
     let mut order: Vec<DefId> = traits.supers.keys().copied().collect();
     order.sort_by_key(|d| d.into_raw());
@@ -697,8 +697,8 @@ fn cycle_through(traits: &Traits, start: DefId) -> Option<Vec<DefId>> {
 /// `Self` replaced by the impl's type. The impl's type parameters come first, then the trait
 /// function's own.
 ///
-/// An orphan impl (E0331) is still registered, so its uses report nothing more. The second impl
-/// of a pair (E0330) is not: its functions get no type and are not inferred.
+/// An orphan impl (E3306) is still registered, so its uses report nothing more. The second impl
+/// of a pair (E3305) is not: its functions get no type and are not inferred.
 fn register(
     program: &Program,
     ty_table: &TyTable,

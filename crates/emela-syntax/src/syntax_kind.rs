@@ -282,7 +282,7 @@ pub enum SyntaxKind {
     FAILS_CLAUSE,
     /// `{}` `NotFound | DbError` `E`
     ERROR_SET,
-    /// `uses { R }`. Also the old clause `uses { R }` (E0147), read as the same node.
+    /// `uses { R }`. Also the old clause `uses { R }` (E1404), read as the same node.
     USES_CLAUSE,
     /// `{ Io, Clock }` `Users` `R`
     EFFECT_SET,

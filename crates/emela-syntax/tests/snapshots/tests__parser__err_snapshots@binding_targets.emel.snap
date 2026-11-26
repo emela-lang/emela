@@ -121,7 +121,7 @@ ROOT@0..319
       L_PAREN@316..317 "("
       R_PAREN@317..318 ")"
   NEWLINE@318..319 "\n"
-error[E0125]@145..151: invalid left-hand side of binding: expected a pattern
-error[E0125]@162..168: invalid left-hand side of binding: expected a pattern
-error[E0138]@301..304: the first argument of `@external` must be a language name such as `js`
-error[E0110]@305..306: expected name or literal
+error[E1111]@145..151: invalid left-hand side of binding: expected a pattern
+error[E1111]@162..168: invalid left-hand side of binding: expected a pattern
+error[E1301]@301..304: the first argument of `@external` must be a language name such as `js`
+error[E1101]@305..306: expected name or literal

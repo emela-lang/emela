@@ -32,8 +32,8 @@ The native target makes an executable for the machine that runs the compiler. Th
 - The environment variable `EMELA_CC_ARGS` holds flags for the C compiler. It is split at whitespace, and the words are passed at the end of the command line, after every source file. A flag given there takes precedence over a flag of the same kind given earlier (`-std=c23`), and a library given with `-l` is linked after the sources that use it.
 - The emitted C, the runtime, the bundled C sources and the C sources of the project and of Pomes are compiled and linked by one invocation of the C compiler, with the output directory as the current directory. The invocation guarantees the following to the C sources of the project and of Pomes: they are compiled as C11 or a later version (which one is implementation-defined), they can use threads (`[ext.c-host]`), `#include "emela.h"` finds the header in the output directory, and the math library is linked. The rest of the command line is implementation-defined.
 - The emitted C and the runtime compile as C11 and as every later version of C.
-- If the C compiler cannot be started, it is E0907 (``cannot start `cc`: <reason>``). When it is not found, the help ``install a C11 compiler and add it to PATH as `cc`, or set EMELA_CC to the compiler`` is attached. When the value of `EMELA_CC` contains whitespace, the help ``EMELA_CC names only the compiler; pass flags in EMELA_CC_ARGS`` is attached instead.
-- If the C compiler fails, it is E0908 (``` `cc` failed to compile the output of target `native` ```). The standard error of the C compiler is attached as a note. Anything beyond 4000 bytes is cut off, and a `...` line is added.
+- If the C compiler cannot be started, it is E9101 (``cannot start `cc`: <reason>``). When it is not found, the help ``install a C11 compiler and add it to PATH as `cc`, or set EMELA_CC to the compiler`` is attached. When the value of `EMELA_CC` contains whitespace, the help ``EMELA_CC names only the compiler; pass flags in EMELA_CC_ARGS`` is attached instead.
+- If the C compiler fails, it is E9103 (``` `cc` failed to compile the output of target `native` ```). The standard error of the C compiler is attached as a note. Anything beyond 4000 bytes is cut off, and a `...` line is added.
 - On success, the output of the C compiler is not shown.
 
 ## 16.7.3 Running `[target.native.run]`
@@ -49,15 +49,15 @@ The native target makes an executable for the machine that runs the compiler. Th
 
 Only the functions reachable from the entry point are checked. Unreachable ones are not a compile error even if they contain unsupported constructs.
 
-- An external function that takes or returns a callback is E0427. The message is ``external function `f` takes a callback, which target `native` does not support yet`` (`returns a callback` when it returns one).
+- An external function that takes or returns a callback is E5201. The message is ``external function `f` takes a callback, which target `native` does not support yet`` (`returns a callback` when it returns one).
 - The following built-in functions, which need the grapheme cluster tables, are a compile error with no code. The message has the form `` `String.length` needs the Unicode grapheme cluster tables, which target `native` does not support yet ``.
   - `String.length`
   - `String.chars`
   - `String.split` whose separator is a constant empty string (`` `String.split` with an empty separator ``)
 - These errors have no location.
 - A `String.split` whose separator turns out to be the empty string at run time splits correctly at each grapheme cluster if the string is ASCII only (in ASCII, the sequence CR LF is one grapheme cluster, and every other character is one each). If the string contains a non-ASCII character, it is a defect (`` `String.split` with an empty separator on non-ASCII text needs the Unicode grapheme cluster tables, which target `native` does not support yet ``). This defect can be caught with `Exit.attempt`, and the releases of the withs on the way also run.
-- An external function without `@external(c, ...)` (the language of the native target, `[ext.decl]`) is E0412 if it is reachable from the entry point. One that is emitted without being reachable is a defect (``external function `f` is not available on this target``) when called (`[ext.decl]`).
-- HTTP services (`[lib.http-service]`). `@entry(Http.serve)` is a compile error when the target is `native` (E0442).
+- An external function without `@external(c, ...)` (the language of the native target, `[ext.decl]`) is E5001 if it is reachable from the entry point. One that is emitted without being reachable is a defect (``external function `f` is not available on this target``) when called (`[ext.decl]`).
+- HTTP services (`[lib.http-service]`). `@entry(Http.serve)` is a compile error when the target is `native` (E5203).
 
 ## 16.7.5 Event loop `[target.native.event-loop]`
 
@@ -73,12 +73,12 @@ The completions of external functions declared as `suspend fn` (`[ext.c-host]`) 
 
 ## 16.7.6 Exported functions `[target.native.export]`
 
-- An `@export(c, "name")` is emitted as a function with external linkage in the executable named `name`, with the prototype given by the table of 12.4. The three-argument form is E0146 on the native target.
+- An `@export(c, "name")` is emitted as a function with external linkage in the executable named `name`, with the prototype given by the table of 12.4. The three-argument form is E1301 on the native target.
 - A parameter or return value of a function type is not supported yet on the native target. It is a compile error with no code: ``exported function `f` takes a callback, which target `native` does not support yet`` (the form of callbacks is open, 18.1 #38).
 - A String argument is copied into an Emela string, and sequences that are not valid UTF-8 are replaced as for the return value of an external function (12.4). A NULL argument is a defect of the launch, with the message ``exported function `f` was given NULL``. A String return value is passed to the host as NUL-terminated UTF-8 allocated with `malloc`, which the host frees. A return value that contains U+0000 is a defect of the launch, with the message `a string passed to C contains U+0000`.
 - A Bytes argument is received as `const uint8_t *data, size_t len` and copied into a Bytes. A NULL `data` with a `len` greater than 0 is a defect of the launch, with the message ``exported function `f` was given NULL``, and a `len` greater than 2^31 - 1 is a defect of the launch, with the message ``exported function `f` was given more bytes than a Bytes can hold``. A Bytes return value is passed to the host as an `em_bytes` (12.4) whose `data` is allocated with `malloc`, or is NULL when `len` is 0, and the host frees it.
 - When the launch of an exported fn ends with a defect or an interruption, the process ends as it does when main ends with one (`defect: <message>` and exit code 101, or `interrupted` and exit code 130, 14.5). The exported function does not return to the host.
-- An exported fn with Async in its R is a compile error on the native target (E0441).
+- An exported fn with Async in its R is a compile error on the native target (E5202).
 - Calling an exported fn while a launch is running on the same thread is a defect, with the message ``exported function `f` was called while Emela code is running``. The process ends as for a defect of an exported fn above. This covers a call back from a host function that Emela called, and a call from an interrupt or signal handler. The runtime checks it on entry to the export.
 - Calling an exported fn from another thread is unspecified.
 - When an exported fn is called while no launch has started, the runtime is initialized by that call. The host does not call an initialization function.
