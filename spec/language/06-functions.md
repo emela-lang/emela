@@ -74,7 +74,8 @@ if !valid { fail Invalid(input:) }
 ```
 
 - if is an expression. No parentheses are needed around its condition.
-- `if c { a } else { b }` is the same as the following match (`[fn.match]`), where `c` is the condition and `a` and `b` are the contents of the blocks. In `else if`, the inner if is the body of the `False` arm. An if without `else` is the same as one whose `else` is `{ () }`.
+- The condition is a position with the expected type Bool (`[type.rules]`), so its type is Bool or Never.
+- Apart from the type of the condition, `if c { a } else { b }` is the same as the following match (`[fn.match]`), where `c` is the condition and `a` and `b` are the contents of the blocks. In `else if`, the inner if is the body of the `False` arm. An if without `else` is the same as one whose `else` is `{ () }`.
 
 ```emel
 c match {
@@ -83,7 +84,7 @@ c match {
 }
 ```
 
-- These rules follow from the rewrite. The condition is limited to the type Bool, because the patterns are `True` and `False`. The type of an if without `else` is `()`, and the type of its body MUST also be `()` or `Never` (`[type.rules]`), so an if used as a value of another type MUST have an `else`. The condition is evaluated first, and only the chosen branch is evaluated (`[dyn.order]`).
+- The rewrite gives the following rules. The type of an if without `else` is `()`, and the type of its body MUST also be `()` or `Never` (`[type.rules]`), so an if used as a value of another type MUST have an `else`. The condition is evaluated first, and only the chosen branch is evaluated (`[dyn.order]`).
 - There is no ternary operator.
 
 ## 6.5 match and patterns `[fn.match]`
@@ -167,7 +168,7 @@ The precedence is as follows. Operators higher in the table bind more tightly.
 - There are no bitwise operators. They are written with core functions (`Int.bit_and`, `Int.bit_or`, `Int.bit_xor`, `Int.bit_not`, `Int.shift_left`, `Int.shift_right` (sign-preserving), and `Int.shift_right_unsigned`; Int64 has the same ones). They can be written with a pipe, as in `flags |> Int.bit_and(MASK)`.
 - The shift amount of the shift functions is Int, even in the Int64 versions. A negative shift amount is a defect. A shift amount at least the width of the type (32 or 64) shifts out all bits: `shift_left` and `shift_right_unsigned` give 0, and `shift_right` gives 0 or -1 depending on the sign (the amount is not taken modulo the width). The result of `shift_right_unsigned` is read as a signed value (`Int.shift_right_unsigned(-1, 0)` is -1).
 - `==` and `!=` can be used on types that satisfy Eq, and ordering comparisons on types that satisfy Ord.
-- `a && b` is the same as `if a { b } else { False }`, and `a || b` is the same as `if a { True } else { b }` (`[fn.if]`). So both sides are Bool, and the right side is evaluated only when the left side does not determine the result.
+- `a && b` is the same as `if a { b } else { False }`, and `a || b` is the same as `if a { True } else { b }` (`[fn.if]`). So the type of the whole is Bool, and the right side is evaluated only when the left side does not determine the result.
 - Operators cannot be defined for user-defined types. Write a function instead, such as `Money.add(a, b)`.
 - `+` cannot be used to concatenate strings. Use interpolation (`"#{a}#{b}"`) or `String.concat`.
 
@@ -192,7 +193,7 @@ The tail positions are the following.
 - The last expression of the block of a function body
 - The body of each arm of a match in tail position, and the last expression of a block in tail position
 
-An if, `&&` and `||` are the same as a match (`[fn.if]`, `[fn.operator]`), so both branches of an if in tail position and the right-hand side of `&&` and `||` in tail position are also tail positions.
+An if, `&&` and `||` are evaluated as a match (`[fn.if]`, `[fn.operator]`), so both branches of an if in tail position and the right-hand side of `&&` and `||` in tail position are also tail positions.
 
 The following are not tail positions.
 
