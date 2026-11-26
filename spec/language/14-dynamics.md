@@ -6,8 +6,8 @@ Evaluation is strict and proceeds from left to right, and the initialization on 
 
 - All arguments are evaluated before the function is called (call by value).
 - Subexpressions are evaluated from left to right, in the order they are written in the source. Named arguments are also evaluated in the order they are written, not in the order of the declaration. The `..expr` of a list literal or a constructor call is evaluated after the other elements and fields.
-- `&&` and `||` do not evaluate the right side when the left side determines the result.
-- match evaluates the scrutinee exactly once and tries the arms from top to bottom. A guard is evaluated after its pattern matches. If no arm matches, it is a defect (type checking guarantees exhaustiveness, so this does not normally happen).
+- match evaluates the scrutinee exactly once and tries the arms from top to bottom. A guard is evaluated after its pattern matches. Only the body of the arm that matches is evaluated. If no arm matches, it is a defect (type checking guarantees exhaustiveness, so this does not normally happen).
+- An if, `&&` and `||` are evaluated as a match (`[fn.if]`, `[fn.operator]`). So `&&` and `||` do not evaluate the right side when the left side determines the result.
 
 ## 14.2 Running a with `[dyn.with]`
 
