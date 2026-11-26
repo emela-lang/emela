@@ -1,5 +1,6 @@
 ---
 source: crates/emela-types/tests/effects.rs
+assertion_line: 689
 expression: "render_effects(r#\"\nhandler MyAsync: Async {\n}\n\nfn grab() { use Async }\n\nfn declared() -> Int uses { Async } { 1 }\n\nfn main() {\n  with MyAsync { declared() }\n}\n\"#)"
 ---
 grab: fn() -> {unknown}
@@ -7,7 +8,7 @@ declared: fn() -> Int uses { Async }
 main: fn() -> Int uses { Async }
 handler MyAsync: use {}
 `MyAsync` HostEffectHandler { handler: "MyAsync", effect: "Async" }
-`use Async` UseHostEffect { effect: "Async" }
+`use Async` UseHostEffect { effect: "Async", external: false }
 `main` MainValueDiscarded { ty: "Int" }
 --- R
 {   with MyAsync { declared() } }: Async

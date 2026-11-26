@@ -60,15 +60,11 @@ fn arg_count() -> Int uses { ProcessHost }
 @external(wasm, "wasi:cli/environment@0.3.0", "get-arguments")
 fn arg_at(index: Int) -> String uses { ProcessHost }
 
-## The arguments from `index` down to 0, read with `at`, prepended to `acc`. `at` is made inside
-## the operation of SystemArgs, where external functions can be called (`[ext.call]`).
-fn args_onto(
-  at: fn(Int) -> String uses { ProcessHost },
-  index: Int,
-  acc: List[String],
-) -> List[String]
-  uses { ProcessHost } {
-  if index < 0 { acc } else { args_onto(at, index - 1, [at(index), ..acc]) }
+## The arguments from `index` down to 0, prepended to `acc`. It calls external functions, so it
+## has External in R, which the operation of SystemArgs removes (`[effect.external]`).
+fn args_onto(index: Int, acc: List[String]) -> List[String]
+  uses { External, ProcessHost } {
+  if index < 0 { acc } else { args_onto(index - 1, [arg_at(index), ..acc]) }
 }
 
 ## The arguments given by the host: `argv[1]` and after on native, what the launcher of
@@ -77,7 +73,7 @@ pub handler SystemArgs: Args {
   fn get(index) {
     if index >= 0 && index < arg_count() { Some(arg_at(index)) } else { None }
   }
-  fn list() { args_onto(|i| arg_at(i), arg_count() - 1, []) }
+  fn list() { args_onto(arg_count() - 1, []) }
 }
 
 # ---- SystemStdin ----
@@ -113,36 +109,32 @@ fn take_text() -> Int uses { ProcessHost }
 @external(c, "./process.c", "emela_stdin_taken")
 fn taken() -> String uses { ProcessHost }
 
-## Waits with `step` (a wait, then a take) until the take is not 4, and turns the result into
-## what `read_line` returns. `text` is `taken`. The two are made inside the operation of
-## SystemStdin, where external functions can be called (`[ext.call]`).
-fn next_line(
-  step: fn() -> Int uses { Async, ProcessHost },
-  text: fn() -> String uses { ProcessHost },
-) -> Option[String]
+## Waits for a line and takes it until the take is not 4, and turns the result into what
+## `read_line` returns. It calls external functions, so it has External in R, which the
+## operation of SystemStdin removes (`[effect.external]`).
+fn next_line() -> Option[String]
   fails InvalidInput | StdinFailure
-  uses { Async, ProcessHost } {
-  step() match {
-    0 -> Some(text())
+  uses { Async, External, ProcessHost } {
+  wait_line()
+  take_line() match {
+    0 -> Some(taken())
     1 -> None
     2 -> fail InvalidInput
-    3 -> fail StdinFailure(message: text())
-    _ -> next_line(step, text)
+    3 -> fail StdinFailure(message: taken())
+    _ -> next_line()
   }
 }
 
 ## `next_line` for `read_text`.
-fn rest_text(
-  step: fn() -> Int uses { Async, ProcessHost },
-  text: fn() -> String uses { ProcessHost },
-) -> String
+fn rest_text() -> String
   fails InvalidInput | StdinFailure
-  uses { Async, ProcessHost } {
-  step() match {
-    0 -> text()
+  uses { Async, External, ProcessHost } {
+  wait_end()
+  take_text() match {
+    0 -> taken()
     2 -> fail InvalidInput
-    3 -> fail StdinFailure(message: text())
-    _ -> rest_text(step, text)
+    3 -> fail StdinFailure(message: taken())
+    _ -> rest_text()
   }
 }
 
@@ -151,23 +143,11 @@ fn rest_text(
 ## no operation waits. Requires Async. Has no state.
 pub handler SystemStdin: Stdin {
   suspend fn read_line(resume) {
-    line = next_line(
-      || {
-        wait_line()
-        take_line()
-      },
-      || taken(),
-    )
+    line = next_line()
     resume(line)
   }
   suspend fn read_text(resume) {
-    text = rest_text(
-      || {
-        wait_end()
-        take_text()
-      },
-      || taken(),
-    )
+    text = rest_text()
     resume(text)
   }
 }

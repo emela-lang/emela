@@ -1311,3 +1311,25 @@ fn bad_lambda() -> Int { run(|| fail Timeout) }
 "#
     ));
 }
+
+/// 8.11 `[effect.external]`: a private fn that calls an external function has External in R, and
+/// the operation body of a handler of the module removes it.
+#[test]
+fn spec_8_11_external() {
+    insta::assert_snapshot!(render_bodies(
+        r##"
+effect Log {  # 補
+  fn info(msg: String) -> ()
+}
+
+@external(js, "./write.mjs", "hostWrite")
+fn host_write(s: String) -> ()
+
+fn tagged(tag: String, msg: String) { host_write("[#{tag}] #{msg}") } # R: { External }
+
+pub handler FileLog: Log {
+  fn info(msg) { tagged("info", msg) } # External is removed here
+}
+"##
+    ));
+}

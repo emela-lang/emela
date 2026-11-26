@@ -1255,6 +1255,33 @@ fn hover_shows_effects() {
     client.shutdown();
 }
 
+/// `[lsp.hover]`, `[effect.external]`: External is shown with its module, in the module that
+/// declares the external function and in another.
+#[test]
+fn hover_shows_external_with_its_module() {
+    let log = "@external(js, \"./h.mjs\", \"hostLog\")\npub fn host_log(s: String) -> ()\n\nfn tagged(s: String) { host_log(s) }\n";
+    let main = "import Log\n\nfn later() { Log.host_log }\n";
+    let files = [
+        ("/app/Pome.toml", ""),
+        ("/app/src/log.emel", log),
+        ("/app/src/main.emel", main),
+    ];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        text(client.hover("/app/src/log.emel", 3, 4)),
+        "```emela\ntagged: fn(String) -> () uses { Log.External }\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 2, 4)),
+        "```emela\nlater: fn() -> fn(String) -> () uses { Log.External }\n```"
+    );
+    client.shutdown();
+}
+
 /// `[lsp.hover]`, `[type.rules]`: the capabilities the type of a value records, as a line
 /// `capabilities: ...`: the variables of named items, the handler of an item without a name; and
 /// the capabilities in the R of a closure by the same names.

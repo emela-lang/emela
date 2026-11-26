@@ -1,0 +1,62 @@
+## `[effect.external]`: an external function with host side effects adds the External of its
+## module, which only the handlers of the module remove. External has no run-time
+## representation: a private fn that calls an external function, a closure kept in a field, a
+## closure passed to another handler of the module, and a closure made by a factory run as the
+## same calls would inside the handler.
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> ()
+
+fn tagged(tag: String, msg: String) { print("[#{tag}] #{msg}") }
+
+fn printer(prefix: String) -> fn(String) -> () uses { External } {
+  |s| print("#{prefix}#{s}")
+}
+
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+effect Pass {
+  fn pass(f: fn(String) -> () uses { External }) -> ()
+}
+
+handler Passer: Pass {
+  fn pass(f) { f("passed") }
+}
+
+handler FileLog: Log {
+  init {
+    tagged("init", "open")
+    FileLog
+  }
+  fn info(msg) {
+    tagged("info", msg)
+    _ = List.map(["a", "b"], |s| print("map #{s}"))
+    with Passer {
+      p <- Pass
+      p.pass(|s| print("#{msg} #{s}"))
+    }
+  }
+  release { tagged("release", "close") }
+}
+
+handler Kept(f: fn(String) -> () uses { External }): Log {
+  init(f: fn(String) -> () uses { External }) {
+    f("init")
+    Self(f:)
+  }
+  fn info(msg) { self.f(msg) }
+}
+
+fn main() {
+  with FileLog {
+    log <- Log
+    log.info("one")
+  }
+  with Kept(printer("kept: ")) {
+    log <- Log
+    log.info("two")
+  }
+}

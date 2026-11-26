@@ -133,7 +133,6 @@ impl BodyInfer<'_> {
         span: Span,
     ) -> Ty {
         let program = self.program;
-        self.check_external(def, name.span);
         let (ty, tys, rows) = self.instantiate_def(def, name.span);
         if !tys.is_empty() {
             self.type_args.insert(callee, tys);

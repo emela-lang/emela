@@ -1,0 +1,105 @@
+---
+source: crates/emela-driver/tests/diagnostics.rs
+assertion_line: 3445
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E0445]: the uses of external function `marked` can contain only `ProcessHost` and `PageHost`
+    ╭─[ src/main.emel:15:26 ]
+    │
+ 15 │ fn marked() -> () uses { External }
+    │                          ────┬───  
+    │                              ╰───── 
+────╯
+   = help: `External` is added to every external function, except one declared with `uses {}` that is not a `suspend fn`
+
+error[E0403]: effect set mismatch: expected `uses {}`, found `uses { Main.External }`
+    ╭─[ src/main.emel:35:12 ]
+    │
+ 35 │     st.set(|s| host_log(s))
+    │            ───────┬───────  
+    │                   ╰───────── 
+────╯
+   = help: `External` of `Main` is removed only in the handlers of `Main`
+
+error[E0403]: effect set mismatch: expected `uses {}`, found `uses { Main.External }`
+    ╭─[ src/main.emel:37:20 ]
+    │
+ 37 │   fn kept() { keep(|s| host_log(s)) }
+    │                    ───────┬───────  
+    │                           ╰───────── 
+────╯
+   = help: `External` of `Main` is removed only in the handlers of `Main`
+
+error[E0403]: effect set mismatch: expected `uses {}`, found `uses { Main.External }`
+    ╭─[ src/main.emel:38:30 ]
+    │
+ 38 │   fn carry() { fail Carry(f: |s| host_log(s)) }
+    │                              ───────┬───────  
+    │                                     ╰───────── 
+────╯
+   = help: `External` of `Main` is removed only in the handlers of `Main`
+
+error[E0403]: effect set mismatch: expected `uses {}`, found `uses { Main.External }`
+    ╭─[ src/main.emel:39:15 ]
+    │
+ 39 │   fn hand() { take_back() }
+    │               ─────┬─────  
+    │                    ╰─────── 
+────╯
+   = help: `External` of `Main` is removed only in the handlers of `Main`
+
+error[E0454]: effect `Log.External` cannot be used by a callback of external function `register`
+    ╭─[ src/main.emel:40:15 ]
+    │
+ 40 │   fn give() { register(Log.ping()) }
+    │               ────┬───  
+    │                   ╰───── 
+────╯
+   = help: only a handler of `Log` can give it to the host
+
+error[E0413]: handler `Host` cannot implement `External`: only the host provides it
+    ╭─[ src/main.emel:55:9 ]
+    │
+ 55 │ handler Host: External {
+    │         ──┬─  
+    │           ╰─── 
+────╯
+
+error[E0414]: `External` cannot be used with `use`
+    ╭─[ src/main.emel:59:7 ]
+    │
+ 59 │   _ = use External
+    │       ──────┬─────  
+    │             ╰─────── 
+────╯
+
+error[E0402]: effect `Main.External` is not declared in `uses`
+    ╭─[ src/main.emel:64:7 ]
+    │
+ 64 │   f = take_back()
+    │       ─────┬─────  
+    │            ╰─────── 
+────╯
+   = help: `External` of `Main` is removed only in the handlers of `Main`; call it in a handler of `Main`, or declare in `Main` an effect and a handler that call it
+
+error[E0402]: effect `Log.External` is not declared in `uses`
+    ╭─[ src/main.emel:70:3 ]
+    │
+ 70 │   g()
+    │   ─┬─  
+    │    ╰─── 
+────╯
+   = help: `External` of `Log` is removed only in the handlers of `Log`; call it in a handler of `Log`, or declare in `Log` an effect and a handler that call it
+
+error[E0402]: effect `Main.External` is not provided in `main`
+    ╭─[ src/main.emel:74:3 ]
+    │
+ 74 │ ╭─▶   with Task.Group {
+    ┆ ┆   
+ 79 │ ├─▶   }
+    │ │         
+    │ ╰───────── 
+────╯
+   = help: `External` of `Main` is removed only in the handlers of `Main`; call it in a handler of `Main`, or declare in `Main` an effect and a handler that call it
+
+11 errors

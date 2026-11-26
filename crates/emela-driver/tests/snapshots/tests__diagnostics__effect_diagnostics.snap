@@ -1,5 +1,6 @@
 ---
 source: crates/emela-driver/tests/diagnostics.rs
+assertion_line: 606
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
 error[E0404]: handler `Half` does not implement operation `warn`
@@ -51,15 +52,6 @@ error[E0403]: effect set mismatch: expected `uses {}`, found `uses { Logger }`
     │                ╰───────── 
 ────╯
 
-error[E0407]: external function `console_log` can only be used in handlers
-    ╭─[ main.emel:37:3 ]
-    │
- 37 │   console_log("x")
-    │   ─────┬─────  
-    │        ╰─────── 
-────╯
-   = help: declare it with `uses {}` if it has no side effects
-
 error[E0411]: handlers depend on each other: `Stamped` -> `Ticking` -> `Stamped`
     ╭─[ main.emel:40:8 ]
     │
@@ -95,4 +87,4 @@ error[E0402]: effect `Logger` is not provided in test function `logs`
 ────╯
    = help: provide it with `with`
 
-10 errors, 1 warning
+9 errors, 1 warning

@@ -38,6 +38,9 @@ use crate::ty::{Ty, TyParam};
 impl BodyInfer<'_> {
     /// A reference to `def` instantiated type parameters `params` with the sets `rows`. Records
     /// the instantiations of set type parameters with an `Immediate` bound, to check later.
+    /// For an external function, the External of its module may be in the R of a callback
+    /// (`[ext.boundary]`, `[effect.external]`): the host calls it as a host side effect that a
+    /// handler of that module gave the host.
     pub(super) fn require_immediate(
         &mut self,
         def: DefId,
@@ -63,12 +66,17 @@ impl BodyInfer<'_> {
                     callee,
                 }
             };
+            let allowed_external = match program.defs[def].module {
+                emela_resolve::hir::DefModule::Source(m) if external => program.external_effect(m),
+                _ => None,
+            };
             self.immediates.push(ImmediateObligation {
                 row: row.clone(),
                 span,
                 owner: self.current,
                 source,
                 borrowed,
+                allowed_external,
             });
         }
     }
@@ -101,15 +109,28 @@ impl BodyInfer<'_> {
             let mut sets: Vec<SmolStr> = Vec::new();
             // The R of a callback cannot contain an effect, since the host passes no handlers
             // (`[ext.boundary]`). A capability is allowed: the callback reaches its handler
-            // through it. Host effects (Async) are left to the check of Immediate.
+            // through it. Host effects (Async) are left to the check of Immediate. The External
+            // of the module of the external function is allowed; that of another module is
+            // shown with its module (`Log.External`, `[effect.external]`).
             let mut callback: Vec<SmolStr> = Vec::new();
             let mut callback_defs: Vec<DefId> = Vec::new();
+            let mut externals: Vec<SmolStr> = Vec::new();
             if let ImmediateSource::ExternalCallback { .. } = &ob.source {
                 for e in row.elems() {
                     if let RowElem::Tag(effect) = e
                         && !program.is_host_effect(effect.def)
+                        && Some(effect.def) != ob.allowed_external
                     {
-                        let name = program.defs[effect.def].name.clone();
+                        let name = match program.external_module(effect.def) {
+                            Some(m) => {
+                                let module = program.modules[m].name.to_string();
+                                if !externals.iter().any(|x| x == &module) {
+                                    externals.push(module.clone().into());
+                                }
+                                SmolStr::from(format!("{module}.External"))
+                            }
+                            None => program.defs[effect.def].name.clone(),
+                        };
                         if !callback.contains(&name) {
                             callback.push(name);
                             callback_defs.push(effect.def);
@@ -149,6 +170,7 @@ impl BodyInfer<'_> {
                 self.diags.push(Diagnostic {
                     span: Some(ob.span),
                     kind: DiagnosticKind::CallbackEffects {
+                        externals,
                         effects: callback.clone(),
                         callee: Some(callee.clone()),
                         bound_item,
@@ -157,7 +179,7 @@ impl BodyInfer<'_> {
             }
             for e in row.elems() {
                 match e {
-                    RowElem::Tag(effect) if callback.contains(&program.defs[effect.def].name) => {}
+                    RowElem::Tag(effect) if callback_defs.contains(&effect.def) => {}
                     // A capability counts as its effect (`[effect.use]`).
                     RowElem::Tag(effect) | RowElem::Cap(CapElem { tag: effect, .. })
                         if !is_immediate_effect(program, effect.def) =>

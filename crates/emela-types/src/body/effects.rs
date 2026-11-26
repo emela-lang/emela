@@ -31,7 +31,7 @@
 //!   (a set variable). A suspend fn implementation that may call resume later also depends on
 //!   Async (spec 8.7, `body/suspend.rs`).
 
-use emela_resolve::hir::{BinaryOp, DefId, ExprId, ExprKind, Item, Res, Stmt, WithItem};
+use emela_resolve::hir::{BinaryOp, DefId, DefModule, ExprId, ExprKind, Item, Res, Stmt, WithItem};
 
 use super::{BodyInfer, fn_parts};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
@@ -182,11 +182,11 @@ impl BodyInfer<'_> {
     fn expr_effects(&mut self, expr: ExprId) -> Row {
         let program = self.program;
         let row = match &program.exprs[expr].kind {
-            // `use` of a host effect is an error (E0414) and not added to R.
+            // `use` of a host effect or of External is an error (E0414) and not added to R.
             ExprKind::Use {
                 effect: Res::Def(effect),
                 ..
-            } if program.is_host_effect(*effect) => Row::empty(),
+            } if program.is_provided_by_host(*effect) => Row::empty(),
             // The capability value type's tag (`State[Int]` for effects with type arguments,
             // spec 8.1).
             ExprKind::Use { .. } => match self.exprs.get(expr) {
@@ -470,6 +470,11 @@ impl BodyInfer<'_> {
     /// handler's, so they are not requirements of the handler, also when they are passed to an
     /// operation or recorded in a value (#866). In init, `Bound(i)` are the sets of init's
     /// parameters.
+    ///
+    /// The External of the module of the handler is removed too: only the init, the release and
+    /// the operation bodies of the handlers of a module remove it, before requires(H) is computed
+    /// (`[effect.external]`). It stays in the types of the closures and local fns written in the
+    /// body, and enters this R where they are called.
     fn end_self(&mut self, row: &Row, def: DefId, fields: bool) -> Row {
         let mut minus = vec![RowElem::Cap(CapElem {
             id: CapId::SelfOf(def),
@@ -478,6 +483,11 @@ impl BodyInfer<'_> {
         })];
         if fields {
             minus.extend(self.field_sets(def));
+        }
+        if let DefModule::Source(module) = self.program.defs[def].module
+            && let Some(external) = self.program.external_effect(module)
+        {
+            minus.push(RowElem::Tag(Tag::new(external)));
         }
         self.subtract_elems(row, &minus)
     }

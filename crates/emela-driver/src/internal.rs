@@ -11,7 +11,7 @@
 
 use emela_resolve::ModuleId;
 use emela_resolve::hir::{DefId, DefKind, DefModule, Program};
-use emela_syntax::ast::{self, AstNode, HasAttrs};
+use emela_syntax::ast::{self, AstNode};
 use emela_syntax::{Parse, SyntaxKind};
 use line_index::TextRange;
 
@@ -127,8 +127,9 @@ pub(crate) fn check_internal<'p>(
 }
 
 /// `@external` in the modules of a dependency (spec 4.7): only in a Pome that `[external] allow`
-/// of the project allows (E0233), and never on a `pub` fn (E0237), so that the host is reached
-/// only through the Pome's handlers.
+/// of the project allows (E0233). It MAY be on a `pub` fn: the function keeps the External of
+/// the module that declares it, so the host is still reached only through the handlers of that
+/// module (`[effect.external]`).
 pub(crate) fn check_external_in_dependencies<'p>(
     analysis: &Analysis,
     parse_of: impl Fn(ModuleId) -> Option<&'p Parse>,
@@ -170,18 +171,6 @@ pub(crate) fn check_external_in_dependencies<'p>(
                 );
                 // One error per module is enough to say the Pome needs allowing.
                 break;
-            }
-            let fn_decl = annotation.syntax().parent().and_then(ast::FnDecl::cast);
-            if attr == "external" && fn_decl.is_some_and(|f| f.is_pub()) {
-                diagnostics.push(
-                    Diagnostic::error("an `@external` function cannot be `pub` in a dependency")
-                        .with_code(code::PUB_EXTERNAL_IN_DEPENDENCY)
-                        .with_span(span)
-                        .with_note(format!(
-                            "`{}` reaches the host through its handlers; expose an effect, or a function that calls this one",
-                            package.name
-                        )),
-                );
             }
         }
     }

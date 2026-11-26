@@ -1917,3 +1917,22 @@ fn outside(x: S) -> () { () }
 "##,
     )]));
 }
+
+/// `External` names the External of the module where it is written, and `M.External` that of
+/// M. A definition or an import named `External` shadows it (W0202), and `M.External` then names
+/// that definition of M (`[effect.external]`).
+#[test]
+fn external_effect_names() {
+    insta::assert_snapshot!(run(&[
+        ("log.emel", "pub fn helper() uses { External } { () }\n",),
+        ("shadow.emel", "pub effect External {\n  fn op() -> ()\n}\n",),
+        (
+            "main.emel",
+            "import Log\nimport Shadow\n\nfn own() uses { External } { () }\nfn other(f: fn() -> () uses { Log.External }) uses { Log.External } { f() }\nfn defined() uses { Shadow.External } { () }\n",
+        ),
+        (
+            "mine.emel",
+            "type External(x: Int)\n\nfn f(e: External) -> Int { e.x }\n",
+        ),
+    ]));
+}

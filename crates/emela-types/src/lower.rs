@@ -345,8 +345,17 @@ impl TyTable {
                     cons.set_tag_name(def, data.name.clone());
                     TyConKind::Error
                 }
+                // The External of a module is shown with its module (`Log.External`,
+                // `[effect.external]`).
                 DefKind::Effect => {
-                    cons.set_tag_name(def, data.name.clone());
+                    let name = match program.external_module(def) {
+                        Some(m) => match program.modules.get(m) {
+                            Some(items) => format!("{}.{}", items.name, data.name).into(),
+                            None => data.name.clone(),
+                        },
+                        None => data.name.clone(),
+                    };
+                    cons.set_tag_name(def, name);
                     continue;
                 }
                 DefKind::Handler => TyConKind::Handler,

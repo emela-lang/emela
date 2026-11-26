@@ -1,7 +1,7 @@
 ---
 title: External functions as an effect of their module
 authors: [somnicattus]
-status: accepted
+status: implemented
 issue:
 touches: [effect.external (new), effect.decl, effect.handler, ext, ext.decl, ext.call, ext.boundary, module.pome, diag.list]
 requires: []
@@ -243,13 +243,13 @@ A value that calls an external function is therefore never called by Emela code 
 
 ## Diagnostics
 
-- [ ] E0445: the help for External
-- [ ] E0407: retired
-- [ ] E0237: retired
-- [ ] E0402, E0403: the help for External: only the handlers of M remove the External of M. For E0402, the help also says to call it in a handler of M, or to declare in M an effect and a handler that call it, which is the way for the handlers of another module that use the bindings of M (Meaning)
-- [ ] E0413, E0414: External
-- [ ] W0202: a definition or an import named `External`
-- [ ] E0454: the External of the module of the call is not counted; that of another module is
+- [x] E0445: the help for External
+- [x] E0407: retired
+- [x] E0237: retired
+- [x] E0402, E0403: the help for External: only the handlers of M remove the External of M. For E0402, the help also says to call it in a handler of M, or to declare in M an effect and a handler that call it, which is the way for the handlers of another module that use the bindings of M (Meaning)
+- [x] E0413, E0414: External
+- [x] W0202: a definition or an import named `External`
+- [x] E0454: the External of the module of the call is not counted; that of another module is
 
 ## Compatibility
 

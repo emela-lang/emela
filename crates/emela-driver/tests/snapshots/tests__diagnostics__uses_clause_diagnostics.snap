@@ -1,5 +1,6 @@
 ---
 source: crates/emela-driver/tests/diagnostics.rs
+assertion_line: 673
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
 error[E0147]: write `uses { Logger }` instead of `use Logger`
@@ -86,13 +87,4 @@ error[E0423]: missing type arguments for effect `State[S]`
 ────╯
    = help: write the types, like `State[...]`
 
-error[E0407]: external function `console_log` can only be used in handlers
-    ╭─[ main.emel:48:3 ]
-    │
- 48 │   console_log("x")
-    │   ─────┬─────  
-    │        ╰─────── 
-────╯
-   = help: declare it with `uses {}` if it has no side effects
-
-11 errors
+10 errors

@@ -130,7 +130,7 @@ impl Signatures {
                     if item.is_external {
                         check_external_uses(program, def, item, diags);
                     }
-                    fn_signature(program, ty_table, item, diags)
+                    fn_signature(program, ty_table, def, item, diags)
                 }
                 Some(Item::Ctor(item)) => {
                     ctor_signature(program, ty_table, item.owner, def, &item.fields, diags)
@@ -162,12 +162,14 @@ impl Signatures {
                 Some(Item::Effect(item)) => {
                     check_effect_params(program, ty_table, def, diags);
                     // Only the compiler declares effects without operations: the host effects,
-                    // which are in the Prelude (`[effect.decl]`). A label has the operations of
-                    // its base. An effect with handler members has something to provide.
+                    // which are in the Prelude, and External (`[effect.decl]`). A label has the
+                    // operations of its base. An effect with handler members has something to
+                    // provide.
                     if item.ops.is_empty()
                         && item.members.is_empty()
                         && item.label.is_none()
                         && matches!(program.defs[def].module, DefModule::Source(_))
+                        && !program.is_external_effect(def)
                     {
                         diags.push(Diagnostic {
                             span: program.defs[def].span,
@@ -226,7 +228,7 @@ impl Signatures {
                             continue;
                         }
                         // A built-in effect is provided only by its built-in handler.
-                        if program.is_host_effect(effect)
+                        if program.is_provided_by_host(effect)
                             || (is_intrinsic_effect(program, effect) && !item.is_intrinsic)
                         {
                             continue;
@@ -328,6 +330,7 @@ fn check_external_uses(program: &Program, def: DefId, item: &FnItem, diags: &mut
                 span: Some(effect.span),
                 kind: DiagnosticKind::ExternalUses {
                     function: program.defs[def].name.clone(),
+                    external: matches!(effect.res, Res::Def(d) if program.is_external_effect(d)),
                 },
             });
         }
@@ -360,7 +363,7 @@ fn label_base(
             .label_base(base)
             .map(|b| program.defs[b].name.clone());
         Some(LabelBaseReason::Label(inner.unwrap_or_else(|| "?".into())))
-    } else if program.is_host_effect(base) || is_intrinsic_effect(program, base) {
+    } else if program.is_provided_by_host(base) || is_intrinsic_effect(program, base) {
         Some(LabelBaseReason::BuiltIn)
     } else {
         None
@@ -403,18 +406,22 @@ impl Default for Signatures {
 }
 /// `None` if no return type is written (it is inferred from the body). Also `None` if the
 /// return type contains a function type with `fails` or `uses` omitted, since that E and R are
-/// inferred from the body. A fn with a body and no `uses` clause is `None` too, since R is
-/// inferred (spec 9.3). For a fn without a body (`@external`, `@intrinsic`), an omitted `use`
-/// means an empty R.
+/// inferred from the body, except for an external function, which has no body: there they are
+/// empty (`[ext.boundary]`, a hidden set variable is taken as empty). A fn with a body and no
+/// `uses` clause is `None` too, since R is inferred (spec 9.3). For a fn without a body
+/// (`@external`, `@intrinsic`), an omitted `use` means an empty R.
+///
+/// An external function has the External of its module in R and in the functions it returns
+/// ([`add_external`], `[effect.external]`).
 fn fn_signature(
     program: &Program,
     ty_table: &TyTable,
+    def: DefId,
     item: &FnItem,
     diags: &mut Vec<Diagnostic>,
 ) -> Option<Signature> {
     let ret = item.sig.ret?;
-    if has_omitted_fails(program, ret)
-        || has_omitted_uses(program, ret)
+    if (!item.is_external && (has_omitted_fails(program, ret) || has_omitted_uses(program, ret)))
         || (item.body.is_some() && item.sig.uses.is_none())
     {
         return None;
@@ -426,6 +433,10 @@ fn fn_signature(
     let ret_ty = ty_table.lower_in(program, &mut scope, ret, true, diags);
     let fails = params.declared_fails(program, ty_table, &item.sig, diags);
     let mut uses = params.declared_uses(program, ty_table, &item.sig, diags);
+    let mut ret_ty = ret_ty;
+    if item.is_external {
+        add_external(program, def, item, &mut uses, &mut ret_ty);
+    }
     // `@external suspend fn` requires Async (spec 12.2).
     if item.sig.is_suspend
         && let Some(async_) = program.prelude_def("Async")
@@ -440,6 +451,38 @@ fn fn_signature(
         ),
         labels,
     })
+}
+
+/// Adds the External of the module that declares the external function `def` to its R `uses`,
+/// and, with the host effects of its uses clause, to the R of the functions it returns: `ret`
+/// when it is a function type, and the return types of those function types in turn
+/// (`[effect.external]`). The host may return a host function or a callback it received
+/// earlier. The parameters of those function types are callbacks that Emela passes to the host
+/// and are left as written (`[ext.boundary]`).
+///
+/// An external function declared with `uses {}` that is not a `suspend fn` adds nothing
+/// (`[ext.call]`).
+fn add_external(program: &Program, def: DefId, item: &FnItem, uses: &mut Row, ret: &mut Ty) {
+    let declared_pure = item.sig.uses.as_ref().is_some_and(|u| u.items.is_empty());
+    if declared_pure && !item.sig.is_suspend {
+        return;
+    }
+    let DefModule::Source(module) = program.defs[def].module else {
+        return;
+    };
+    let Some(external) = program.external_effect(module) else {
+        return;
+    };
+    let mut added = uses.clone();
+    added.insert(RowElem::Tag(Tag::new(external)));
+    *uses = added.clone();
+    let mut ret = ret;
+    while let Ty::Fn(f) = ret {
+        for e in added.elems() {
+            f.uses.insert(e.clone());
+        }
+        ret = &mut f.ret;
+    }
 }
 
 /// The type of a trait's function (spec 10.1): `Self` is the first type parameter, constrained by
@@ -663,6 +706,7 @@ fn check_bounds(
             diags.push(Diagnostic {
                 span: program.types[ty].span,
                 kind: DiagnosticKind::CallbackEffects {
+                    externals: Vec::new(),
                     effects: callback,
                     callee: None,
                     bound_item: true,

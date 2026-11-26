@@ -1,0 +1,47 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+assertion_line: 1926
+expression: "run(&[(\"log.emel\", \"pub fn helper() uses { External } { () }\\n\",),\n(\"shadow.emel\", \"pub effect External {\\n  fn op() -> ()\\n}\\n\",),\n(\"main.emel\",\n\"import Log\\nimport Shadow\\n\\nfn own() uses { External } { () }\\nfn other(f: fn() -> () uses { Log.External }) uses { Log.External } { f() }\\nfn defined() uses { Shadow.External } { () }\\n\",),\n(\"mine.emel\",\n\"type External(x: Int)\\n\\nfn f(e: External) -> Int { e.x }\\n\",),])"
+---
+== Log (src/log.emel)
+fn Log.helper pub
+  uses {Log.External}
+  body
+    block
+      ()
+== Main (src/main.emel)
+fn Main.own
+  uses {Main.External}
+  body
+    block
+      ()
+fn Main.other
+  param f#0: fn() -> () uses {Log.External}
+  uses {Log.External}
+  body
+    block
+      call
+        f#0
+fn Main.defined
+  uses {Shadow.External}
+  body
+    block
+      ()
+== Mine (src/mine.emel)
+type Mine.External
+  field x: Int
+  ctor Mine.External.External
+fn Mine.f
+  param e#0: Mine.External
+  ret Int
+  body
+    block
+      field .x
+        e#0
+== Shadow (src/shadow.emel)
+effect Shadow.External pub
+  op Shadow.External.op
+    ret ()
+== diagnostics
+warning src/mine.emel@5..13 `External`: `External` shadows the prelude's `External`
+warning src/shadow.emel@11..19 `External`: `External` shadows the prelude's `External`

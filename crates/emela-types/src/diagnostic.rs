@@ -209,6 +209,9 @@ pub enum DiagnosticKind {
         /// A bound item of one of `effects` in a `with` on the way to where it is required
         /// (`[effect.with]`): it provides nothing by name.
         bound: Option<Box<BoundItem>>,
+        /// The module whose External is one of `effects` (`[effect.external]`): only the
+        /// handlers of that module remove it. Boxed to keep the diagnostic small.
+        external: Option<Box<SmolStr>>,
     },
     /// A function value's R not contained in the expected function type's R (E0403, spec 9.2).
     /// `expected` and `found` are displayed effect sets (`{ Logger, Clock }`, or `{}` if empty).
@@ -218,6 +221,9 @@ pub enum DiagnosticKind {
         /// Whether a capability in `found` does not fit only because its effect is expected: a
         /// capability is not widened to its effect (`[effect.use]`).
         widened: bool,
+        /// The module whose External is in `found` (`[effect.external]`): only the handlers of
+        /// that module remove it.
+        external: Option<SmolStr>,
     },
     /// E0404, spec 8.4. `ops` lists the missing operations and `members` the missing handler
     /// members (`[effect.handler]`), each in declaration order.
@@ -286,16 +292,6 @@ pub enum DiagnosticKind {
         expected: usize,
         found: usize,
     },
-    /// An `@external` fn with `uses` omitted or host effects in it, or an `@external suspend fn`,
-    /// used outside a handler operation's body (E0407, spec 12.2). `suspend` is true for the
-    /// latter (the note differs).
-    ExternalOutsideHandler {
-        name: SmolStr,
-        suspend: bool,
-        /// The uses clause has host effects (`[ext.call]`): the function has side effects, so
-        /// `uses {}` is not offered.
-        host: bool,
-    },
     /// Handlers in the same `with` or layer depend on each other's effects in a cycle (E0411,
     /// spec 8.3, 8.5, 14.2). `cycle` names the handlers along the cycle, repeating the first one
     /// at the end.
@@ -360,7 +356,8 @@ pub enum DiagnosticKind {
         label: SmolStr,
         base: SmolStr,
     },
-    /// A handler written for a host effect (E0413, `[effect.host]`).
+    /// A handler written for a host effect or External (E0413, `[effect.host]`,
+    /// `[effect.external]`).
     HostEffectHandler { handler: SmolStr, effect: SmolStr },
     /// A handler written for a built-in effect such as TaskGroup (E0413, `[task.group]`). `provider` names
     /// the function that provides it (`Task.Group`).
@@ -372,12 +369,14 @@ pub enum DiagnosticKind {
     /// Type parameters on an operation of a user effect (E0426, spec 8.1). Only built-in effects
     /// may have them.
     OpTypeParams { op: SmolStr },
-    /// `use` of a host effect (E0414, `[effect.host]`). A host effect has no operations; only the
-    /// entry of a launch provides it.
-    UseHostEffect { effect: SmolStr },
+    /// `use` of a host effect or of External (E0414, `[effect.host]`, `[effect.external]`). Neither
+    /// has operations; only the host provides them. `external` tells External apart.
+    UseHostEffect { effect: SmolStr, external: bool },
     /// An effect other than ProcessHost and PageHost in the uses clause of an external function
-    /// (E0445, `[ext.call]`), Async and a set type parameter included. At the effect.
-    ExternalUses { function: SmolStr },
+    /// (E0445, `[ext.call]`), Async and a set type parameter included. At the effect. `external`
+    /// is true when the effect is External, which is added without being written
+    /// (`[effect.external]`).
+    ExternalUses { function: SmolStr, external: bool },
     /// An effect declared in source without operations (E0446, `[effect.decl]`). At the name.
     EffectWithoutOps { effect: SmolStr },
     /// A handler operation's `suspend` differs from the effect's declaration (E0415, spec 8.1,
@@ -421,11 +420,14 @@ pub enum DiagnosticKind {
     /// (E0454, `[ext.boundary]`): the host calls it without handlers. `callee` is the external
     /// function, `None` at the declaration. `bound_item` is false when a bound item would not
     /// help: the body of the `with` that provides one of the effects also uses it by name outside
-    /// the callback, and a bound item provides nothing by name (`[effect.with]`).
+    /// the callback, and a bound item provides nothing by name (`[effect.with]`). `externals`
+    /// names the modules whose External is among `effects` (`Log` for `Log.External`): only a
+    /// handler of that module can give the callback to the host (`[effect.external]`).
     CallbackEffects {
         effects: Vec<SmolStr>,
         callee: Option<SmolStr>,
         bound_item: bool,
+        externals: Vec<SmolStr>,
     },
     /// The R of a callback passed to an external function contains capabilities, and the
     /// parameter is not `@borrowed` (E0454, `[ext.boundary]`): the host may call it after their

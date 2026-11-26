@@ -53,8 +53,8 @@ pub const INVALID_ROOT_NAME: &str = "E0235";
 /// The dependencies of `Pome.toml` cannot be used: no lock, or not in the cache for the language
 /// server (spec 4.7).
 pub const DEPENDENCIES_NOT_READY: &str = "E0236";
-/// A `pub` `@external` fn in a dependency (spec 4.7).
-pub const PUB_EXTERNAL_IN_DEPENDENCY: &str = "E0237";
+// E0237 is retired: an `@external` fn MAY be pub in a dependency, as it keeps the External of the
+// module that declares it (`[effect.external]`).
 /// A dependency whose `[pome].targets` does not include the build target (spec 4.7).
 pub const UNSUPPORTED_TARGET: &str = "E0238";
 /// A module of the source root imports a module of the test root or a `[dev-dependencies]` Pome
@@ -147,7 +147,8 @@ pub const EFFECT_SET_MISMATCH: &str = "E0403";
 pub const MISSING_HANDLER_OPS: &str = "E0404";
 pub const DUPLICATE_HANDLER_OP: &str = "E0405";
 pub const HANDLER_OP_ARG_COUNT: &str = "E0406";
-pub const EXTERNAL_OUTSIDE_HANDLER: &str = "E0407";
+// E0407 is retired: the host side effects of external functions are in R as the External of
+// their module, which only the handlers of that module remove (`[effect.external]`).
 // E0408 to E0410 are retired: a capability value can be passed as an argument, stored in a data
 // structure and returned, since `use E` became a type (`[effect.use]`).
 pub const HANDLER_CYCLE: &str = "E0411";

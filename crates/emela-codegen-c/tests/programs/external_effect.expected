@@ -1,0 +1,11 @@
+exit: 0
+--- stdout
+[init] open
+[info] one
+map a
+map b
+one passed
+[release] close
+kept: init
+kept: two
+--- stderr
