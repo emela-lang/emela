@@ -1240,16 +1240,20 @@ static bool read_done = false;
 static char held[64] = "";
 static em_task *held_waiter = NULL;
 
-/* Waits for `host_release`, then reads what `host_hold` was given and completes both tasks. */
+/* Waits for `host_release`, then reads what `host_hold` was given and completes both tasks, that
+ * of `host_hold` first: the program ends once `host_held` completes, and a task still running
+ * then holds its parameters. */
 static void *hold_work(void *arg) {
   job *j = arg;
   pthread_mutex_lock(&held_lock);
   while (!released) pthread_cond_wait(&held_cond, &held_lock);
   snprintf(held, sizeof held, "%.*s %s", (int)j->len, (const char *)j->data, j->s);
+  pthread_mutex_unlock(&held_lock);
+  em_complete_unit(j->task);
+  pthread_mutex_lock(&held_lock);
   read_done = true;
   em_task *waiter = held_waiter;
   pthread_mutex_unlock(&held_lock);
-  em_complete_unit(j->task);
   if (waiter != NULL) em_complete_string(waiter, strdup(held));
   free(j);
   return NULL;
@@ -1268,15 +1272,25 @@ void host_release(void) {
   pthread_mutex_unlock(&held_lock);
 }
 
-/* Completes with what the thread of `host_hold` read, once it has read it. */
+static void *held_work(void *arg) {
+  em_complete_string(arg, strdup(held));
+  return NULL;
+}
+
+/* Completes with what the thread of `host_hold` read, once it has read it. It completes on
+ * another thread, after the task of `host_hold` (completions from other threads are delivered in
+ * the order they came): a completion in place could end the program while that task still holds
+ * its parameters. */
 void host_held(em_task *task) {
+  em_after(60000, task, never, NULL);
   pthread_mutex_lock(&held_lock);
   if (read_done) {
     pthread_mutex_unlock(&held_lock);
-    em_complete_string(task, strdup(held));
+    pthread_t thread;
+    pthread_create(&thread, NULL, held_work, task);
+    pthread_detach(thread);
     return;
   }
-  em_after(60000, task, never, NULL);
   held_waiter = task;
   pthread_mutex_unlock(&held_lock);
 }
