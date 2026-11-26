@@ -510,6 +510,11 @@ impl<'a, 't> Walker<'a, 't> {
                 summary.may_use_effect = true;
                 summary
             }
+            // The empty evidence table binds nothing.
+            Expr::Provide {
+                base: None,
+                bindings,
+            } if bindings.is_empty() => EffectSummary::pure(),
             // Building an evidence table binds handlers; installing it is the effect.
             Expr::Provide { .. } => {
                 let mut summary = self.children(e, mode);
@@ -559,7 +564,7 @@ impl<'a, 't> Walker<'a, 't> {
                 let mut summary = self.expr(callee, mode);
                 match fn_type(self.m, callee) {
                     Some(ty) => {
-                        summary.may_use_effect |= ty.ev;
+                        summary.may_use_effect |= ty.uses;
                         summary.may_fail |= ty.fails;
                         summary.may_suspend |= ty.suspends;
                     }

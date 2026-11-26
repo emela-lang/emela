@@ -339,6 +339,7 @@ impl Lowerer<'_> {
             fails,
             suspends,
             ev: false,
+            uses: false,
             sets: None,
         });
         Expr::Lambda {

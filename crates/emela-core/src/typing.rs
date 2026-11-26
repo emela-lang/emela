@@ -233,9 +233,13 @@ impl<'a> Typer<'a> {
             ret: self.subst(func.ret, ty_args),
             fails: func.fails,
             suspends: func.suspends,
-            ev,
-            // The flags are the function's own: they describe how it is called, which for a
-            // generic function over-approximates the instantiation (`Function::sets`).
+            // A function value takes the evidence table whether or not the function does
+            // (`Lowerer::ty_takes_ev`); monomorphization references one that does not through an
+            // entry that takes it and drops it (`Mono::ev_entry`).
+            ev: true,
+            // The flags are the function's own, which for a generic function over-approximate
+            // the instantiation (`Function::sets`).
+            uses: ev,
             sets: None,
         };
         self.intern(Type::Fn(fn_ty))

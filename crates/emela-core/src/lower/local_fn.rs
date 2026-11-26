@@ -63,7 +63,9 @@ impl Lowerer<'_> {
                 }
             })
             .collect();
-        let takes_ev = self.ty_takes_ev(ty);
+        // Called directly by its name, as a top-level fn is: it takes the table only when its R
+        // needs it. Used as a value, it is wrapped in a lambda that takes it (`lifted_value`).
+        let takes_ev = matches!(ty, Ty::Fn(f) if self.row_needs_ev(&f.uses));
         let call = Call {
             fails: !fn_ty.fails.is_empty(),
             suspends: self.ty_suspends(ty),
@@ -159,11 +161,15 @@ impl Lowerer<'_> {
                 self.module.local("x", ty)
             })
             .collect();
-        let ev = lifted.takes_ev.then(|| self.ev_local());
+        // A function value takes the evidence table (`ty_takes_ev`), and passes it on when the
+        // lifted function takes it.
+        let ev = self.ev_local();
         let mut args = self.capture_args(lifted);
         args.extend(params.iter().map(|&p| Expr::Var(p)));
-        args.extend(ev.map(Expr::Var));
-        params.extend(ev);
+        if lifted.takes_ev {
+            args.push(Expr::Var(ev));
+        }
+        params.push(ev);
         Expr::Lambda {
             params,
             ty: self.ty(&ty),

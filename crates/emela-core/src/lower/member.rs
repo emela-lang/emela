@@ -80,6 +80,7 @@ impl Lowerer<'_> {
             fails: false,
             suspends,
             ev: false,
+            uses: false,
             sets: None,
         })
     }
@@ -237,6 +238,7 @@ impl Lowerer<'_> {
                 fails: false,
                 suspends: false,
                 ev: false,
+                uses: false,
                 sets: None,
             });
             let resume = self.module.local("resume", resume_ty);
@@ -258,6 +260,7 @@ impl Lowerer<'_> {
             fails: op.fails,
             suspends,
             ev: false,
+            uses: false,
             sets: None,
         });
         Expr::Lambda {

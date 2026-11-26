@@ -14,7 +14,7 @@ export suspend fn main(ev%0: ref (evidence)) -> i32 (Int) {
       runtime unhold()
     }
   }
-  f%24: ref (fn(fiber_scope) -> Int suspends) = suspend closure(s%3: ref (fiber_scope)) [ev%0] {
+  f%22: ref (fn(fiber_scope) -> Int suspends) = suspend closure(s%3: ref (fiber_scope)) [ev%0] {
     f%8: ref (fn(fn(evidence) -> any suspends) -> any) = closure(g%4: ref (fn(evidence) -> any suspends)) [ev%0, s%3] {
       f%6: ref (fn() -> any suspends) = suspend closure() [g%4, ev%0] {
         t%5: ref (any) = call_indirect g%4(ev%0)!
@@ -24,27 +24,23 @@ export suspend fn main(ev%0: ref (evidence)) -> i32 (Int) {
       return t%7
     }
     h%9: ref (handler Std.Task.TaskGroup[_, _]) = handler Group: Std.Task.TaskGroup[_, _] { start: f%8 }
-    f%10: ref (fn() -> Int) = closure() [] {
+    f%11: ref (fn() -> Int ev) = closure(ev%10: ref (evidence)) [] {
       return 1
     }
-    f%13: ref (fn() -> Int ev) = closure(ev%11: ref (evidence)) [f%10] {
-      t%12: i32 (Int) = call_indirect f%10()
-      return t%12
+    f%15: ref (fn(evidence) -> Int) = closure(ev%12: ref (evidence)) [h%9, f%11] {
+      t%13: ref (evidence) = ev_extend(ev%12, [Std.Task.TaskGroup[_, _]: h%9])
+      t%14: i32 (Int) = call_indirect f%11(t%13)
+      return t%14
     }
-    f%17: ref (fn(evidence) -> Int) = closure(ev%14: ref (evidence)) [h%9, f%13] {
-      t%15: ref (evidence) = ev_extend(ev%14, [Std.Task.TaskGroup[_, _]: h%9])
-      t%16: i32 (Int) = call_indirect f%13(t%15)
-      return t%16
+    f%19: ref (fn(evidence) -> any) = closure(x%16: ref (evidence)) [f%15] {
+      r%17: i32 (Int) = call_indirect f%15(x%16)
+      a%18: ref (any) = coerce r%17
+      return a%18
     }
-    f%21: ref (fn(evidence) -> any) = closure(x%18: ref (evidence)) [f%17] {
-      r%19: i32 (Int) = call_indirect f%17(x%18)
-      a%20: ref (any) = coerce r%19
-      return a%20
-    }
-    a%22: ref (Std.Task.Task[Int]) = call_op h%9.Std.Task.TaskGroup[_, _]#start(f%21)
-    t%23: i32 (Int) = fiber join(a%22)!
-    return t%23
+    a%20: ref (Std.Task.Task[Int]) = call_op h%9.Std.Task.TaskGroup[_, _]#start(f%19)
+    t%21: i32 (Int) = fiber join(a%20)!
+    return t%21
   }
-  t%25: i32 (Int) = fiber scope(f%24)!
-  return t%25
+  t%23: i32 (Int) = fiber scope(f%22)!
+  return t%23
 }

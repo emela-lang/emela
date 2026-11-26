@@ -31,6 +31,7 @@ impl Fixture {
             fails: false,
             suspends: false,
             ev: false,
+            uses: false,
             sets: None,
         });
         let array_pair = core.intern(Type::Array(pair));

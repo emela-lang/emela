@@ -96,7 +96,7 @@ fn an_effect_polymorphic_wrapper_is_left_before_monomorphisation() {
 #[test]
 fn an_effect_polymorphic_wrapper_is_inlined_after_monomorphisation() {
     let (m, stats) = lower_files_mono_with_stats(APPLY, "c", true);
-    assert_eq!(stats.delta, 1, "{stats:?}");
+    assert_eq!(stats.delta, 1, "{stats:?}\n{}", dump(&m));
     let apply = function(&m, "apply");
     assert_eq!(calls_anywhere(&m, apply), 0, "{}", dump(&m));
 }

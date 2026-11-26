@@ -142,8 +142,8 @@ fn main() {
     let ir = dump(&m);
     let main = body_of(&ir, "main");
     assert!(main.contains("fn("), "the lambda stays:\n{main}");
-    assert!(main.contains(")(1)"), "the first call stays:\n{main}");
-    assert!(main.contains(")(2)"), "the second call stays:\n{main}");
+    assert!(main.contains(")(1, ())"), "the first call stays:\n{main}");
+    assert!(main.contains(")(2, ())"), "the second call stays:\n{main}");
 }
 
 /// The one use of the local is an argument, not the callee of a call: the lambda escapes as a
@@ -174,10 +174,10 @@ fn main() {
     );
 }
 
-/// A lambda whose body takes the evidence table has an extra argument at the call that the
-/// expansion has no binding for: it is left as a call.
+/// A lambda takes the evidence table as its last parameter, which the expansion binds to the
+/// call's table like the other arguments, so the operation in its body still finds the handler.
 #[test]
-fn a_lambda_that_takes_the_evidence_table_is_not_folded() {
+fn a_lambda_that_takes_the_evidence_table_is_folded() {
     let files = [(
         "main.emel",
         "\
@@ -206,11 +206,11 @@ fn main() {
 ",
     )];
     let (m, stats) = lower_files_with_rules(&files, beta_only());
-    assert_eq!(stats.beta, 0, "{stats:?}");
+    assert!(stats.beta > 0, "{stats:?}");
     let ir = dump(&m);
     let run = body_of(&ir, "run");
-    assert!(run.contains("fn("), "the lambda stays:\n{run}");
-    assert!(run.contains(")(1"), "the call stays:\n{run}");
+    assert!(!run.contains("fn("), "the lambda is gone:\n{run}");
+    assert!(!run.contains(")(1"), "the call is gone:\n{run}");
 }
 
 /// A suspending lambda captures the rest of the caller's computation; moving its body to the call
@@ -238,11 +238,12 @@ fn main() {
 }
 ",
     )];
-    let (m, stats) = lower_files_with_rules(&files, beta_only());
-    assert_eq!(stats.beta, 0, "{stats:?}");
+    // The handler's resume, a lambda over the runtime's continuation called once, is folded;
+    // the suspending lambda in main is not.
+    let (m, _) = lower_files_with_rules(&files, beta_only());
     let ir = dump(&m);
     let main = body_of(&ir, "main");
-    assert!(main.contains("fn("), "the lambda stays:\n{main}");
+    assert!(main.contains("fn(n"), "the lambda stays:\n{main}");
     assert!(main.contains(")(1,"), "the call stays:\n{main}");
 }
 
@@ -279,7 +280,7 @@ fn main() {
     let ir = dump(&m);
     let main = body_of(&ir, "main");
     assert!(main.contains("fn("), "the lambda stays:\n{main}");
-    assert!(main.contains(")(2)"), "the call stays:\n{main}");
+    assert!(main.contains(")(2, ())"), "the call stays:\n{main}");
 }
 
 /// The first run expands the binding; a second run finds nothing, so the pass is idempotent.

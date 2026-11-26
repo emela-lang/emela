@@ -340,6 +340,7 @@ impl Lowerer<'_> {
             fails: item.fails,
             suspends: true,
             ev: false,
+            uses: false,
             sets: None,
         });
         let run = Expr::Fiber {
@@ -403,6 +404,7 @@ impl Lowerer<'_> {
             fails: item.fails,
             suspends: true,
             ev: false,
+            uses: false,
             sets: None,
         });
         let g = self.module.local("g", g_ty);
@@ -412,6 +414,7 @@ impl Lowerer<'_> {
             fails: item.fails && !background,
             suspends: true,
             ev: false,
+            uses: false,
             sets: None,
         });
         let call_g = Expr::Call {
@@ -431,6 +434,7 @@ impl Lowerer<'_> {
                     fails: item.fails,
                     suspends: true,
                     ev: false,
+                    uses: false,
                     sets: None,
                 });
                 let exit = self.exit_enum().expect("Std.Exit is bundled");
@@ -594,6 +598,7 @@ impl Lowerer<'_> {
             fails: call.fails,
             suspends: call.suspends,
             ev: false,
+            uses: false,
             sets: None,
         })
     }

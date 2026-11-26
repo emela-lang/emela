@@ -575,6 +575,7 @@ mod tests {
             fails: false,
             suspends: false,
             ev: false,
+            uses: false,
             sets: None,
         });
         let mut b = FnBuilder::new(&core, "lift");

@@ -82,6 +82,7 @@ mod tests {
                 fails: false,
                 suspends: false,
                 ev: false,
+                uses: false,
                 sets: None,
             });
             let effect = core.add_effect(EffectDef::new("TestEffect", Vec::new()));

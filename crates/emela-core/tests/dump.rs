@@ -123,6 +123,7 @@ fn every_kind_of_expression() {
         fails: false,
         suspends: false,
         ev: false,
+        uses: false,
         sets: None,
     });
     let area_ty = m.func(FnType {
@@ -131,6 +132,7 @@ fn every_kind_of_expression() {
         fails: false,
         suspends: false,
         ev: false,
+        uses: false,
         sets: None,
     });
     let p = m.local("p", pair_ty);

@@ -21,7 +21,8 @@
 //! Equation: f v → [v/x]body(f), with fresh locals and the call's type arguments
 //! Preconditions: a direct call to a function that is small, non-recursive (no path back to itself
 //!                in the call graph), neither failing nor suspending, and whose body has no Fail,
-//!                Escape, With, Handler, Provide, Use, Op call, Fiber or Loop. The call is neither
+//!                Escape, With, Handler, Provide (but the empty table), Use, Op call, Fiber or
+//!                Loop. The call is neither
 //!                failing nor suspending, its arity and type-argument count match the callee's, and
 //!                the copy fits the expansion budget. The callee has no set type parameters; the
 //!                rule runs before and after monomorphisation (see "The two stages"), and after it
@@ -214,6 +215,12 @@ fn is_candidate(m: &Module, f: FnId, core_fns: &CoreFns, cyclic: &[bool]) -> boo
 /// Whether `e` has a node the copy cannot reproduce faithfully.
 fn forbidden(e: &Expr) -> bool {
     match e {
+        // The empty evidence table, which a copy without effects passes to a function value
+        // (every function value takes a table): it binds no handler.
+        Expr::Provide {
+            base: None,
+            bindings,
+        } if bindings.is_empty() => return false,
         Expr::Fail(_)
         | Expr::Escape { .. }
         | Expr::With { .. }

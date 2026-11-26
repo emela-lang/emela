@@ -183,9 +183,10 @@ fn main() {
 
 const CLOSURES_OUT: &str = "11\n22\n2\n4\n2\n6\n7\n4\n4\n13\n8\n7\n";
 
-/// A flattened `Point -> Pair` closure is `(i32 env, i32, i32) -> (i32, i32)`.
-const POINT_TO_PAIR: ([ValType; 3], [ValType; 2]) = (
-    [ValType::I32, ValType::I32, ValType::I32],
+/// A flattened `Point -> Pair` closure is `(i32 env, i32, i32, i32 ev) -> (i32, i32)`: a function
+/// value takes the evidence table last.
+const POINT_TO_PAIR: ([ValType; 4], [ValType; 2]) = (
+    [ValType::I32, ValType::I32, ValType::I32, ValType::I32],
     [ValType::I32, ValType::I32],
 );
 

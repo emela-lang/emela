@@ -427,7 +427,9 @@ fn main() {
     let owner = function(&m, "run");
     let callee = lifted(&m, "run");
     let stats = run_to_heap(&mut m);
-    assert_eq!(stats.devirt, 1);
+    // The lambda in run, and the handler's resume: its implementation calls the runtime's resume
+    // through a lambda that takes the evidence table, as every function value does.
+    assert_eq!(stats.devirt, 2);
     assert_eq!(indirect(&m.functions[owner]), 0);
     let body = text(&m, "run");
     let call = body
@@ -487,7 +489,8 @@ fn main() {
 
     let mut on = mid(SOURCE);
     let stats = run_to_heap(&mut on);
-    assert_eq!(stats.devirt, 1);
+    // The lambda in run and the handler's resume.
+    assert_eq!(stats.devirt, 2);
     assert!(
         !frames(&on).is_empty(),
         "the fixture has no suspension point"
@@ -572,6 +575,7 @@ fn a_call_site_that_does_not_fit_the_target_deopts() {
         fails: true,
         suspends: false,
         ev: false,
+        uses: false,
         sets: None,
     });
     let mut m = Module::new(core);

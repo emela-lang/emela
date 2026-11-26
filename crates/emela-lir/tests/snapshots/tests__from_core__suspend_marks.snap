@@ -12,12 +12,17 @@ export fn main() -> i32 (Int) {
 }
 
 fn InstantClock() -> ref (handler Clock) {
-  f%2: ref (fn(Int, fn(Int) -> ()) -> ()) = closure(ms%0: i32 (Int), resume%1: ref (fn(Int) -> ())) [] {
-    call_indirect resume%1(ms%0)
+  f%6: ref (fn(Int, fn(Int) -> ()) -> ()) = closure(ms%0: i32 (Int), resume%1: ref (fn(Int) -> ())) [] {
+    f%4: ref (fn(Int) -> () ev) = closure(x%2: i32 (Int), ev%3: ref (evidence)) [resume%1] {
+      call_indirect resume%1(x%2)
+      return
+    }
+    t%5: ref (evidence) = ev_extend([])
+    call_indirect f%4(ms%0, t%5)
     return
   }
-  t%3: ref (handler Clock) = handler InstantClock: Clock { sleep: f%2 }
-  return t%3
+  t%7: ref (handler Clock) = handler InstantClock: Clock { sleep: f%6 }
+  return t%7
 }
 
 suspend fn nap(ms%0: i32 (Int), ev%1: ref (evidence)) -> i32 (Int) {

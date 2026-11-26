@@ -345,6 +345,7 @@ fn exported_functions_and_functions_taken_as_values_are_forced_owned() {
         fails: false,
         suspends: false,
         ev: false,
+        uses: false,
         sets: None,
     });
     let mut m = Module::new(core);

@@ -173,6 +173,7 @@ fn named_args_keep_written_evaluation_order() {
         fails: false,
         suspends: false,
         ev: false,
+        uses: false,
         sets: None,
     });
     let h = m.local("h", h_ty);
@@ -374,6 +375,7 @@ fn types_are_interned() {
         fails: false,
         suspends: false,
         ev: false,
+        uses: false,
         sets: None,
     };
     let a = m.func(f.clone());
@@ -405,7 +407,11 @@ fn type_of_follows_type_arguments() {
     let some = m.some_ctor();
     let opt_int = m.enum_type(none.enum_id, vec![TypeId::INT]);
     let ints = m.list(TypeId::INT);
-    let id_str = m.fn_type(vec![TypeId::STRING], TypeId::STRING);
+    // A function used as a value takes the evidence table (`Typer::fn_value`).
+    let id_str = m.func(FnType {
+        ev: true,
+        ..FnType::pure(vec![TypeId::STRING], TypeId::STRING)
+    });
     let exprs = [
         (call_ty(id, vec![TypeId::INT], vec![int(1)]), TypeId::INT),
         (fn_ref_ty(id, vec![TypeId::STRING]), id_str),
@@ -450,7 +456,11 @@ fn verify_accepts_well_typed_ir() {
     let main = m.declare("main", true);
     let none = m.none_ctor();
     let opt_int = m.enum_type(none.enum_id, vec![TypeId::INT]);
-    let id_str = m.fn_type(vec![TypeId::STRING], TypeId::STRING);
+    // A function used as a value takes the evidence table (`Typer::fn_value`).
+    let id_str = m.func(FnType {
+        ev: true,
+        ..FnType::pure(vec![TypeId::STRING], TypeId::STRING)
+    });
     let (a, b, c) = (
         m.local("a", TypeId::INT),
         m.local("b", id_str),
@@ -465,7 +475,7 @@ fn verify_accepts_well_typed_ir() {
             let_(
                 c,
                 ctor_ty(none, vec![TypeId::INT], vec![]),
-                call_value(var(b), vec![string("s")]),
+                call_value(var(b), vec![string("s"), unit()]),
             ),
         ),
     );

@@ -5,7 +5,10 @@ expression: "mine.join(\"\\n\\n\")"
 fn InstantClock(ev%0: evidence) -> handler Clock {
   handler InstantClock: Clock {
     sleep: fn(ms%1: Int, resume%2: fn(Int) -> ()) -> () {
-      (resume%2)(0)
+      let resume%3: fn(Int) -> () ev = fn(x%4: Int, ev%5: evidence) -> () {
+        (resume%2)(x%4)
+      }
+      (resume%3)(0, ev%0)
     }
     now: fn() -> Int {
       ((use[Clock](ev%0)).Clock#now() +[Int] 1)
@@ -16,11 +19,14 @@ fn InstantClock(ev%0: evidence) -> handler Clock {
 fn CapturedClock(ev%0: evidence) -> handler Clock {
   handler CapturedClock: Clock {
     sleep: fn(ms%1: Int, resume%2: fn(Int) -> ()) -> () {
-      (resume%2)(0)
+      let resume%3: fn(Int) -> () ev = fn(x%4: Int, ev%5: evidence) -> () {
+        (resume%2)(x%4)
+      }
+      (resume%3)(0, ev%0)
     }
     now: fn() -> Int {
-      let clock%3: handler Clock = use[Clock](ev%0)
-      clock%3.Clock#now()
+      let clock%6: handler Clock = use[Clock](ev%0)
+      clock%6.Clock#now()
     }
   }
 }
@@ -28,13 +34,16 @@ fn CapturedClock(ev%0: evidence) -> handler Clock {
 fn LocalSleep() -> handler Clock {
   handler LocalSleep: Clock {
     sleep: fn(ms%0: Int, resume%1: fn(Int) -> ()) -> () {
-      (resume%1)(0)
+      let resume%2: fn(Int) -> () ev = fn(x%3: Int, ev%4: evidence) -> () {
+        (resume%1)(x%3)
+      }
+      (resume%2)(0, ())
     }
     now: fn() -> Int {
       with {
-        let h%2: handler Clock = PureClock()
+        let h%5: handler Clock = PureClock()
       } {
-        h%2.Clock#sleep(1)!
+        h%5.Clock#sleep(1)!
       }
     }
   }

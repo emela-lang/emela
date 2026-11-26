@@ -206,20 +206,85 @@ fn fuse_map_array(m: &mut Module, e: &Expr, core_fns: &CoreFns) -> Option<Expr> 
         return None;
     }
     let f_ty = param_type(m, *f, 1, ty_args);
-    // A pure `f` takes no evidence table and cannot fail or suspend. The builtin has no failure
-    // edge, so anything else is left to the list form, which keeps it. A defect is not part of a
-    // function type, so the builtin may raise one too; the loop stops at the first.
+    // `f` must be pure (no failure, suspension or handler): the builtin has no failure edge, so
+    // anything else is left to the list form, which keeps it. A defect is not part of a function type, so the builtin may
+    // raise one too; the loop stops at the first.
     let Type::Fn(ft) = m.ty(f_ty) else {
         return None;
     };
-    if ft.fails || ft.suspends || ft.ev || ft.params != [TypeId::INT] || ft.ret != b {
+    if ft.fails || ft.suspends || ft.uses || ft.params != [TypeId::INT] || ft.ret != b {
         return None;
     }
+    let f = if ft.ev {
+        step_without_ev(m, &args[1], &args[2], b)?
+    } else {
+        args[1].clone()
+    };
+    let step_ty = match &f {
+        Expr::Lambda { ty, .. } => *ty,
+        _ => f_ty,
+    };
     Some(Expr::Builtin {
         op: Builtin::ArrayMapRange,
-        ty_args: vec![b, f_ty],
-        args: vec![lo.clone(), hi.clone(), args[1].clone()],
+        ty_args: vec![b, step_ty],
+        args: vec![lo.clone(), hi.clone(), f],
     })
+}
+
+/// The function value `f`, which takes the evidence table, as a lambda `fn(Int) -> b` that does
+/// not, for the builtin to call: `ArrayMapRange` calls its function with the index only. `ev` is
+/// the table of the `List.map` call, which the lambda passes on.
+///
+/// A lambda literal gets the table in place of its last parameter, and a reference to a top-level
+/// function is called directly; any other expression would have to be evaluated before the bounds
+/// to be captured, so it is left to the list form. So is a table that is not a local or `()`.
+fn step_without_ev(m: &mut Module, f: &Expr, ev: &Expr, b: TypeId) -> Option<Expr> {
+    if !matches!(ev, Expr::Var(_) | Expr::Lit(_)) {
+        return None;
+    }
+    let ty = m.func(crate::ir::FnType::pure(vec![TypeId::INT], b));
+    match f {
+        Expr::Lambda {
+            params,
+            body,
+            suspends: false,
+            ..
+        } => {
+            let [i, table] = params[..] else {
+                return None;
+            };
+            let mut body = (**body).clone();
+            replace_var(&mut body, table, ev);
+            Some(Expr::Lambda {
+                params: vec![i],
+                ty,
+                body: Box::new(body),
+                suspends: false,
+            })
+        }
+        Expr::Fn { f, ty_args } => {
+            let i = m.local("i", TypeId::INT);
+            let mut args = vec![Expr::Var(i)];
+            if m.takes_ev(*f) {
+                args.push(ev.clone());
+            }
+            Some(Expr::Lambda {
+                params: vec![i],
+                ty,
+                body: Box::new(Expr::Call {
+                    callee: Callee::Direct {
+                        f: *f,
+                        ty_args: ty_args.clone(),
+                    },
+                    args,
+                    fails: false,
+                    suspends: false,
+                }),
+                suspends: false,
+            })
+        }
+        _ => None,
+    }
 }
 
 fn fuse_fold(m: &mut Module, e: &Expr, core_fns: &CoreFns) -> Option<Expr> {
@@ -359,11 +424,7 @@ fn fold_loop(
     // The step is `f(acc, i)`, or the body of a lambda `f` with those two parameters: a lambda has
     // this one call site (the loop is in the function that made it), so copying the body in
     // removes an indirect call and a closure from every iteration.
-    let (step, closure) = match if takes_ev {
-        None
-    } else {
-        inlined_step(&f, &[acc, i])
-    } {
+    let (step, closure) = match inlined_step(&f, &[acc, i], takes_ev.then_some(&ev)) {
         Some(body) => (body, None),
         None => {
             let f_local = m.local("f", f_ty);
@@ -433,11 +494,7 @@ fn map_loop(
     let list_b = m.list(b);
     let acc = m.local("acc", list_b);
     let xs = m.local("xs", list_b);
-    let (step, closure) = match if takes_ev {
-        None
-    } else {
-        inlined_step(&f, &[i])
-    } {
+    let (step, closure) = match inlined_step(&f, &[i], takes_ev.then_some(&ev)) {
         Some(body) => (body, None),
         None => {
             let f_local = m.local("f", f_ty);
@@ -510,7 +567,7 @@ fn map_loop(
 }
 
 /// The body of `f` with its parameters replaced by `args`, when `f` is a lambda that takes exactly
-/// those parameters and no evidence table.
+/// those parameters, and the evidence table `ev` last when it takes one.
 ///
 /// `List.fold(List.range(..), .., |acc, i| ..)` and `List.map(List.range(..), |i| ..)` hand the
 /// loop a closure whose only call site is the loop's step, in the function that made it. Copying
@@ -523,9 +580,12 @@ fn map_loop(
 /// capture set is computed later), so not creating it changes nothing observable: memory use and
 /// when a program runs out of memory are implementation-defined (`[effect.handler]`).
 ///
-/// Deopt: `f` is not a lambda, takes an evidence table (a third parameter), suspends, or its
-/// parameters do not line up with the loop's variables.
-fn inlined_step(f: &Expr, args: &[Local]) -> Option<Expr> {
+/// The table is the call's evidence argument, which lowering makes a local or `()`; reading it in
+/// the body has no evaluation to move or repeat.
+///
+/// Deopt: `f` is not a lambda, suspends, its parameters do not line up with the loop's variables
+/// and the table, or the table is another expression.
+fn inlined_step(f: &Expr, args: &[Local], ev: Option<&Expr>) -> Option<Expr> {
     let Expr::Lambda {
         params,
         body,
@@ -535,12 +595,27 @@ fn inlined_step(f: &Expr, args: &[Local]) -> Option<Expr> {
     else {
         return None;
     };
-    if params.len() != args.len() {
+    if params.len() != args.len() + usize::from(ev.is_some()) {
         return None;
     }
     let mut body = (**body).clone();
-    substitute(&mut body, params, args);
+    if let Some(ev) = ev {
+        if !matches!(ev, Expr::Var(_) | Expr::Lit(_)) {
+            return None;
+        }
+        replace_var(&mut body, params[args.len()], ev);
+    }
+    substitute(&mut body, &params[..args.len()], args);
     Some(body)
+}
+
+/// Replaces every `Var(var)` in `e` by `value`, a variable or a literal.
+fn replace_var(e: &mut Expr, var: Local, value: &Expr) {
+    if matches!(e, Expr::Var(l) if *l == var) {
+        *e = value.clone();
+        return;
+    }
+    crate::tail::for_each_child_mut(e, &mut |c| replace_var(c, var, value));
 }
 
 /// Replaces every `Var(params[i])` in `e` by `Var(args[i])`. Locals are unique in a function, so
@@ -765,23 +840,36 @@ fn compose(
 /// composed lambda captures it. Any other expression (a parameter, a field, a call) is not this
 /// shape: its body and its effects are unknown, so the law deopts.
 enum Step {
-    /// A direct call of `f`, with the instantiation the value had.
-    Direct { f: FnId, ty_args: Vec<TypeId> },
-    /// An indirect call through the local holding the lambda.
-    Indirect(Local),
+    /// A direct call of `f`, with the instantiation the value had, passing the composed lambda's
+    /// evidence table when `f` takes one.
+    Direct {
+        f: FnId,
+        ty_args: Vec<TypeId>,
+        ev: bool,
+    },
+    /// An indirect call through the local holding the lambda, which takes the table when its type
+    /// says so.
+    Indirect { local: Local, ev: bool },
 }
 
 impl Step {
     /// The call `self(args)`, which neither fails nor suspends: both function types were checked to
-    /// be pure.
-    fn call(&self, args: Vec<Expr>) -> Expr {
-        let callee = match self {
-            Self::Direct { f, ty_args } => Callee::Direct {
-                f: *f,
-                ty_args: ty_args.clone(),
-            },
-            Self::Indirect(local) => Callee::Indirect(Box::new(Expr::Var(*local))),
+    /// be pure. `ev` is the evidence table of the composed lambda, passed on to a step that takes
+    /// one; every function value of the language does, whatever its R.
+    fn call(&self, mut args: Vec<Expr>, ev: Option<Local>) -> Expr {
+        let (callee, takes) = match self {
+            Self::Direct { f, ty_args, ev } => (
+                Callee::Direct {
+                    f: *f,
+                    ty_args: ty_args.clone(),
+                },
+                *ev,
+            ),
+            Self::Indirect { local, ev } => (Callee::Indirect(Box::new(Expr::Var(*local))), *ev),
         };
+        if takes {
+            args.push(ev.map_or(Expr::Lit(Lit::Unit), Expr::Var));
+        }
         Expr::Call {
             callee,
             args,
@@ -798,11 +886,13 @@ fn step(m: &mut Module, e: &Expr, bindings: &mut Vec<(Local, Expr)>) -> Option<S
         Expr::Fn { f, ty_args } => Some(Step::Direct {
             f: *f,
             ty_args: ty_args.clone(),
+            ev: m.takes_ev(*f),
         }),
         Expr::Lambda { ty, .. } => {
+            let ev = matches!(m.ty(*ty), Type::Fn(t) if t.ev);
             let local = m.local("f", *ty);
             bindings.push((local, e.clone()));
-            Some(Step::Indirect(local))
+            Some(Step::Indirect { local, ev })
         }
         _ => None,
     }
@@ -853,12 +943,25 @@ fn is_value(e: &Expr) -> bool {
 }
 
 /// Whether the instantiated function type `ty` is pure and exact: a call to it cannot fail,
-/// suspend or need an evidence table, and its E and R are not open set parameters.
+/// suspend or use a handler, and its E and R are not open set parameters. It may still take the
+/// evidence table, as every function value of the language does ([`composed_params`]).
 fn pure_step(m: &Module, ty: TypeId) -> bool {
     matches!(
         m.ty(ty),
-        Type::Fn(f) if !f.fails && !f.suspends && !f.ev && f.sets.is_none()
+        Type::Fn(f) if !f.fails && !f.suspends && !f.uses && f.sets.is_none()
     )
+}
+
+/// The parameters of a composed lambda of type `ty`: `params`, and the evidence table last when
+/// the type takes it, which is also returned to pass on to the steps.
+fn composed_params(
+    m: &mut Module,
+    ty: TypeId,
+    mut params: Vec<Local>,
+) -> (Vec<Local>, Option<Local>) {
+    let ev = matches!(m.ty(ty), Type::Fn(f) if f.ev).then(|| m.local("ev", TypeId::EVIDENCE));
+    params.extend(ev);
+    (params, ev)
 }
 
 /// `body` wrapped in the `let`s of `bindings`, in order.
@@ -994,9 +1097,10 @@ pub(super) fn compose_map_over(
         return Some(Outcome::Declined);
     }
     let x = m.local("x", a);
-    let body = g_step.call(vec![f_step.call(vec![Expr::Var(x)])]);
+    let (params, ev) = composed_params(m, step_ty, vec![x]);
+    let body = g_step.call(vec![f_step.call(vec![Expr::Var(x)], ev)], ev);
     let lambda = Expr::Lambda {
-        params: vec![x],
+        params,
         ty: step_ty,
         body: Box::new(body),
         suspends: false,
@@ -1085,9 +1189,13 @@ pub(super) fn compose_fold_over(
     }
     let acc = m.local("acc", b);
     let x = m.local("x", a);
-    let body = g_step.call(vec![Expr::Var(acc), f_step.call(vec![Expr::Var(x)])]);
+    let (params, ev) = composed_params(m, step_ty, vec![acc, x]);
+    let body = g_step.call(
+        vec![Expr::Var(acc), f_step.call(vec![Expr::Var(x)], ev)],
+        ev,
+    );
     let lambda = Expr::Lambda {
-        params: vec![acc, x],
+        params,
         ty: step_ty,
         body: Box::new(body),
         suspends: false,
@@ -1170,18 +1278,19 @@ fn fuse_filter_map(
     }
     let acc = m.local("acc", list_r);
     let x = m.local("x", a);
+    let (params, ev) = composed_params(m, step_ty, vec![acc, x]);
     let keep = Expr::List {
         elem: r,
-        elems: vec![f_step.call(vec![Expr::Var(x)])],
+        elems: vec![f_step.call(vec![Expr::Var(x)], ev)],
         tail: Some(Box::new(Expr::Var(acc))),
     };
     let body = Expr::If {
-        cond: Box::new(p_step.call(vec![Expr::Var(x)])),
+        cond: Box::new(p_step.call(vec![Expr::Var(x)], ev)),
         then: Box::new(keep),
         else_: Box::new(Expr::Var(acc)),
     };
     let lambda = Expr::Lambda {
-        params: vec![acc, x],
+        params,
         ty: step_ty,
         body: Box::new(body),
         suspends: false,

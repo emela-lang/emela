@@ -181,7 +181,7 @@ external enum Std.Http.HostResponse {
 }
 
 enum Std.Http.TestServer {
-  TestServer(respond: fn(Std.Http.Request.Request, Int) -> Option[Std.Http.Response.Response], sent: List[Std.Http.Request.Request])
+  TestServer(respond: fn(Std.Http.Request.Request, Int) -> Option[Std.Http.Response.Response] ev, sent: List[Std.Http.Request.Request])
 }
 
 external enum Std.Http.Incoming {
@@ -276,7 +276,7 @@ enum Std.Tcp.SystemTcp {
 }
 
 enum Std.Cause.Cause[A] {
-  Cause(failure: fn() -> Never fails (E {A}, R {}))
+  Cause(failure: fn() -> Never fails ev (E {A}, R {}))
 }
 
 enum Std.Cause.CauseKind {
