@@ -908,9 +908,10 @@ impl<'a> Lowerer<'a> {
                         set.ev = true;
                     }
                 },
-                // The host provides a host effect, so it has no evidence (`[effect.host]`).
+                // The host provides a host effect and External, so they have no evidence
+                // (`[effect.host]`, `[effect.external]`).
                 RowElem::Tag(t) if matches!(hir.item(t.def), Some(Item::Effect(_))) => {
-                    set.ev |= !hir.is_host_effect(t.def);
+                    set.ev |= !hir.is_provided_by_host(t.def);
                     set.suspends |= !self.is_immediate_effect(t.def);
                 }
                 RowElem::Tag(_) | RowElem::Of(_) => set.fails = true,
@@ -919,7 +920,7 @@ impl<'a> Lowerer<'a> {
                 // as needing the evidence table, as before capabilities were told apart.
                 RowElem::Cap(c) => {
                     if matches!(hir.item(c.tag.def), Some(Item::Effect(_))) {
-                        set.ev |= !hir.is_host_effect(c.tag.def);
+                        set.ev |= !hir.is_provided_by_host(c.tag.def);
                         set.suspends |= !self.is_immediate_effect(c.tag.def);
                     }
                 }
@@ -1468,11 +1469,12 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Whether a function with effect set `row` needs an evidence table: yes if it has an element
-    /// other than a host effect, which the host provides without evidence (`[effect.host]`).
+    /// other than a host effect or External, which the host provides without evidence
+    /// (`[effect.host]`, `[effect.external]`).
     fn row_needs_ev(&self, row: &Row) -> bool {
         row.elems()
             .iter()
-            .any(|e| !matches!(e, RowElem::Tag(t) if self.hir.is_host_effect(t.def)))
+            .any(|e| !matches!(e, RowElem::Tag(t) if self.hir.is_provided_by_host(t.def)))
     }
 
     /// The current evidence table to pass as a call's last argument, or `()` if there is none (the

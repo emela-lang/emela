@@ -669,7 +669,7 @@ impl<'a> BodyInfer<'a> {
             let Res::Def(effect) = e.res else {
                 return;
             };
-            if program.is_host_effect(effect) {
+            if program.is_provided_by_host(effect) {
                 self.diags.push(Diagnostic {
                     span,
                     kind: DiagnosticKind::HostEffectHandler {
@@ -1124,8 +1124,7 @@ impl<'a> BodyInfer<'a> {
         }
     }
 
-    /// Whether the definition being inferred is a handler (where `@external` fns may be used,
-    /// spec 12.2).
+    /// Whether the definition being inferred is a handler.
     fn in_handler(&self) -> bool {
         self.current
             .is_some_and(|def| self.program.defs[def].kind == DefKind::Handler)
@@ -1397,7 +1396,6 @@ impl<'a> BodyInfer<'a> {
                 None => Ty::Error,
             },
             ExprKind::Path(Res::Def(def)) => {
-                self.check_external(*def, e.span);
                 self.check_handler_ctor(*def, e.span);
                 let made_by = self.check_bound_ctor(*def, e.span);
                 if program.defs[*def].kind == DefKind::Member {
@@ -1466,16 +1464,17 @@ impl<'a> BodyInfer<'a> {
             }
             ExprKind::Escape { expr: inner, arms } => self.infer_escape(*inner, arms),
             // `use X` is X's capability value (spec 8.2). X is added to R when the body's R is
-            // computed. A host effect has no operations; only the entry provides it
-            // (`[effect.host]`).
+            // computed. A host effect and External have no operations; only the host provides
+            // them (`[effect.host]`, `[effect.external]`).
             ExprKind::Use {
                 effect: Res::Def(effect),
                 ..
-            } if program.is_host_effect(*effect) => {
+            } if program.is_provided_by_host(*effect) => {
                 self.diags.push(Diagnostic {
                     span: Some(e.span),
                     kind: DiagnosticKind::UseHostEffect {
                         effect: program.defs[*effect].name.clone(),
+                        external: program.is_external_effect(*effect),
                     },
                 });
                 Ty::Error
@@ -2025,29 +2024,6 @@ impl<'a> BodyInfer<'a> {
                 row.clone(),
                 Origin::Lambda,
             );
-        }
-    }
-
-    /// An `@external` fn with `uses` omitted or with host effects in it, and an
-    /// `@external suspend fn`, can only be used inside handler operation bodies (`[ext.call]`).
-    /// Checked on every reference, not only calls, so they cannot be smuggled out as function
-    /// values. Only `uses {}` lifts the restriction; any other effect in the clause is E0445.
-    fn check_external(&mut self, def: DefId, span: Span) {
-        let Some(Item::Fn(item)) = self.program.item(def) else {
-            return;
-        };
-        if !item.is_external || self.in_handler() {
-            return;
-        }
-        if item.sig.is_suspend || item.sig.uses.as_ref().is_none_or(|u| !u.items.is_empty()) {
-            self.diags.push(Diagnostic {
-                span: Some(span),
-                kind: DiagnosticKind::ExternalOutsideHandler {
-                    name: self.program.defs[def].name.clone(),
-                    suspend: item.sig.is_suspend,
-                    host: item.sig.uses.as_ref().is_some_and(|u| !u.items.is_empty()),
-                },
-            });
         }
     }
 
@@ -3918,6 +3894,9 @@ struct ImmediateObligation {
     /// For a callback of an external function: whether its parameter is `@borrowed`, so that
     /// capabilities may be in its R (`[ext.boundary]`).
     borrowed: bool,
+    /// For a callback of an external function: the External of the module that declares it,
+    /// which may be in its R (`[effect.external]`).
+    allowed_external: Option<DefId>,
 }
 
 /// A type that must satisfy a trait: the instantiation of a constrained type parameter at a

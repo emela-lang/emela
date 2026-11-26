@@ -428,8 +428,10 @@ handler Sleepy: Clock {
     ));
 }
 
-/// An `@external` fn with `use` omitted only inside handler operation bodies; with `use {}`
-/// anywhere (spec 12.2).
+/// An `@external` fn with `uses` omitted adds the External of its module, which the operation
+/// bodies of its handlers remove; with `uses {}` it adds nothing (`[ext.call]`,
+/// `[effect.external]`). E0407 is retired: calling one outside a handler is allowed, and puts
+/// External in R.
 #[test]
 fn external_functions() {
     insta::assert_snapshot!(render_effects(
@@ -702,8 +704,9 @@ fn main() {
     ));
 }
 
-/// `@external suspend fn` requires Async and can only be used inside handlers (spec 12.2). fn
-/// operation bodies cannot wait on it (E0417).
+/// `@external suspend fn` requires Async and the External of its module (`[ext.call]`), which
+/// only the handlers of the module remove (`[effect.external]`). fn operation bodies cannot wait
+/// on it (E0417).
 #[test]
 fn external_suspend_functions() {
     insta::assert_snapshot!(render_effects(
@@ -1887,7 +1890,8 @@ fn main() {
 /// Host effects (`[effect.host]`): no handler can implement `ProcessHost` or `PageHost` (E0413)
 /// and neither can be taken with `use` (E0414), but both can be written in a uses clause. Calling
 /// an external function declared with `uses { ProcessHost }` adds `ProcessHost` to R
-/// (`[ext.call]`), and only inside a handler (E0407). A handler that calls one requires the host
+/// and the External of its module (`[ext.call]`); a handler of the module removes External,
+/// not the host effect (`[effect.external]`). A handler that calls one requires the host
 /// effect, so it stays in the R of a with that lists the handler. `main` and a test function are
 /// given Async and ProcessHost, not PageHost (E0402).
 #[test]
@@ -2286,6 +2290,92 @@ fn two_unbound() {
 
 fn bound_unused() {
   with side = Side by PrimaryDb { () }
+}
+"##
+    ));
+}
+
+/// `[effect.external]`, `[ext.call]`: what each external function adds to R, and the External in
+/// the functions it returns. `uses` omitted adds External; host effects add External and the host
+/// effects; `uses {}` adds nothing, except on a `suspend fn`. A returned function has External
+/// and the host effects in its R, and so do the functions it returns in turn; the parameters of
+/// those function types are callbacks and are left as written. `fails` and `uses` omitted on a
+/// returned function type are empty (`[ext.boundary]`, issue #815). A private fn that calls an
+/// external function has External in R; the init, the release and the operation bodies of a
+/// handler of the module remove it, inner handlers included, and a closure written in a body
+/// keeps it.
+#[test]
+fn external_effect() {
+    insta::assert_snapshot!(render_effects(
+        r##"
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+effect Get {
+  fn get() -> fn(String) -> () uses { External }
+}
+
+@external(js, "./h.mjs", "write")
+fn host_write(s: String) -> ()
+
+@external(js, "./h.mjs", "read")
+fn host_read(path: String) -> String uses { ProcessHost }
+
+@external(js, "./h.mjs", "fold")
+fn fold_case(s: String) -> String uses {}
+
+@external(js, "./h.mjs", "wait")
+suspend fn wait() -> () uses {}
+
+@external(js, "./h.mjs", "back")
+fn take_back() -> fn(String) -> ()
+
+@external(js, "./h.mjs", "nested")
+fn nested() -> fn(fn(Int) -> Int) -> fn(String) -> () uses { ProcessHost }
+
+@external(js, "./h.mjs", "pure")
+fn pure_back() -> fn(Int) -> Int fails {} uses {} uses {}
+
+fn tagged(tag: String, msg: String) { host_write("[#{tag}] #{msg}") }
+
+fn as_value() { host_write }
+
+handler FileLog: Log {
+  init {
+    tagged("init", "x")
+    FileLog
+  }
+  fn info(msg) {
+    f = || tagged("info", msg)
+    f()
+  }
+  release { host_write("release") }
+}
+
+effect Files {
+  fn name() -> String
+  handler Open(path: String): Read
+}
+
+effect Read {
+  fn read() -> String
+}
+
+handler HostFiles: Files {
+  fn name() { "host" }
+  handler Open(path: String): Read {
+    init(path: String) {
+      host_write("open #{path}")
+      Self(path:)
+    }
+    fn read() { fold_case(self.path) }
+    release { host_write("close") }
+  }
+}
+
+handler Getter: Get {
+  fn get() { |s| host_write(s) }
 }
 "##
     ));

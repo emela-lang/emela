@@ -1,12 +1,13 @@
 ---
 source: crates/emela-types/tests/effects.rs
+assertion_line: 1895
 expression: "render_effects(r#\"\neffect Files {\n  fn read(path: String) -> String\n}\n\n@external(js, \"./fs.mjs\", \"readText\")\nfn read_host(path: String) -> String uses { ProcessHost }\n\n@external(js, \"./dom.mjs\", \"title\")\nfn title_host() -> String uses { PageHost }\n\nhandler SystemFiles: Files {\n  fn read(path) { read_host(path) }\n}\n\nhandler PageFiles: Files {\n  fn read(path) { title_host() }\n}\n\nhandler Process: ProcessHost {\n}\n\nhandler Page: PageHost {\n}\n\nfn grab() { use ProcessHost }\n\nfn declared() -> Int uses { ProcessHost } { 1 }\n\nfn outside() { read_host(\"x\") }\n\nfn load() -> String { with SystemFiles { (use Files).read(\"a\") } }\n\nfn in_page() -> String { with PageFiles { (use Files).read(\"a\") } }\n\nfn provided() -> Int { with Process { declared() } }\n\nfn main() {\n  load()\n  declared()\n  in_page()\n}\n\nfn test_load() {\n  load()\n  in_page()\n}\n\"#)"
 ---
-read_host: fn(String) -> String uses { ProcessHost }
-title_host: fn() -> String uses { PageHost }
+read_host: fn(String) -> String uses { ProcessHost, Main.External }
+title_host: fn() -> String uses { PageHost, Main.External }
 grab: fn() -> {unknown}
 declared: fn() -> Int uses { ProcessHost }
-outside: fn() -> String uses { ProcessHost }
+outside: fn() -> String uses { ProcessHost, Main.External }
 load: fn() -> String uses { ProcessHost }
 in_page: fn() -> String uses { PageHost }
 provided: fn() -> Int uses { ProcessHost }
@@ -18,18 +19,17 @@ handler Process: use {}
 handler Page: use {}
 `Process` HostEffectHandler { handler: "Process", effect: "ProcessHost" }
 `Page` HostEffectHandler { handler: "Page", effect: "PageHost" }
-`use ProcessHost` UseHostEffect { effect: "ProcessHost" }
-`read_host` ExternalOutsideHandler { name: "read_host", suspend: false, host: true }
+`use ProcessHost` UseHostEffect { effect: "ProcessHost", external: false }
 `main` MainValueDiscarded { ty: "String" }
 `in_page()` unhandled effects PageHost (Main) [host PageHost]
 `in_page()` unhandled effects PageHost (Test { name: "test_load" }) [host PageHost]
 --- R
-{ read_host(path) }: ProcessHost
-read_host(path): ProcessHost
-{ title_host() }: PageHost
-title_host(): PageHost
-{ read_host("x") }: ProcessHost
-read_host("x"): ProcessHost
+{ read_host(path) }: { ProcessHost, Main.External }
+read_host(path): { ProcessHost, Main.External }
+{ title_host() }: { PageHost, Main.External }
+title_host(): { PageHost, Main.External }
+{ read_host("x") }: { ProcessHost, Main.External }
+read_host("x"): { ProcessHost, Main.External }
 { with SystemFiles { (use Files).read("a") } }: ProcessHost
 with SystemFiles { (use Files).read("a") }: ProcessHost
 { (use Files).read("a") }: Files

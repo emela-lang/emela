@@ -171,10 +171,14 @@ fn allows_external_only_when_the_project_says_so() {
         Vec::<String>::new()
     );
 
-    // Allowed, but a `pub` external fn would let the host be reached without an effect.
+    // A `pub` external fn MAY be in a dependency (E0237 is retired, `[ext.decl]`). One declared
+    // with `uses {}` is called from the depending side as any pub fn.
     let public = "@external(js, \"./x.mjs\", \"f\")\npub fn f() -> Int uses {}\n\npub fn route() -> Int { f() }\n";
-    let found = diagnostics(&files(app, public), allowed.clone());
-    assert!(found.iter().any(|d| d.starts_with("E0237")), "{found:?}");
+    let app_calls = "import Quince.Router\n\nfn main() {\n  Router.f()\n  ()\n}\n";
+    assert_eq!(
+        diagnostics(&files(app_calls, public), allowed.clone()),
+        Vec::<String>::new()
+    );
 
     // An allowed Pome that is not depended on.
     allowed.allow_external.push("github.com/acme/old".into());
@@ -185,9 +189,35 @@ fn allows_external_only_when_the_project_says_so() {
     );
 }
 
+/// `[effect.external]`: a pub `@external` fn of a dependency that adds External keeps the External
+/// of its module, so the handlers of the depending side cannot call it (E0402), and can only refer
+/// to it and pass it to a handler of that module. An effect and a handler of that module reach the
+/// host for them.
+#[test]
+fn external_functions_of_a_dependency_keep_their_external() {
+    let router = "@external(js, \"./x.mjs\", \"f\")\npub fn f() -> Int\n\npub fn route() -> Int { 1 }\n\npub effect Raw {\n  fn read() -> Int\n}\n\npub handler RawHost: Raw {\n  fn read() { f() }\n}\n\npub effect Run {\n  fn run(g: fn() -> Int uses { External }) -> Int\n}\n\npub handler Runner: Run {\n  fn run(g) { g() }\n}\n";
+    let mut allowed = dependencies(None, COMPILER);
+    allowed.allow_external = vec!["github.com/acme/quince".into()];
+
+    let direct = "import Quince.Router\n\neffect Mine {\n  fn get() -> Int\n}\n\nhandler MyHost: Mine {\n  fn get() { Router.f() }\n}\n\nfn main() {\n  with MyHost {\n    m <- Mine\n    m.get()\n  }\n  ()\n}\n";
+    let found = diagnostics(&files(direct, router), allowed.clone());
+    assert!(
+        found
+            .iter()
+            .any(|d| d
+                .starts_with("E0402 effect `Quince.Router.External` is not provided in `main`")),
+        "{found:?}"
+    );
+
+    let through = "import Quince.Router\nimport Quince.Router.{Raw, RawHost, Run, Runner}\n\nfn main() {\n  with RawHost, Runner {\n    raw <- Raw\n    run <- Run\n    raw.read() + run.run(Router.f)\n  }\n  ()\n}\n";
+    assert_eq!(
+        diagnostics(&files(through, router), allowed),
+        Vec::<String>::new()
+    );
+}
+
 /// `[module.pome]`: `@export` counts as `@external` for `[external] allow`, so `@entry` can name
-/// an entry adapter of a dependency only when it is allowed. The adapter is `pub` (E0237 is about
-/// `@external` only).
+/// an entry adapter of a dependency only when it is allowed. The adapter is `pub`.
 #[test]
 fn allows_entry_adapters_only_when_the_project_says_so() {
     let router = "@export(js, \"default\", \"fetch\")\npub fn serve(app: fn(Int) -> Int fails {} uses {}, x: Int) -> Int { app(x) }\n\npub fn route() -> Int { 1 }\n";

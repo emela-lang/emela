@@ -1,10 +1,11 @@
 ---
 source: crates/emela-types/tests/capabilities.rs
+assertion_line: 340
 expression: "run(r#\"\n@external(js, \"setTimeout\")\nfn set_timeout(ms: Int, f: fn() -> ()) -> ()\n\n@external(js, \"./ffi.mjs\", \"each\")\nfn each_now(n: Int, @borrowed f: fn(Int) -> ()) -> ()\n\n@external(js, \"./ffi.mjs\", \"twice\")\nfn twice(@borrowed n: Int) -> Int\n\nfn plain(@borrowed f: fn() -> ()) { f() }\n\nhandler Ticking: Counter {\n  fn next() {\n    with log = Quiet {\n      set_timeout(1, || log.info(\"late\"))\n      each_now(3, |i| log.info(\"now\"))\n    }\n    1\n  }\n}\n\"#)"
 ---
-set_timeout: ∀ E(f), R(f): Immediate. fn(Int, fn() -> () fails E(f) uses { R(f) }) -> () fails E(f) uses { R(f) }
-each_now: ∀ E(f), R(f): Immediate. fn(Int, fn(Int) -> () fails E(f) uses { R(f) }) -> () fails E(f) uses { R(f) }
-twice: fn(Int) -> Int
+set_timeout: ∀ E(f), R(f): Immediate. fn(Int, fn() -> () fails E(f) uses { R(f) }) -> () fails E(f) uses { Main.External, R(f) }
+each_now: ∀ E(f), R(f): Immediate. fn(Int, fn(Int) -> () fails E(f) uses { R(f) }) -> () fails E(f) uses { Main.External, R(f) }
+twice: fn(Int) -> Int uses { Main.External }
 plain: ∀ E(f), R(f). fn(fn() -> () fails E(f) uses { R(f) }) -> () fails E(f) uses { R(f) }
   f: fn() -> () fails '0 uses { '1 }
 `@borrowed` BorrowedPosition

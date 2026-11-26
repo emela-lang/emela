@@ -866,12 +866,42 @@ pub struct Program {
     /// type namespace; the name means the handler at an item of a with or a layer and on the
     /// right of `by`.
     pub twin_handlers: ArenaMap<DefId, DefId>,
+    /// The External of each source module (`[effect.external]`): an effect without operations
+    /// that the compiler declares for every module. Its definition has the module as
+    /// [`DefData::module`], no span and the name `External`; it is not in [`ModuleItems::items`]
+    /// nor in the scope of the module, so a definition or an import named `External` shadows it.
+    pub externals: ArenaMap<ModuleId, DefId>,
 }
 
 impl Program {
     /// The built-in handler with the name of `effect`, if it has one (`[module.resolution]`).
     pub fn twin_handler(&self, effect: DefId) -> Option<DefId> {
         self.twin_handlers.get(effect).copied()
+    }
+
+    /// The External of `module` (`[effect.external]`).
+    pub fn external_effect(&self, module: ModuleId) -> Option<DefId> {
+        self.externals.get(module).copied()
+    }
+
+    /// The module whose External `def` is (`[effect.external]`). `None` for any other definition.
+    pub fn external_module(&self, def: DefId) -> Option<ModuleId> {
+        match self.defs[def].module {
+            DefModule::Source(m) if self.externals.get(m) == Some(&def) => Some(m),
+            _ => None,
+        }
+    }
+
+    /// Whether `def` is the External of a module (`[effect.external]`).
+    pub fn is_external_effect(&self, def: DefId) -> bool {
+        self.external_module(def).is_some()
+    }
+
+    /// Whether only the host provides the effect `def`: a host effect (`[effect.host]`) or the
+    /// External of a module (`[effect.external]`). No handler of the program provides it, so it
+    /// has no evidence at run time.
+    pub fn is_provided_by_host(&self, def: DefId) -> bool {
+        self.is_host_effect(def) || self.is_external_effect(def)
     }
 }
 

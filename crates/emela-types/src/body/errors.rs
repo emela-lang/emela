@@ -783,6 +783,7 @@ impl BodyInfer<'_> {
                                 expected: SmolStr::new(sup.display_uses(cons, &params).to_string()),
                                 found: SmolStr::new(sub.display_uses(cons, &params).to_string()),
                                 widened,
+                                external: external_module(self.program, sub.elems()),
                             },
                         });
                         continue;
@@ -845,6 +846,7 @@ impl BodyInfer<'_> {
                             expected: SmolStr::new(sup.display_uses(cons, &params).to_string()),
                             found: SmolStr::new(sub.display_uses(cons, &params).to_string()),
                             widened: false,
+                            external: external_module(self.program, sub.elems()),
                         },
                     };
                     self.diags.push(Diagnostic { span: *span, kind });
@@ -1097,6 +1099,7 @@ impl BodyInfer<'_> {
                 .iter()
                 .find_map(|e| self.bound_provider(&rows, body, e))
                 .map(Box::new);
+            let external = external_module(program, &elems).map(Box::new);
             self.diags.push(Diagnostic {
                 span: Some(self.program.exprs[started.unwrap_or(origin)].span),
                 kind: DiagnosticKind::UnhandledEffects {
@@ -1106,6 +1109,7 @@ impl BodyInfer<'_> {
                     hosts,
                     process,
                     bound,
+                    external,
                 },
             });
         }
@@ -1769,4 +1773,15 @@ fn tail_span(program: &Program, body: ExprId) -> Span {
         },
         _ => program.exprs[body].span,
     }
+}
+
+/// The name of the module whose External is among `elems` (`[effect.external]`), for the help of
+/// E0402 and E0403.
+fn external_module(program: &emela_resolve::hir::Program, elems: &[RowElem]) -> Option<SmolStr> {
+    elems.iter().find_map(|e| match e {
+        RowElem::Tag(t) => program
+            .external_module(t.def)
+            .map(|m| SmolStr::new(program.modules[m].name.to_string())),
+        _ => None,
+    })
 }

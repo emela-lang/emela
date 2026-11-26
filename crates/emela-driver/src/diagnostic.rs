@@ -986,6 +986,7 @@ impl Diagnostic {
                 hosts,
                 process,
                 bound,
+                external,
             } => {
                 if *in_task {
                     note = Some(
@@ -1078,18 +1079,31 @@ impl Diagnostic {
                             .to_owned(),
                     );
                 }
+                // Only the handlers of M remove the External of M (`[effect.external]`): neither
+                // `uses` nor `with` helps.
+                if let Some(module) = external {
+                    help = Some(format!(
+                        "`External` of `{module}` is removed only in the handlers of `{module}`; call it in a handler of `{module}`, or declare in `{module}` an effect and a handler that call it"
+                    ));
+                }
                 (Severity::Error, Some(code::UNHANDLED_EFFECTS), message)
             }
             TypeDiagnosticKind::EffectSetMismatch {
                 expected,
                 found,
                 widened,
+                external,
             } => {
                 if *widened {
                     help = Some(
                         "take the capability as a parameter `use E`, or capture it in a closure"
                             .to_owned(),
                     );
+                }
+                if let Some(module) = external {
+                    help = Some(format!(
+                        "`External` of `{module}` is removed only in the handlers of `{module}`"
+                    ));
                 }
                 (
                     Severity::Error,
@@ -1300,20 +1314,6 @@ impl Diagnostic {
                     "wrong number of parameters: operation `{op}` takes {expected}, found {found}"
                 ),
             ),
-            TypeDiagnosticKind::ExternalOutsideHandler {
-                name,
-                suspend,
-                host,
-            } => {
-                if !*suspend && !*host {
-                    help = Some("declare it with `uses {}` if it has no side effects".to_owned());
-                }
-                (
-                    Severity::Error,
-                    Some(code::EXTERNAL_OUTSIDE_HANDLER),
-                    format!("external function `{name}` can only be used in handlers"),
-                )
-            }
             TypeDiagnosticKind::HandlerCycle { cycle } => {
                 let path: Vec<String> = cycle.iter().map(|h| format!("`{h}`")).collect();
                 (
@@ -1599,18 +1599,30 @@ impl Diagnostic {
                     "operation `{op}` cannot have type parameters: only built-in effects may declare them"
                 ),
             ),
-            TypeDiagnosticKind::UseHostEffect { effect } => (
+            TypeDiagnosticKind::UseHostEffect { effect, external } => (
                 Severity::Error,
                 Some(code::USE_HOST_EFFECT),
-                format!("`{effect}` is a host effect and cannot be used with `use`"),
+                if *external {
+                    format!("`{effect}` cannot be used with `use`")
+                } else {
+                    format!("`{effect}` is a host effect and cannot be used with `use`")
+                },
             ),
-            TypeDiagnosticKind::ExternalUses { function } => (
-                Severity::Error,
-                Some(code::EXTERNAL_USES),
-                format!(
-                    "the uses of external function `{function}` can contain only `ProcessHost` and `PageHost`"
-                ),
-            ),
+            TypeDiagnosticKind::ExternalUses { function, external } => {
+                if *external {
+                    help = Some(
+                        "`External` is added to every external function, except one declared with `uses {}` that is not a `suspend fn`"
+                            .to_owned(),
+                    );
+                }
+                (
+                    Severity::Error,
+                    Some(code::EXTERNAL_USES),
+                    format!(
+                        "the uses of external function `{function}` can contain only `ProcessHost` and `PageHost`"
+                    ),
+                )
+            }
             TypeDiagnosticKind::EffectWithoutOps { effect } => {
                 help = Some(
                     "an effect needs at least one operation; only host effects have none"
@@ -1779,14 +1791,24 @@ impl Diagnostic {
                 effects,
                 callee,
                 bound_item,
+                externals,
             } => {
                 if *bound_item {
                     help = Some(
                         "capture the capability of a named item (`with g = H { ... }`) and call its operations".to_owned(),
                     );
                 }
+                // The External of another module (`[effect.external]`): only a handler of that
+                // module can give the callback to the host.
+                let only_externals = !externals.is_empty() && externals.len() == effects.len();
+                if let Some(module) = externals.first() {
+                    help = Some(format!("only a handler of `{module}` can give it to the host"));
+                }
                 let list = quoted_list("effect", "effects", effects);
                 let message = match callee {
+                    Some(callee) if only_externals => format!(
+                        "{list} cannot be used by a callback of external function `{callee}`"
+                    ),
                     Some(callee) => format!(
                         "{list} cannot be used by a callback of external function `{callee}`: the host calls it without handlers"
                     ),

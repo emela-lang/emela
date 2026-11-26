@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/spec_examples.rs
+assertion_line: 1319
+expression: "render_bodies(r##\"\neffect Log {  # 補\n  fn info(msg: String) -> ()\n}\n\n@external(js, \"./write.mjs\", \"hostWrite\")\nfn host_write(s: String) -> ()\n\nfn tagged(tag: String, msg: String) { host_write(\"[#{tag}] #{msg}\") } # R: { External }\n\npub handler FileLog: Log {\n  fn info(msg) { tagged(\"info\", msg) } # External is removed here\n}\n\"##)"
+---
+host_write: fn(String) -> () uses { Main.External }
+tagged: fn(String, String) -> () uses { Main.External }
+  tag: String
+  msg: String

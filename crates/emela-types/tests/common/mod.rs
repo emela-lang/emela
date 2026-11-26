@@ -164,6 +164,7 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
             hosts,
             process,
             bound,
+            external,
         } => {
             let mut note = if *in_task {
                 " [provide outside the group]".to_owned()
@@ -179,16 +180,26 @@ pub fn describe(src: &str, cons: &TyCons, d: &TypeDiagnostic) -> String {
             if let Some(bound) = bound {
                 note.push_str(&format!(" [bound item `{}`]", bound.name));
             }
+            if let Some(module) = external {
+                note.push_str(&format!(" [External of {module}]"));
+            }
             format!(
                 "`{text}` unhandled effects {} ({context:?}){note}",
                 effects.join(", ")
             )
         }
         DiagnosticKind::EffectSetMismatch {
-            expected, found, ..
+            expected,
+            found,
+            external,
+            ..
         } => {
+            let note = match external {
+                Some(module) => format!(" [External of {module}]"),
+                None => String::new(),
+            };
             format!(
-                "`{text}` effect set mismatch: expected `uses {expected}`, found `uses {found}`"
+                "`{text}` effect set mismatch: expected `uses {expected}`, found `uses {found}`{note}"
             )
         }
         DiagnosticKind::SuspendAfterResume {

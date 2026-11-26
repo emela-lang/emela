@@ -1,5 +1,6 @@
 ---
 source: crates/emela-driver/tests/diagnostics.rs
+assertion_line: 749
 expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 ---
 error[E0415]: operation `now` is not a `suspend fn` in effect `Clock`
@@ -88,14 +89,6 @@ error[E0414]: `Async` is a host effect and cannot be used with `use`
     │       ╰────── 
 ────╯
 
-error[E0407]: external function `fetch_text` can only be used in handlers
-    ╭─[ main.emel:50:3 ]
-    │
- 50 │   fetch_text("x")
-    │   ─────┬────  
-    │        ╰────── 
-────╯
-
 error[E0416]: effect `Clock` may suspend, but `R` of `update` must be `Immediate`
     ╭─[ main.emel:51:3 ]
     │
@@ -113,4 +106,4 @@ error[E0416]: effect set `R(g)` may suspend, but `R` of `update` must be `Immedi
 ────╯
    = help: constrain the effect set with `: Immediate`
 
-13 errors
+12 errors

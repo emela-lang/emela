@@ -43,6 +43,9 @@ pub(crate) enum Ns {
 
 const NAMESPACES: [Ns; 3] = [Ns::Type, Ns::Ctor, Ns::Value];
 
+/// The name of the External of a module (`[effect.external]`).
+pub(crate) const EXTERNAL: &str = "External";
+
 /// A module that can be written left of `.`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ModRef {
@@ -142,6 +145,7 @@ pub fn resolve(
             pending.extend(resolver.collect(module, file));
         }
     }
+    resolver.declare_externals();
     resolver.use_core_prelude();
     for (module, _) in modules.iter() {
         if let Some(file) = files.get(module) {
@@ -677,12 +681,42 @@ impl<'a> Resolver<'a> {
             .collect()
     }
 
-    /// Warns if module definitions or imports hide Prelude names.
+    /// Declares the External of every module (`[effect.external]`). It is not put in the scope of
+    /// the module: [`Resolver::lookup`] and [`Resolver::module_member`] find it under the name
+    /// `External` when the module has no definition or import of that name.
+    fn declare_externals(&mut self) {
+        let modules: Vec<ModuleId> = self.modules.iter().map(|(m, _)| m).collect();
+        for module in modules {
+            let def = self.program.defs.alloc(DefData {
+                name: EXTERNAL.into(),
+                kind: DefKind::Effect,
+                module: DefModule::Source(module),
+                parent: None,
+                span: None,
+                is_pub: true,
+                is_opaque: false,
+            });
+            self.program.items.insert(
+                def,
+                crate::hir::Item::Effect(crate::hir::EffectItem {
+                    type_params: Vec::new(),
+                    ops: Vec::new(),
+                    members: Vec::new(),
+                    is_intrinsic: false,
+                    label: None,
+                }),
+            );
+            self.program.externals.insert(module, def);
+        }
+    }
+
+    /// Warns if module definitions or imports hide Prelude names. `External` is treated as a
+    /// name of the Prelude (`[effect.external]`).
     fn warn_prelude_shadowing(&mut self, module: ModuleId) {
         let mut shadowing: Vec<(TextRange, SmolStr)> = Vec::new();
         for ns in NAMESPACES {
             for (name, entry) in &self.scopes[module].names[ns as usize] {
-                if self.prelude[ns as usize].contains_key(name)
+                if (self.prelude[ns as usize].contains_key(name) || name == EXTERNAL)
                     && let Some(range) = entry.range
                 {
                     shadowing.push((range, name.clone()));
@@ -699,11 +733,21 @@ impl<'a> Resolver<'a> {
 
     /// Looks in the module's namespaces and the Prelude. Locals and type parameters are checked
     /// first by the caller.
+    /// `External` names the External of the module when the module has no definition or import
+    /// of that name (`[effect.external]`).
     pub(crate) fn lookup(&self, module: ModuleId, ns: Ns, name: &str) -> Option<DefId> {
         self.scopes[module]
             .get(ns, name)
             .map(|e| e.target)
+            .or_else(|| self.external_named(module, ns, name))
             .or_else(|| self.prelude[ns as usize].get(name).copied())
+    }
+
+    /// The External of `module` if `name` is `External` in the type namespace.
+    fn external_named(&self, module: ModuleId, ns: Ns, name: &str) -> Option<DefId> {
+        (ns == Ns::Type && name == EXTERNAL)
+            .then(|| self.program.external_effect(module))
+            .flatten()
     }
 
     /// The traits that can be written unqualified in `module` ([`ModuleItems::traits`]).
@@ -835,10 +879,19 @@ impl<'a> Resolver<'a> {
         match target {
             ModRef::Source(target) => {
                 let target = *target;
+                // `M.External` names the External of M unless M defines `External`
+                // (`[effect.external]`).
                 let found = self.scopes[target]
                     .get(ns, name)
                     .filter(|e| !e.imported)
-                    .map(|e| e.target);
+                    .map(|e| e.target)
+                    .or_else(|| {
+                        self.scopes[target]
+                            .get(ns, name)
+                            .is_none()
+                            .then(|| self.external_named(target, ns, name))
+                            .flatten()
+                    });
                 let module_name = self.modules[target].name.clone();
                 match found {
                     Some(def) => {

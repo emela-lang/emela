@@ -608,7 +608,7 @@ fn logs() {
 
 /// The diagnostics about the uses clause (`[grammar.decl]`, `[diag.list]`): the old clause
 /// (E0147) in a signature, in a function type, on its own line and on an effect operation, read
-/// on as a uses clause; and the sets of E0402, E0403, E0407 and E0423 shown in the canonical
+/// on as a uses clause; and the sets of E0402, E0403 and E0423 shown in the canonical
 /// form `uses { ... }`.
 #[test]
 fn uses_clause_diagnostics() {
@@ -674,7 +674,7 @@ fn outside() {
 }
 
 /// The messages of suspend, Async, Immediate and declaration type argument set diagnostics
-/// (E0221, E0322 to E0324, E0407, E0413 to E0416). Only Async may remain in main's R (spec 8.3).
+/// (E0221, E0322 to E0324, E0413 to E0416). Only Async may remain in main's R (spec 8.3).
 #[test]
 fn suspend_diagnostics() {
     let mut frontend = Typecheck::default();
@@ -3330,4 +3330,271 @@ fn callback_alone() {
         &mut Typecheck::default(),
     );
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// `[effect.external]`: the ways out of a handler that a value calling an external function had
+/// before External, and the diagnostics about External. Each value that calls an external
+/// function has the External of its module in its type: put where a pure function type is
+/// expected (a State, a parameter, the field of an error, the result of an operation) it is
+/// E0403; called outside the handlers of its module it is E0402. A handler for External is
+/// E0413, `use External` is E0414, External in the uses of an external function is E0445, and
+/// the External of another module in a callback is E0454.
+#[test]
+fn external_effect_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[
+            ("app/Pome.toml", ""),
+            (
+                "app/src/log.emel",
+                r#"@external(js, "./h.mjs", "hostLog")
+fn host_log(s: String) -> ()
+
+## A factory of callbacks: its R is empty, and its result has the External of Log.
+pub fn ping() -> fn() -> () uses { External } { || host_log("ping") }
+"#,
+            ),
+            (
+                "app/src/main.emel",
+                r#"import Log
+import Std.State.{State}
+import Std.Task.{Task, TaskGroup}
+
+@external(js, "./h.mjs", "hostLog")
+fn host_log(s: String) -> ()
+
+@external(js, "./h.mjs", "takeBack")
+fn take_back() -> fn(String) -> ()
+
+@external(js, "./h.mjs", "register")
+fn register(f: fn() -> ()) -> ()
+
+@external(js, "./h.mjs", "marked")
+fn marked() -> () uses { External }
+
+error Carry(f: fn(String) -> ())
+
+effect Leak {
+  fn stash() -> ()
+  fn kept() -> ()
+  fn carry() -> () fails Carry
+  fn hand() -> fn(String) -> () fails {} uses {}
+  fn give() -> ()
+}
+
+fn keep(f: fn(String) -> () fails {} uses {}) {
+  st <- State[fn(String) -> ()]
+  st.set(f)
+}
+
+handler Leaker: Leak {
+  fn stash() {
+    st <- State[fn(String) -> ()]
+    st.set(|s| host_log(s))
+  }
+  fn kept() { keep(|s| host_log(s)) }
+  fn carry() { fail Carry(f: |s| host_log(s)) }
+  fn hand() { take_back() }
+  fn give() { register(Log.ping()) }
+}
+
+effect Spawn {
+  fn spawn() -> ()
+}
+
+## The task runs in the group of `main`, outside the handlers of Main.
+handler Spawner: Spawn {
+  fn spawn() {
+    tasks <- TaskGroup
+    _ = tasks.start(|| host_log("task"))
+  }
+}
+
+handler Host: External {
+}
+
+fn uses_external() {
+  _ = use External
+  ()
+}
+
+fn returned() -> () uses {} {
+  f = take_back()
+  f("outside")
+}
+
+fn from_factory() -> () uses {} {
+  g = Log.ping()
+  g()
+}
+
+fn main() -> () uses { Async } {
+  with Task.Group {
+    with Spawner {
+      s <- Spawn
+      s.spawn()
+    }
+  }
+}
+"#,
+            ),
+        ],
+        "app",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// `[effect.external]`, `[ext.call]`, `[ext.decl]`: the forms that stay silent. A private fn
+/// calls an external function and a handler of its module calls it (E0407 is retired); a pub
+/// `@external` fn declared with `uses {}` is called from another module; a pub `@external` fn
+/// that adds External is referred to as a value by another module and passed to a handler of its
+/// module, as is the result of a factory, to an operation and to an init; an effect and a handler
+/// of a module that call external functions are used by the handlers of another module; inside a
+/// handler, a closure passed to `List.map`, kept in a field, passed to another handler of the
+/// same module through a private effect, started as a task in a group inside the body, and
+/// passed to an external function of the module as a callback; a function returned by an
+/// external function, called in a handler; External written in the uses clause of a private fn.
+#[test]
+fn external_effect_allowed() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[
+            ("app/Pome.toml", ""),
+            (
+                "app/src/log.emel",
+                r##"import Std.Task.{Task}
+
+@external(js, "./h.mjs", "hostLog")
+pub fn host_log(s: String) -> ()
+
+@external(js, "./h.mjs", "fold")
+pub fn fold_case(s: String) -> String uses {}
+
+@external(js, "./h.mjs", "later")
+fn later(f: fn() -> ()) -> ()
+
+@external(js, "./h.mjs", "takeBack")
+fn take_back() -> fn(String) -> ()
+
+fn tagged(tag: String, msg: String) { host_log("[#{tag}] #{msg}") }
+
+fn written(msg: String) -> () uses { External } { host_log(msg) }
+
+pub fn printer() -> fn(String) -> () uses { External } { |s| host_log(s) }
+
+pub effect Log {
+  fn info(msg: String) -> ()
+}
+
+pub handler FileLog: Log {
+  init {
+    tagged("init", "open")
+    FileLog
+  }
+  fn info(msg) {
+    tagged("info", msg)
+    written(msg)
+    _ = List.map(["a", "b"], |s| host_log(s))
+    later(|| host_log("later"))
+    f = take_back()
+    f(msg)
+  }
+  release { tagged("release", "close") }
+}
+
+pub effect Run {
+  fn run(f: fn(String) -> () uses { External }) -> ()
+}
+
+pub handler Runner: Run {
+  fn run(f) { f("ran") }
+}
+
+pub handler Kept(f: fn(String) -> () uses { External }): Log {
+  init(f: fn(String) -> () uses { External }) { Self(f:) }
+  fn info(msg) { self.f(msg) }
+}
+
+effect Pass {
+  fn pass(f: fn(String) -> () uses { External }) -> ()
+}
+
+handler Passer: Pass {
+  fn pass(f) { f("passed") }
+}
+
+pub effect Relay {
+  fn relay(msg: String) -> ()
+}
+
+pub handler Relayer: Relay {
+  fn relay(msg) {
+    with Passer {
+      p <- Pass
+      p.pass(|s| host_log("#{msg} #{s}"))
+    }
+  }
+}
+
+pub effect Spawn {
+  suspend fn spawn() -> ()
+}
+
+pub handler Spawner: Spawn {
+  suspend fn spawn(resume) {
+    with tasks = Task.Group {
+      _ = tasks.start(|| host_log("task"))
+    }
+    resume(())
+  }
+}
+"##,
+            ),
+            (
+                "app/src/main.emel",
+                r#"import Log
+import Log.{FileLog, Kept, Log, Relay, Relayer, Run, Runner, Spawn, Spawner}
+
+effect Greet {
+  fn greet(name: String) -> ()
+}
+
+handler Greeter: Greet {
+  fn greet(name) {
+    log <- Log
+    log.info(Log.fold_case(name))
+  }
+}
+
+fn main() -> () uses { Async } {
+  _ = Log.fold_case("pure")
+  with FileLog, Greeter, Runner, Relayer, Spawner {
+    g <- Greet
+    g.greet("you")
+    run <- Run
+    run.run(Log.host_log)
+    run.run(Log.printer())
+    r <- Relay
+    r.relay("msg")
+    s <- Spawn
+    s.spawn()
+  }
+  with Kept(Log.printer()) {
+    log <- Log
+    log.info("kept")
+  }
+}
+"#,
+            ),
+        ],
+        "app",
+        &mut frontend,
+    );
+    assert_eq!(
+        render(&analysis.diagnostics, &analysis.sources, false),
+        "",
+        "{:#?}",
+        analysis.diagnostics
+    );
 }
