@@ -221,6 +221,74 @@ fn main() {
     ));
 }
 
+/// The functions of an inner handler have the type parameters of its outer handler
+/// (`[effect.handler]`): each copy of the outer handler opens a handler member through the copies
+/// of the inner handler's init, handler function and release for its own type arguments, with and
+/// without state.
+#[test]
+fn handler_members_of_generic_handlers() {
+    let m = mono(&lower_files(&[(
+        "main.emel",
+        "\
+effect Cell[T] {
+  fn get() -> T
+}
+
+effect Log[T] {
+  fn put(x: T) -> ()
+}
+
+effect Store[T] {
+  handler Open(v: T): Cell[T]
+  handler Logger(): Log[T]
+}
+
+handler Mem[T]: Store[T] {
+  handler Open(v: T): Cell[T] {
+    init(v: T) { Self(v:) }
+
+    release { _ = dbg(self.v) }
+
+    fn get() { self.v }
+  }
+
+  handler Logger(): Log[T] {
+    fn put(x) { _ = dbg(x) }
+  }
+}
+
+fn main() {
+  with Mem[Int] {
+    with c = Store.Open(1), l = Store.Logger() { l.put(c.get()) }
+  }
+  with Mem[String] {
+    with c = Store.Open(\"a\"), l = Store.Logger() { l.put(c.get()) }
+  }
+}
+",
+    )]));
+    let mut names: Vec<&str> = m
+        .functions
+        .iter()
+        .map(|(_, f)| f.name.as_str())
+        .filter(|n| n.starts_with("Mem."))
+        .collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        [
+            "Mem.Logger[Int]",
+            "Mem.Logger[String]",
+            "Mem.Open$init[Int]",
+            "Mem.Open$init[String]",
+            "Mem.Open$release[Int]",
+            "Mem.Open$release[String]",
+            "Mem.Open[Int]",
+            "Mem.Open[String]",
+        ]
+    );
+}
+
 /// An exported fn with a type parameter that its boundary types do not use is instantiated at
 /// `Any` under its own name.
 #[test]
