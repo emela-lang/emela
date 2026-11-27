@@ -30,7 +30,7 @@ impl<'m> Builder<'m> {
             // take it: the state-machine pass gives the value its suspension edge only then, so
             // the yield is a no-op here as well.
             RuntimeOp::Yield | RuntimeOp::YieldPerform => {
-                if self.fiber_plan.is_some() && runtime::fiber::used(self) {
+                if self.fiber_plan.is_some() && self.uses_fibers() {
                     let perform = i32::from(matches!(op, RuntimeOp::YieldPerform));
                     ins.i32_const(perform);
                     let f = self.rt("fb_yield");

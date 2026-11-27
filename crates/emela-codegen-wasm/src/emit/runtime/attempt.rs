@@ -62,41 +62,6 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
     true
 }
 
-/// Whether the program uses `Exit.attempt` or an operation of `Std.Cause`, the only concurrency
-/// operations the target supports (`check::value`).
-pub(crate) fn used(b: &Builder) -> bool {
-    b.m.functions.iter().any(|(_, f)| {
-        f.stmts.iter().any(|(_, s)| {
-            matches!(
-                s,
-                Stmt::Let {
-                    value: Value::Fiber { .. },
-                    ..
-                }
-            )
-        })
-    })
-}
-
-/// Whether some `Exit.attempt` runs a function that may suspend, so the scheduler needs the
-/// resume function of its frame.
-pub(crate) fn suspends(b: &Builder) -> bool {
-    b.m.functions.iter().any(|(_, f)| {
-        f.stmts.iter().any(|(_, s)| {
-            matches!(
-                s,
-                Stmt::Let {
-                    value: Value::Fiber {
-                        op: FiberOp::Attempt { suspends: true, .. },
-                        ..
-                    },
-                    ..
-                }
-            )
-        })
-    })
-}
-
 /// The kinds of a cause, in the order of `CauseKind`.
 pub(crate) const CAUSE_FAIL: i32 = 0;
 pub(crate) const CAUSE_DIE: i32 = 1;
@@ -208,7 +173,7 @@ fn attempt_caught(b: &mut Builder, ins: &mut InstructionSink) {
         // What unwinds after a write to a standard output closed by its reader is not caught
         // (`console::stdout_lost`).
         ins.global_get(G_STDOUT);
-        ins.i32_const(super::console::STDOUT_LOST);
+        ins.i32_const(STDOUT_LOST);
         ins.i32_eq();
         ins.if_(BlockType::Empty);
         ins.i32_const(0);

@@ -236,7 +236,7 @@ const MODULES: &[RuntimeModule] = &[
         locals: attempt::locals,
         setup: no_setup,
         emit: attempt::emit,
-        used: attempt::used,
+        used: |b| b.uses_attempt(),
     },
     RuntimeModule {
         funcs: http::FUNCS,
@@ -266,7 +266,7 @@ const MODULES: &[RuntimeModule] = &[
         locals: array::locals,
         setup: no_setup,
         emit: array::emit,
-        used: array::used,
+        used: |b| b.uses_arrays(),
     },
     RuntimeModule {
         funcs: line::FUNCS,

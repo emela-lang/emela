@@ -8,7 +8,7 @@
 //! (`waitable-set.wait`); this stage does not yield to the component-model scheduler.
 //!
 //! The globals `G_STDOUT` and `G_STDERR` hold the writable end: 0 before the first write, -1 once
-//! the stream is closed (later output is dropped), and for stdout `console::STDOUT_LOST` once its
+//! the stream is closed (later output is dropped), and for stdout `STDOUT_LOST` once its
 //! reader closed it. `G_STDOUT_FUTURE` and `G_STDERR_FUTURE` hold
 //! the futures, and `G_WAITSET` the one waitable set the waits use (0 until the first write).
 
@@ -132,7 +132,7 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, out: Output) {
     };
     let imports = out.imports;
 
-    // A closed stream drops the output (-1, or `console::STDOUT_LOST`).
+    // A closed stream drops the output (-1, or `STDOUT_LOST`).
     ins.global_get(out.writer);
     ins.local_tee(W);
     ins.i32_const(0);
@@ -220,7 +220,7 @@ fn write_stream(b: &mut Builder, ins: &mut InstructionSink, out: Output) {
     // Standard output closed by its reader ends the program (`console::stdout_lost`). Standard
     // error closed by its reader only drops the output (`[api.std.process]`).
     if out.writer == G_STDOUT && b.uses_console() {
-        ins.i32_const(super::console::STDOUT_LOST);
+        ins.i32_const(STDOUT_LOST);
         ins.global_set(G_STDOUT);
         ins.call(rt(b, "stdout_lost"));
     }

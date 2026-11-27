@@ -62,10 +62,6 @@ fn text(ins: &mut InstructionSink, write: u32) {
     ins.call(write);
 }
 
-/// The value of `G_STDOUT` once a write found standard output closed by its reader (`DROPPED`);
-/// -1 is a stream the program closed itself, at its end.
-pub(crate) const STDOUT_LOST: i32 = -2;
-
 /// `stdout_lost()`: a write to standard output found its reader gone (`[api.std.process]`). The
 /// write does not return normally: every other fiber is interrupted (11.4), and the fiber that
 /// wrote unwinds as interrupted from here, through the pending interruption, unless a defect is

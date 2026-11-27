@@ -281,29 +281,6 @@ fn cell(b: &Builder<'_>, f: impl Fn(&Plan) -> u32) -> u32 {
     f(plan(b))
 }
 
-/// Whether the program forks, scopes or shares a Deferred: the operations that need the
-/// scheduler. `Exit.attempt` and the operations of `Std.Cause` run on the current fiber and need
-/// none of this.
-pub(crate) fn used(b: &Builder<'_>) -> bool {
-    b.m.functions.iter().any(|(_, f)| {
-        f.stmts.iter().any(|(_, s)| {
-            matches!(
-                s,
-                Stmt::Let {
-                    value: Value::Fiber { op, .. },
-                    ..
-                } if !matches!(
-                    op,
-                    FiberOp::Attempt { .. }
-                        | FiberOp::CauseKind { .. }
-                        | FiberOp::CauseToString
-                        | FiberOp::CauseRaise { .. }
-                )
-            )
-        })
-    })
-}
-
 pub(super) const FUNCS: &[Sig] = &[
     ("fb_root_begin", &[], &[]),
     ("fb_root_run", &[], &[]),
@@ -771,7 +748,11 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
     }
     let scope_body_table = b.table_funcs.len() as u32 - 2;
     let scope_close_table = scope_body_table + 1;
-    let notes = if used(b) { b.alloc_static(8) } else { 0 };
+    let notes = if b.uses_fibers() {
+        b.alloc_static(8)
+    } else {
+        0
+    };
     let msg = |b: &mut Builder<'_>, s: &[u8]| b.string_literal(s);
     let msg_scope_fork = msg(b, b"task group was used after it closed");
     let note_background = msg(
