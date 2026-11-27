@@ -7,7 +7,7 @@ use super::string::append_cell;
 use super::*;
 use emela_core::Builtin;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     (
         "bytes_from_list",
         &[ValType::I32, ValType::I32, ValType::I32],
@@ -27,7 +27,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ("bytes_concat", &[ValType::I32], &[ValType::I32]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "bytes_from_list" => i32s(5), // n, p, x, out, i
         "bytes_to_list" => i32s(5),   // head, last, i, n, cell
@@ -38,7 +38,11 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     }
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "bytes_from_list" => bytes_from_list(b, ins),
         "bytes_to_list" => bytes_to_list(b, ins),
@@ -52,7 +56,7 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
 
 /// Whether reachable code uses a Bytes builtin that is implemented here. A program without Bytes
 /// keeps the same bytes.
-pub(super) fn used(b: &Builder) -> bool {
+pub(in crate::emit::runtime) fn used(b: &Builder) -> bool {
     b.reaches_builtin(implemented)
 }
 

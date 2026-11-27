@@ -3,7 +3,7 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     (
         "int_parse",
         &[ValType::I32, ValType::I32, ValType::I32],
@@ -21,7 +21,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "int_parse" => vec![(5, ValType::I32), (1, ValType::I64)], // p, n, i, neg, b / v
         "int_checked_add" => vec![(1, ValType::I64), (1, ValType::I32)], // r / p
@@ -30,7 +30,11 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     }
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "int_parse" => int_parse(b, ins),
         "int_checked_add" => int_checked_add(b, ins),

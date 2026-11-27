@@ -28,7 +28,7 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("env_find", &[ValType::I32], &[ValType::I32]),
     ("env_build", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("env_hash", &[ValType::I32, ValType::I32], &[ValType::I32]),
@@ -41,7 +41,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ("env_get", &[ValType::I32], &[ValType::I32]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         // LP, P, MASK, SLOTS, H, J, S, LN, NL, NP
         "env_find" => i32s(10),
@@ -57,11 +57,15 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     }
 }
 
-pub(super) fn used(b: &Builder) -> bool {
+pub(in crate::emit::runtime) fn used(b: &Builder) -> bool {
     b.uses_env()
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "env_find" => env_find(b, ins),
         "env_build" => env_build(b, ins),

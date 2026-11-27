@@ -1,5 +1,5 @@
 //! `Std.Console` and the writes of SystemStdout and SystemStderr (`Std.Process`) on WASI 0.3: text
-//! to stdout/stderr, on the one stream the runtime holds for each (`runtime/host.rs`).
+//! to stdout/stderr, on the one stream the runtime holds for each (`runtime/wasi/host.rs`).
 //!
 //! `print_line` and `print_error_line` write the text, then a newline; `print_stdout` and
 //! `print_stderr` write the text as is (SystemStdout and SystemStderr add the newline of their
@@ -9,7 +9,7 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("print_line", &[ValType::I32], &[]),
     ("print_error_line", &[ValType::I32], &[]),
     ("print_stdout", &[ValType::I32], &[]),
@@ -17,18 +17,22 @@ pub(super) const FUNCS: &[Sig] = &[
     ("stdout_lost", &[], &[]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "stdout_lost" => vec![(2, ValType::I32)], // the fiber walked, the current one
         _ => Vec::new(),
     }
 }
 
-pub(super) fn used(b: &Builder) -> bool {
+pub(in crate::emit::runtime) fn used(b: &Builder) -> bool {
     b.uses_console()
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     if name == "stdout_lost" {
         stdout_lost(b, ins);
         return true;
@@ -97,7 +101,7 @@ fn stdout_lost(b: &mut Builder, ins: &mut InstructionSink) {
         ins.call(interrupt);
         ins.end();
         ins.local_get(F);
-        ins.i32_load(mem(super::fiber::F_NEXTF, 4));
+        ins.i32_load(mem(super::super::fiber::F_NEXTF, 4));
         ins.local_set(F);
         ins.br(0);
         ins.end();

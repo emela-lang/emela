@@ -6,20 +6,24 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("random_int", &[], &[ValType::I32]),
     ("random_float", &[], &[ValType::F64]),
 ];
 
-pub(super) fn locals(_name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(_name: &str) -> Vec<(u32, ValType)> {
     Vec::new()
 }
 
-pub(super) fn used(b: &Builder) -> bool {
+pub(in crate::emit::runtime) fn used(b: &Builder) -> bool {
     b.uses_random()
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "random_int" => {
             ins.call(b.random_u64());

@@ -14,7 +14,7 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("debug_print", &[ValType::I32], &[]),
     ("write", &[ValType::I32, ValType::I32, ValType::I32], &[]),
     ("write_stdout", &[ValType::I32, ValType::I32], &[]),
@@ -25,7 +25,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ("close_output", &[], &[]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "write_stdout" | "write_stderr" => vec![
             (1, ValType::I64), // local 2: the packed stream ends
@@ -64,7 +64,11 @@ fn output(b: &mut Builder, name: &str) -> Output {
     }
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "debug_print" => debug_print(b, ins),
         "write" => write(b, ins),

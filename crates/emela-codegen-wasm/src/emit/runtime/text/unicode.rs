@@ -35,7 +35,7 @@ const INCB_CONSONANT: i32 = t::INCB_CONSONANT as i32;
 const INCB_LINKER: i32 = t::INCB_LINKER as i32;
 const INCB_EXTEND: i32 = t::INCB_EXTEND as i32;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     (
         "unicode_class",
         &[ValType::I32, ValType::I32, ValType::I32],
@@ -53,7 +53,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ("str_grapheme_chars", &[ValType::I32], &[ValType::I32]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         // lo, hi, mid, start, packed
         "unicode_class" => i32s(5),
@@ -88,7 +88,7 @@ const ENTRIES: [&str; 3] = ["str_grapheme_count", "str_grapheme_chars", "str_spl
 ///
 /// The tables are about 10 KB, so they are written only when the program calls a function in
 /// [`ENTRIES`]. Otherwise the grapheme functions are unreachable and read base 0.
-pub(super) fn setup(b: &mut Builder) {
+pub(in crate::emit::runtime) fn setup(b: &mut Builder) {
     if !ENTRIES.iter().any(|name| b.rt_used.contains(name)) {
         return;
     }
@@ -124,7 +124,11 @@ fn lookup(b: &Builder, ins: &mut InstructionSink, name: &str, ranges: Ranges) {
     ins.call(rt(b, "unicode_class"));
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "unicode_class" => unicode_class(ins),
         "gcb_of" => gcb_of(b, ins),
@@ -669,7 +673,7 @@ fn str_grapheme_chars(b: &mut Builder, ins: &mut InstructionSink) {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/common/grapheme_break_test.rs"]
+#[path = "../../../../tests/common/grapheme_break_test.rs"]
 mod grapheme_break_test;
 
 #[cfg(test)]

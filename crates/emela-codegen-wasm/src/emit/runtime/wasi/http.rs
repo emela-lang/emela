@@ -22,7 +22,7 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("http_alloc_raw", &[ValType::I32], &[ValType::I32]),
     ("http_box", &[ValType::I32], &[ValType::I32]),
     ("http_utf8", &[ValType::I32; 2], &[ValType::I32]),
@@ -62,7 +62,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ("http_answer", &[ValType::I32; 2], &[]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "http_alloc_raw" | "http_box" => i32s(1),
         // i, continuation bytes, first byte, low bound, high bound, j
@@ -137,7 +137,7 @@ const ARENA: i32 = 64 * 1024;
 /// The import module of the HTTP types.
 const T: &str = "wasi:http/types@0.3.0";
 
-pub(super) fn used(b: &Builder) -> bool {
+pub(in crate::emit::runtime) fn used(b: &Builder) -> bool {
     b.uses_std_host(StdHost::is_http)
 }
 
@@ -255,7 +255,7 @@ pub(crate) fn task_return(b: &mut Builder<'_>) -> u32 {
 
 /// Allocates the cells and static strings. Runs in `runtime::register`, before the runtime
 /// function indices are assigned.
-pub(super) fn prepare(b: &mut Builder<'_>) {
+pub(in crate::emit::runtime) fn prepare(b: &mut Builder<'_>) {
     if !used(b) {
         return;
     }
@@ -319,7 +319,11 @@ pub(super) fn prepare(b: &mut Builder<'_>) {
     });
 }
 
-pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder<'_>,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "http_alloc_raw" => alloc_raw(b, ins),
         "http_box" => box_(b, ins),

@@ -2,7 +2,7 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("idiv", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("irem", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("ineg", &[ValType::I32], &[ValType::I32]),
@@ -18,14 +18,18 @@ pub(super) const FUNCS: &[Sig] = &[
     ("fmod", &[ValType::F64, ValType::F64], &[ValType::F64]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "ishl" | "ishr" | "iushr" | "lshl" | "lshr" | "lushr" => i32s(2),
         _ => Vec::new(),
     }
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "idiv" | "irem" | "ineg" => int_binop(ins, name),
         "ishl" | "ishr" | "iushr" => ishift(b, ins, name),

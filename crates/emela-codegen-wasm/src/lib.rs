@@ -10,7 +10,7 @@
 //! strings, the numeric conversions and the runtime operations) and the host is WASI 0.3, so the
 //! output is a component exporting `wasi:cli/run@0.3.0`, run with an external engine
 //! (`wasmtime`). An HTTP service exports `handle` of `wasi:http/handler@0.3.0` instead
-//! (`emit::runtime::http`), run with `wasmtime serve`.
+//! (`emit::runtime::wasi::http`), run with `wasmtime serve`.
 //!
 //! The target supports the WASI hosts the bundled `Std` handlers use (Console, Env, Random,
 //! Clock.now and Clock.sleep), and suspending functions are compiled as state machines with heap

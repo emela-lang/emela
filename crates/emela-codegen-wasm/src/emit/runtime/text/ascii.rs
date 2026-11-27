@@ -9,19 +9,19 @@
 use super::*;
 use emela_core::Builtin;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("str_ascii_lower", &[ValType::I32], &[ValType::I32]),
     ("str_ascii_upper", &[ValType::I32], &[ValType::I32]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "str_ascii_lower" | "str_ascii_upper" => i32s(4), // n, p, i, c
         _ => Vec::new(),
     }
 }
 
-pub(super) fn used(b: &Builder) -> bool {
+pub(in crate::emit::runtime) fn used(b: &Builder) -> bool {
     b.reaches_builtin(implemented)
 }
 
@@ -29,7 +29,11 @@ fn implemented(op: Builtin) -> bool {
     matches!(op, Builtin::StringAsciiLower | Builtin::StringAsciiUpper)
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "str_ascii_lower" => ascii_case(b, ins, 'A', 'Z', 'a' as i32 - 'A' as i32),
         "str_ascii_upper" => ascii_case(b, ins, 'a', 'z', 'A' as i32 - 'a' as i32),
