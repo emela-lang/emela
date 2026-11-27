@@ -14,60 +14,6 @@ use crate::resolve::{DotLeft, ModRef, Ns, Pending, Resolver, child_token, token_
 use crate::source::ModuleId;
 use crate::suggest::best_match;
 
-/// Reports an fn of the module of a type, whose first parameter has that type at its head and
-/// whose name is a field of that type (E3109, `[data.type]`). Types with fields are types,
-/// errors and handlers with fields. Runs after every item is lowered, since it reads the
-/// resolved type of the first parameter.
-pub(crate) fn check_fn_field_names(resolver: &mut Resolver<'_>) {
-    let program = &resolver.program;
-    let mut found = Vec::new();
-    for (def, item) in program.items.iter() {
-        let Item::Fn(f) = item else { continue };
-        let data = &program.defs[def];
-        let (DefModule::Source(module), Some(span)) = (&data.module, data.span) else {
-            continue;
-        };
-        let Some(ty) = f.sig.params.first().and_then(|p| p.ty) else {
-            continue;
-        };
-        let TypeKind::Path {
-            res: Res::Def(ty_def),
-            ..
-        } = program.types[ty].kind
-        else {
-            continue;
-        };
-        if program.defs[ty_def].module != data.module {
-            continue;
-        }
-        let fields = match program.item(ty_def) {
-            Some(Item::Type(t)) => &t.fields,
-            Some(Item::Error(e)) => &e.fields,
-            Some(Item::Handler(h)) => match h.ctor.and_then(|c| program.item(c)) {
-                Some(Item::Ctor(c)) => &c.fields,
-                _ => continue,
-            },
-            _ => continue,
-        };
-        let Fields::Named(fields) = fields else {
-            continue;
-        };
-        if fields.iter().any(|field| field.name == data.name) {
-            found.push((
-                *module,
-                span.range,
-                DiagnosticKind::FnNamedLikeField {
-                    name: data.name.clone(),
-                    ty: program.defs[ty_def].name.clone(),
-                },
-            ));
-        }
-    }
-    for (module, range, kind) in found {
-        resolver.error(module, range, kind);
-    }
-}
-
 pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
     let mut lower = Lower {
         r: resolver,
@@ -136,7 +82,7 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
         ast::Item::Trait(t) => lower.trait_item(&pending.children, t),
         ast::Item::Impl(i) => lower.impl_item(pending.def, i),
     };
-    lower.r.program.items.insert(pending.def, item);
+    lower.r.insert_item(pending.def, item);
     lower.report_deprecated_uses();
 }
 
@@ -243,28 +189,27 @@ impl Lower<'_, '_> {
 
     /// Records into [`Program::refs`].
     fn refer(&mut self, range: TextRange, target: RefTarget) {
-        let span = self.span(range);
-        self.r.program.refs.push(NameRef { span, target });
+        self.r.refer(self.module, range, target);
     }
 
     fn alloc_expr(&mut self, kind: ExprKind, range: TextRange) -> ExprId {
         let span = self.span(range);
-        self.r.program.exprs.alloc(Expr { kind, span })
+        self.r.alloc_expr(Expr { kind, span })
     }
 
     fn alloc_pat(&mut self, kind: PatKind, range: TextRange) -> PatId {
         let span = self.span(range);
-        self.r.program.pats.alloc(Pat { kind, span })
+        self.r.alloc_pat(Pat { kind, span })
     }
 
     fn alloc_type(&mut self, kind: TypeKind, range: TextRange) -> TypeId {
         let span = Some(self.span(range));
-        self.r.program.types.alloc(TypeRef { kind, span })
+        self.r.alloc_type(TypeRef { kind, span })
     }
 
     fn alloc_local(&mut self, name: SmolStr, kind: LocalKind, range: TextRange) -> LocalId {
         let span = self.span(range);
-        self.r.program.locals.alloc(LocalData { name, kind, span })
+        self.r.alloc_local(LocalData { name, kind, span })
     }
 
     fn push_scope(&mut self) {
@@ -294,7 +239,7 @@ impl Lower<'_, '_> {
         range: TextRange,
     ) -> LocalId {
         if let Some(&(_, first)) = binder.names.iter().find(|(n, _)| *n == name) {
-            let first = self.r.program.locals[first].span.range;
+            let first = self.r.local(first).span.range;
             self.error(
                 range,
                 DiagnosticKind::DuplicateBinding {
@@ -689,7 +634,7 @@ impl Lower<'_, '_> {
         let derives = self.derives(t.derive());
         self.pop_type_params();
         if let Some(ctor) = ctor {
-            self.r.program.items.insert(
+            self.r.insert_item(
                 ctor,
                 Item::Ctor(CtorItem {
                     owner: def,
@@ -704,7 +649,7 @@ impl Lower<'_, '_> {
             derives,
             bound,
             // Outside the bundled sources, `@intrinsic` is E2201 and the type stays a user type.
-            is_intrinsic: t.has_annotation("intrinsic") && self.r.modules.is_core(self.module),
+            is_intrinsic: t.has_annotation("intrinsic") && self.r.is_core(self.module),
         })
     }
 
@@ -733,9 +678,7 @@ impl Lower<'_, '_> {
                 }
             };
             self.r
-                .program
-                .items
-                .insert(variant, Item::Ctor(CtorItem { owner: def, fields }));
+                .insert_item(variant, Item::Ctor(CtorItem { owner: def, fields }));
         }
         let derives = self.derives(e.derive());
         self.pop_type_params();
@@ -760,14 +703,14 @@ impl Lower<'_, '_> {
         let type_params = self.type_params(def, e.type_params());
         let (members, ops): (Vec<DefId>, Vec<DefId>) = children
             .iter()
-            .partition(|&&d| self.r.program.defs[d].kind == DefKind::Member);
+            .partition(|&&d| self.r.def(d).kind == DefKind::Member);
         let ops = &ops[..];
         // Handler members (`[effect.decl]`): the parameters of the init, its `fails`, and the
         // effect the handler implements. Duplicates were skipped during collection.
         for m in e.members() {
             let Some(name) = m.name() else { continue };
             let Some(&def) = members.iter().find(|&&d| {
-                let data = &self.r.program.defs[d];
+                let data = &self.r.def(d);
                 data.name == name.text() && data.span.map(|s| s.range) == Some(name.text_range())
             }) else {
                 continue;
@@ -778,15 +721,13 @@ impl Lower<'_, '_> {
             self.pop_scope();
             let effects = self.handler_effects(m.effects());
             self.r
-                .program
-                .items
-                .insert(def, Item::Member(MemberItem { sig, effects }));
+                .insert_item(def, Item::Member(MemberItem { sig, effects }));
         }
         // Duplicate operations were skipped during collection, so match by name.
         for op in e.ops() {
             let Some(name) = op.name() else { continue };
             let Some(&def) = ops.iter().find(|&&d| {
-                let data = &self.r.program.defs[d];
+                let data = &self.r.def(d);
                 data.name == name.text() && data.span.map(|s| s.range) == Some(name.text_range())
             }) else {
                 continue;
@@ -799,7 +740,7 @@ impl Lower<'_, '_> {
             let sig = self.signature(op.syntax(), op_params, params, op.is_suspend());
             self.pop_type_params();
             self.pop_scope();
-            self.r.program.items.insert(def, Item::Op(OpItem { sig }));
+            self.r.insert_item(def, Item::Op(OpItem { sig }));
         }
         self.pop_type_params();
         let label = e.label().map(|l| LabelOf {
@@ -818,7 +759,7 @@ impl Lower<'_, '_> {
             label,
             // Outside the bundled sources, `@intrinsic` is E2201 and the effect stays a user
             // effect.
-            is_intrinsic: e.has_annotation("intrinsic") && self.r.modules.is_core(self.module),
+            is_intrinsic: e.has_annotation("intrinsic") && self.r.is_core(self.module),
         })
     }
 
@@ -837,12 +778,14 @@ impl Lower<'_, '_> {
         effects: &[EffectRef],
         h: &ast::HandlerDecl,
     ) -> Vec<DefId> {
-        let inner = self.r.inner_handlers.get(&def).cloned().unwrap_or_default();
+        let inner = self.r.inner_handlers(def);
         let mut defs = Vec::new();
         let decls = h.inner_handlers().filter(|it| it.name().is_some());
         for ((inner_def, inner_ctor), decl) in inner.into_iter().zip(decls) {
-            let name = self.r.program.defs[inner_def].name.clone();
-            let range = self.r.program.defs[inner_def]
+            let name = self.r.def(inner_def).name.clone();
+            let range = self
+                .r
+                .def(inner_def)
                 .span
                 .map_or(TextRange::default(), |s| s.range);
             let member = self.member_of_effects(effects, &name, range, true);
@@ -851,7 +794,7 @@ impl Lower<'_, '_> {
                 _ => unreachable!("a handler item"),
             };
             item.member = Some(member);
-            self.r.program.items.insert(inner_def, Item::Handler(item));
+            self.r.insert_item(inner_def, Item::Handler(item));
             defs.push(inner_def);
         }
         defs
@@ -881,7 +824,7 @@ impl Lower<'_, '_> {
                 Some(fields) => Fields::Named(fields.clone()),
                 None => Fields::None,
             };
-            self.r.program.items.insert(
+            self.r.insert_item(
                 ctor,
                 Item::Ctor(CtorItem {
                     owner: def,
@@ -896,7 +839,7 @@ impl Lower<'_, '_> {
                 .children()
                 .filter_map(ast::Annotation::cast)
                 .any(|a| a.name().is_some_and(|n| n.text() == "intrinsic"))
-            && self.r.modules.is_core(self.module);
+            && self.r.is_core(self.module);
         // `init` runs on entering `with` and builds the handler value; there is no `self` yet. Its
         // parameters are in scope in its body only.
         // The init of a built-in handler declares only its parameters (`[task.background]`).
@@ -984,7 +927,9 @@ impl Lower<'_, '_> {
 
     /// The implicit `self` of handler operations and `release`, located at the handler's name.
     fn implicit_self(&mut self, handler: DefId) -> LocalId {
-        let range = self.r.program.defs[handler]
+        let range = self
+            .r
+            .def(handler)
             .span
             .map_or(TextRange::default(), |s| s.range);
         let local = self.alloc_local("self".into(), LocalKind::SelfParam, range);
@@ -1028,7 +973,7 @@ impl Lower<'_, '_> {
         members: bool,
     ) -> Res {
         let wanted = |r: &Resolver, d: DefId| {
-            let kind = r.program.defs[d].kind;
+            let kind = r.def(d).kind;
             if members {
                 kind == DefKind::Member
             } else {
@@ -1040,7 +985,7 @@ impl Lower<'_, '_> {
             let Res::Def(e) = effect.res else {
                 return Res::Err;
             };
-            if self.r.labels.contains(&e) {
+            if self.r.is_label(e) {
                 return Res::Err;
             }
             owners.push(e);
@@ -1056,14 +1001,14 @@ impl Lower<'_, '_> {
         }
         let names: Vec<SmolStr> = owners
             .iter()
-            .flat_map(|e| self.r.members.get(e).into_iter().flatten())
-            .filter(|&&d| wanted(self.r, d))
-            .map(|&d| self.r.program.defs[d].name.clone())
+            .flat_map(|&e| self.r.members_of(e))
+            .filter(|&d| wanted(self.r, d))
+            .map(|d| self.r.def(d).name.clone())
             .collect();
         let suggestion = best_match(name, &names);
         let owner = owners
             .iter()
-            .map(|&e| self.r.program.defs[e].name.to_string())
+            .map(|&e| self.r.def(e).name.to_string())
             .collect::<Vec<_>>()
             .join(" + ");
         self.error(
@@ -1087,7 +1032,7 @@ impl Lower<'_, '_> {
             self.refer(range, RefTarget::Def(def));
             return Res::Def(def);
         }
-        let data = &self.r.program.defs[owner];
+        let data = &self.r.def(owner);
         let (owner_name, owner_kind) = (data.name.clone(), data.kind.describe());
         let suggestion = best_match(name, &self.r.member_names(owner));
         self.error(
@@ -1113,14 +1058,15 @@ impl Lower<'_, '_> {
         self.self_type = true;
         for f in t.fns() {
             let Some(name) = f.name() else { continue };
-            let Some(&def) = fns.iter().find(|&&d| {
-                self.r.program.defs[d].span.map(|s| s.range) == Some(name.text_range())
-            }) else {
+            let Some(&def) = fns
+                .iter()
+                .find(|&&d| self.r.def(d).span.map(|s| s.range) == Some(name.text_range()))
+            else {
                 continue;
             };
             self.r.check_intrinsic(self.module, f.syntax(), false);
             let item = self.fn_item(def, &f);
-            self.r.program.items.insert(def, Item::TraitFn(item));
+            self.r.insert_item(def, Item::TraitFn(item));
         }
         self.self_type = false;
         Item::Trait(TraitItem {
@@ -1157,7 +1103,9 @@ impl Lower<'_, '_> {
             let args = type_params
                 .iter()
                 .map(|param| {
-                    let range = self.r.program.defs[param.def]
+                    let range = self
+                        .r
+                        .def(param.def)
                         .span
                         .map_or(node.text_range(), |s| s.range);
                     let kind = TypeKind::Path {
@@ -1313,9 +1261,9 @@ impl Lower<'_, '_> {
                 let mut ok = !effects.is_empty();
                 for effect in &effects {
                     if let Res::Def(def) = effect.res
-                        && self.r.program.defs[def].kind == DefKind::TypeParam
+                        && self.r.def(def).kind == DefKind::TypeParam
                     {
-                        let name = self.r.program.defs[def].name.clone();
+                        let name = self.r.def(def).name.clone();
                         let range = vars
                             .iter()
                             .find(|n| n.text_range().contains_range(effect.span.range))
@@ -1490,11 +1438,11 @@ impl Lower<'_, '_> {
         // (`[module.resolution]`).
         let def = match expected {
             Expected::WithItem | Expected::HandlerOrLayer | Expected::HandlerOrEffect => {
-                self.r.program.twin_handler(def).unwrap_or(def)
+                self.r.twin_handler(def).unwrap_or(def)
             }
             _ => def,
         };
-        let kind = self.r.program.defs[def].kind;
+        let kind = self.r.def(def).kind;
         let fits = match expected {
             Expected::Type => {
                 matches!(
@@ -1547,7 +1495,7 @@ impl Lower<'_, '_> {
 
     fn undefined_type(&mut self, name: &SmolStr, range: TextRange, expected: Expected) {
         // A module name in a type position (the `Email` of spec 4.4).
-        if self.r.scopes[self.module].modules.contains_key(name) {
+        if self.r.module_in_scope(self.module, name) {
             self.error(
                 range,
                 DiagnosticKind::WrongKind {
@@ -1586,11 +1534,8 @@ impl Lower<'_, '_> {
         for segment in rest {
             let (name, range) = token_name(segment);
             let def = self.member_of_left(&left, Ns::Type, &name, range)?;
-            if !matches!(
-                self.r.program.defs[def].kind,
-                DefKind::Trait | DefKind::Effect
-            ) {
-                let found = self.r.program.defs[def].kind.describe();
+            if !matches!(self.r.def(def).kind, DefKind::Trait | DefKind::Effect) {
+                let found = self.r.def(def).kind.describe();
                 self.error(
                     range,
                     DiagnosticKind::WrongKind {
@@ -1622,7 +1567,7 @@ impl Lower<'_, '_> {
                 let member = (ns != Ns::Value)
                     .then(|| self.r.member(*e, name))
                     .flatten()
-                    .filter(|&d| self.r.program.defs[d].kind == DefKind::Member);
+                    .filter(|&d| self.r.def(d).kind == DefKind::Member);
                 match member {
                     Some(def) => {
                         self.refer(*effect_range, RefTarget::Def(*e));
@@ -1643,7 +1588,7 @@ impl Lower<'_, '_> {
                     None
                 };
                 if found.is_none() {
-                    let data = &self.r.program.defs[*t];
+                    let data = &self.r.def(*t);
                     let owner = data.name.clone();
                     let suggestion = best_match(name, &self.r.member_names(*t));
                     self.error(
@@ -1662,7 +1607,7 @@ impl Lower<'_, '_> {
             // called through a capability (`[effect.use]`).
             DotLeft::Effect(e, effect_range) => {
                 if ns == Ns::Value {
-                    let name = self.r.program.defs[*e].name.clone();
+                    let name = self.r.def(*e).name.clone();
                     self.error(
                         *effect_range,
                         DiagnosticKind::WrongKind {
@@ -1674,24 +1619,21 @@ impl Lower<'_, '_> {
                     return None;
                 }
                 // A label has the handler members of its base (`[effect.label]`).
-                let owner = self.r.program.label_base(*e).unwrap_or(*e);
+                let owner = self.r.label_base(*e).unwrap_or(*e);
                 let found = self
                     .r
                     .member(owner, name)
-                    .filter(|&d| self.r.program.defs[d].kind == DefKind::Member);
+                    .filter(|&d| self.r.def(d).kind == DefKind::Member);
                 if found.is_some() && owner != *e {
                     self.member_label = Some(*e);
                 }
                 if found.is_none() {
-                    let owner_name = self.r.program.defs[*e].name.clone();
+                    let owner_name = self.r.def(*e).name.clone();
                     let names: Vec<SmolStr> = self
                         .r
-                        .members
-                        .get(&owner)
-                        .into_iter()
-                        .flatten()
-                        .filter(|&&d| self.r.program.defs[d].kind == DefKind::Member)
-                        .map(|&d| self.r.program.defs[d].name.clone())
+                        .members_of(owner)
+                        .filter(|&d| self.r.def(d).kind == DefKind::Member)
+                        .map(|d| self.r.def(d).name.clone())
                         .collect();
                     let suggestion = best_match(name, &names);
                     self.error(
@@ -1758,7 +1700,7 @@ impl Lower<'_, '_> {
                     let res = self.ctor_path(&path, false);
                     let id = self.alloc_expr(ExprKind::Path(res), range);
                     if let Some(label) = self.member_label.take() {
-                        self.r.program.member_labels.insert(id, label);
+                        self.r.set_member_label(id, label);
                     }
                     return id;
                 }
@@ -1900,17 +1842,15 @@ impl Lower<'_, '_> {
                 self.pop_scope();
                 // `|p| body` is `|t| { p = t; body }` (`[fn.decl]`). A body that is not a block
                 // (`|(a, b)| a + b`) is put in one, spanning the body.
-                if !lets.is_empty() {
-                    if let ExprKind::Block(block) = &mut self.r.program.exprs[body].kind {
-                        block.stmts.splice(0..0, lets);
-                    } else {
-                        let range = self.r.program.exprs[body].span.range;
-                        let block = Block {
-                            stmts: lets,
-                            tail: Some(body),
-                        };
-                        body = self.alloc_expr(ExprKind::Block(block), range);
-                    }
+                if !lets.is_empty()
+                    && let Some(lets) = self.r.prepend_to_block(body, lets)
+                {
+                    let range = self.r.expr(body).span.range;
+                    let block = Block {
+                        stmts: lets,
+                        tail: Some(body),
+                    };
+                    body = self.alloc_expr(ExprKind::Block(block), range);
                 }
                 ExprKind::Lambda { params, body }
             }
@@ -1973,11 +1913,11 @@ impl Lower<'_, '_> {
     fn alias_use(&mut self, local: LocalId, range: TextRange, receiver: bool) -> Option<ExprId> {
         let (effect, args) = self.effect_aliases.get(&local)?.clone();
         if !receiver {
-            let name = self.r.program.locals[local].name.clone();
+            let name = self.r.local(local).name.clone();
             self.error(range, DiagnosticKind::EffectAliasAsValue { name });
         }
         let id = self.alloc_expr(ExprKind::Use { effect, args }, range);
-        self.r.program.alias_uses.insert(id, Some(local));
+        self.r.set_alias_use(id, Some(local));
         Some(id)
     }
 
@@ -2016,7 +1956,7 @@ impl Lower<'_, '_> {
                 }),
                 UseForm::Binding(local) if self.use_binds[local].receiver_only => {
                     Some(DeprecatedRewrite::Binding {
-                        alias: self.r.program.locals[*local].name.clone(),
+                        alias: self.r.local(*local).name.clone(),
                     })
                 }
                 _ => None,
@@ -2037,10 +1977,10 @@ impl Lower<'_, '_> {
             return false;
         };
         let effect = match effect {
-            Res::Def(d) => self.r.program.defs[*d].name.clone(),
+            Res::Def(d) => self.r.def(*d).name.clone(),
             _ => SmolStr::new_static("E"),
         };
-        let alias = self.r.program.locals[local].name.clone();
+        let alias = self.r.local(local).name.clone();
         self.error(
             range,
             DiagnosticKind::MemberThroughEffectAlias {
@@ -2065,7 +2005,7 @@ impl Lower<'_, '_> {
         };
         self.bind_all(binder);
         if ty.is_none()
-            && let PatKind::Bind(local) = self.r.program.pats[pat].kind
+            && let PatKind::Bind(local) = self.r.pat(pat).kind
             && binding
                 .value()
                 .is_some_and(|v| v.syntax().kind() == USE_EXPR)
@@ -2148,7 +2088,7 @@ impl Lower<'_, '_> {
                     None => self.alloc_pat(PatKind::Missing, arm.text_range()),
                 };
                 for (_, local) in &binder.names {
-                    self.r.program.locals[*local].kind = LocalKind::ArmBinding;
+                    self.r.set_local_kind(*local, LocalKind::ArmBinding);
                 }
                 self.bind_all(binder);
                 let guard = arm
@@ -2236,7 +2176,7 @@ impl Lower<'_, '_> {
         }
         // Uppercase-name type parameters are usable only in type positions (spec 2.3).
         if let Some(def) = self.lookup_type_param(name) {
-            let found = self.r.program.defs[def].kind.describe();
+            let found = self.r.def(def).kind.describe();
             self.error(
                 range,
                 DiagnosticKind::WrongKind {
@@ -2288,7 +2228,7 @@ impl Lower<'_, '_> {
                 None => return Res::Err,
             }
         };
-        let data = &self.r.program.defs[def];
+        let data = &self.r.def(def);
         if data.is_opaque && data.module != DefModule::Source(self.module) {
             let module = self.r.def_module_name(def);
             let kind = if in_pattern {
@@ -2305,10 +2245,10 @@ impl Lower<'_, '_> {
     fn undefined_ctor(&mut self, name: &SmolStr, range: TextRange) {
         // A type, effect or module name written as a value.
         let found = if let Some(def) = self.r.lookup(self.module, Ns::Type, name) {
-            Some(self.r.program.defs[def].kind.describe())
+            Some(self.r.def(def).kind.describe())
         } else if self.lookup_type_param(name).is_some() {
             Some(DefKind::TypeParam.describe())
-        } else if self.r.scopes[self.module].modules.contains_key(name) {
+        } else if self.r.module_in_scope(self.module, name) {
             Some("module")
         } else {
             None
@@ -2353,7 +2293,7 @@ impl Lower<'_, '_> {
                             && c.first_token().is_some_and(|t| t.kind() == SELF_TYPE_KW)
                     })
                 {
-                    let range = self.r.program.exprs[callee].span.range;
+                    let range = self.r.expr(callee).span.range;
                     self.error(range, DiagnosticKind::SelfUpdate);
                 }
                 self.update(callee, args, base)
@@ -2538,10 +2478,10 @@ impl Lower<'_, '_> {
         let list = supply.arg_list()?;
         let (args, spread) = self.arg_list(&list);
         if let Some(base) = spread {
-            let range = self.r.program.exprs[base].span.range;
+            let range = self.r.expr(base).span.range;
             let (name, found) = match res {
                 Res::Def(def) => {
-                    let data = &self.r.program.defs[def];
+                    let data = &self.r.def(def);
                     (Some(data.name.clone()), data.kind.describe())
                 }
                 _ => (None, "expression"),
@@ -2557,14 +2497,14 @@ impl Lower<'_, '_> {
     /// A record update `C(f: e, ..base)` (spec 5.3). `C` must have a single constructor (a type,
     /// an error, or a handler with fields), and changed fields are given by name.
     fn update(&mut self, ctor: ExprId, args: Vec<Arg>, base: ExprId) -> ExprKind {
-        let Expr { kind, span } = &self.r.program.exprs[ctor];
+        let Expr { kind, span } = &self.r.expr(ctor);
         let range = span.range;
         let target = match kind {
             ExprKind::Path(Res::Def(def)) => Some(*def),
             // Unresolved names are already reported.
             ExprKind::Path(Res::Err) | ExprKind::Missing => None,
             ExprKind::Path(Res::Local(local)) => {
-                let name = self.r.program.locals[*local].name.clone();
+                let name = self.r.local(*local).name.clone();
                 self.error(
                     range,
                     DiagnosticKind::InvalidUpdateTarget {
@@ -2586,20 +2526,17 @@ impl Lower<'_, '_> {
             }
         };
         if let Some(def) = target {
-            let data = &self.r.program.defs[def];
+            let data = &self.r.def(def);
             let single = match data.kind {
                 DefKind::Error => true,
                 DefKind::Ctor => data.parent.is_some_and(|p| {
-                    matches!(
-                        self.r.program.defs[p].kind,
-                        DefKind::Type | DefKind::Handler
-                    )
+                    matches!(self.r.def(p).kind, DefKind::Type | DefKind::Handler)
                 }),
                 _ => false,
             };
             if !single {
                 let found = match (data.kind, data.parent) {
-                    (DefKind::Ctor, Some(p)) if self.r.program.defs[p].kind == DefKind::Enum => {
+                    (DefKind::Ctor, Some(p)) if self.r.def(p).kind == DefKind::Enum => {
                         "enum variant"
                     }
                     (kind, _) => kind.describe(),
@@ -2609,7 +2546,7 @@ impl Lower<'_, '_> {
             }
         }
         for arg in args.iter().filter(|a| a.label.is_none()) {
-            let range = self.r.program.exprs[arg.value].span.range;
+            let range = self.r.expr(arg.value).span.range;
             self.error(range, DiagnosticKind::PositionalInUpdate);
         }
         let fields = args.into_iter().filter(|a| a.label.is_some()).collect();
@@ -2657,16 +2594,16 @@ impl Lower<'_, '_> {
                 self.alias_receiver = b.kind() == NAME_REF;
                 let e = self.expr(&b);
                 self.alias_receiver = false;
-                if let ExprKind::Use { .. } = self.r.program.exprs[e].kind {
-                    match self.r.program.alias_uses.get(e).copied() {
+                if let ExprKind::Use { .. } = self.r.expr(e).kind {
+                    match self.r.alias_use(e) {
                         Some(Some(local)) if !op => {
-                            let span = self.r.program.exprs[e].span.range;
+                            let span = self.r.expr(e).span.range;
                             self.member_through_alias(local, span, &name);
                         }
                         // `(use E).op` is `{ h <- E; h.op }`. `(use E).M(...)`, which opens a
                         // handler member, is not expanded (`[effect.use]`).
                         None if op => {
-                            self.r.program.alias_uses.insert(e, None);
+                            self.r.set_alias_use(e, None);
                             self.set_use_form(e, UseForm::InPlace { op: name.clone() });
                         }
                         _ => {}
@@ -2716,14 +2653,14 @@ impl Lower<'_, '_> {
 
     /// The top-level pattern of an escape arm is an error constructor (spec 7.3).
     fn check_escape_pat(&mut self, pat: PatId) {
-        let Pat { kind, span } = &self.r.program.pats[pat];
+        let Pat { kind, span } = &self.r.pat(pat);
         let PatKind::Ctor {
             res: Res::Def(def), ..
         } = kind
         else {
             return;
         };
-        let data = &self.r.program.defs[*def];
+        let data = &self.r.def(*def);
         if data.kind != DefKind::Error {
             let (name, found) = (data.name.clone(), data.kind.describe());
             let range = span.range;
@@ -2847,9 +2784,9 @@ impl Lower<'_, '_> {
         let (name, range) = token_name(token);
         let res = self.value(&name, range, UPPER_NAME);
         if let Res::Def(def) = res
-            && self.r.program.defs[def].kind != DefKind::Const
+            && self.r.def(def).kind != DefKind::Const
         {
-            let found = self.r.program.defs[def].kind.describe();
+            let found = self.r.def(def).kind.describe();
             self.error(
                 range,
                 DiagnosticKind::WrongKind {
@@ -2879,7 +2816,7 @@ impl Lower<'_, '_> {
             },
             LITERAL | STRING => {
                 let e = self.expr(node);
-                match &self.r.program.exprs[e].kind {
+                match &self.r.expr(e).kind {
                     ExprKind::Lit(lit) => PatKind::Lit(lit.clone()),
                     _ => PatKind::Missing,
                 }

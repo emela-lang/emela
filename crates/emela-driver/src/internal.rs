@@ -15,9 +15,9 @@ use emela_syntax::ast::{self, AstNode};
 use emela_syntax::{Parse, SyntaxKind};
 use line_index::TextRange;
 
+use crate::analysis::Analysis;
 use crate::code;
 use crate::diagnostic::{Diagnostic, HELP_PREFIX, Span};
-use crate::pipeline::Analysis;
 
 pub const INTERNAL_ANNOTATION: &str = "internal";
 

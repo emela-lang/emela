@@ -18,23 +18,6 @@ use crate::{ModuleName, PRELUDE, STD};
 
 pub const EXTENSION: &str = "emel";
 
-/// A path as the compiler and tools show it: a relative path (a file in the project, relative to
-/// the project directory) has its components separated by `/` on every OS, so the output of a
-/// project is the same on Windows (#812). An absolute path keeps the separators of the OS.
-pub fn shown_path(path: &Path) -> String {
-    if path.is_absolute() || path.has_root() {
-        return path.display().to_string();
-    }
-    let mut shown = String::new();
-    for component in path.components() {
-        if !shown.is_empty() {
-            shown.push('/');
-        }
-        shown.push_str(&component.as_os_str().to_string_lossy());
-    }
-    shown
-}
-
 /// A minimal file system that only lists directories.
 pub trait SourceFs {
     /// The entries directly under `dir`, in any order (the caller sorts them).
@@ -547,6 +530,7 @@ impl Collector<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shown_path;
 
     fn collect(files: &[&str]) -> (ModuleMap, Vec<String>) {
         let fs = MemoryFs::new(files.iter().copied());
@@ -556,31 +540,6 @@ mod tests {
             .map(|d| format!("{}: {d}", shown_path(&d.file)))
             .collect();
         (map, diagnostics)
-    }
-
-    #[test]
-    fn shown_path_separates_relative_paths_with_slash() {
-        let nested = Path::new("src").join("http").join("client.emel");
-        assert_eq!(shown_path(&nested), "src/http/client.emel");
-        assert_eq!(shown_path(Path::new("main.emel")), "main.emel");
-        assert_eq!(
-            shown_path(&Path::new("..").join("src").join("a.emel")),
-            "../src/a.emel"
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn shown_path_replaces_the_windows_separator() {
-        assert_eq!(
-            shown_path(Path::new(r"src\http\client.emel")),
-            "src/http/client.emel"
-        );
-        // An absolute path is outside the project and keeps the separators of the OS.
-        assert_eq!(
-            shown_path(Path::new(r"C:\p\src\a.emel")),
-            r"C:\p\src\a.emel"
-        );
     }
 
     fn names(map: &ModuleMap) -> Vec<String> {

@@ -1,0 +1,1098 @@
+//! Programs run under `wasmtime` and their output is checked (skipped without `wasmtime`).
+
+use crate::common;
+
+use common::*;
+
+fn stderr(name: &str, src: &str) -> Option<String> {
+    run(name, src).map(|r| {
+        assert_eq!(r.code, 0, "{name} exited with {}: {}", r.code, r.stderr);
+        r.stderr
+    })
+}
+
+#[test]
+fn integers_and_control() {
+    let Some(out) = stderr(
+        "int",
+        r#"
+fn fib(n: Int) -> Int {
+  if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+fn main() {
+  dbg(fib(10))
+  dbg(2 + 3 * 4)
+  dbg(7 / 2)
+  dbg(7 % 2)
+  dbg(-7 / 2)
+  dbg(-7 % 2)
+  dbg(1 == 1)
+  dbg(1 != 1)
+  dbg(1 < 2)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "55\n14\n3\n1\n-3\n-1\nTrue\nFalse\nTrue\n");
+}
+
+#[test]
+fn enums_and_match() {
+    let Some(out) = stderr(
+        "enum",
+        r#"
+enum Color {
+  Red
+  Green
+  Blue
+}
+enum Maybe {
+  Missing
+  Found(value: Int)
+}
+
+fn num(c: Color) -> Int {
+  c match {
+    Red -> 1
+    Green -> 2
+    Blue -> 3
+  }
+}
+fn get(o: Maybe) -> Int {
+  o match {
+    Missing -> 0
+    Found(value:) -> value
+  }
+}
+fn main() {
+  dbg(num(Blue))
+  dbg(get(Found(value: 42)))
+  dbg(get(Missing))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "3\n42\n0\n");
+}
+
+#[test]
+fn lists_recursion() {
+    let Some(out) = stderr(
+        "list",
+        r#"
+fn sum(xs: List[Int], acc: Int) -> Int {
+  xs match {
+    [] -> acc
+    [x, ..rest] -> sum(rest, acc + x)
+  }
+}
+fn main() {
+  dbg(sum([1, 2, 3, 4], 0))
+  dbg(sum([], 7))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "10\n7\n");
+}
+
+#[test]
+fn closures_capture() {
+    let Some(out) = stderr(
+        "closure",
+        r#"
+fn adder(a: Int) -> fn(Int) -> Int {
+  |b: Int| a + b
+}
+fn main() {
+  add2 = adder(2)
+  dbg(add2(40))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "42\n");
+}
+
+#[test]
+fn strings() {
+    let Some(out) = stderr(
+        "string",
+        r#"
+fn main() {
+  dbg("x=#{1 + 2}!")
+  dbg(String.append("ab", "cd"))
+  dbg("ab" == "ab")
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "\"x=3!\"\n\"abcd\"\nTrue\n");
+}
+
+#[test]
+fn effects_and_handlers() {
+    let Some(out) = stderr(
+        "effect",
+        r#"
+effect Greet {
+  fn hello(name: String) -> String
+}
+
+handler Hi: Greet {
+  fn hello(name) { "hi #{name}" }
+}
+
+fn greet(name: String) -> String uses { Greet } {
+  (use Greet).hello(name)
+}
+
+fn main() {
+  with Hi {
+    dbg(greet("bob"))
+  }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "\"hi bob\"\n");
+}
+
+#[test]
+fn errors_and_escape() {
+    let Some(out) = stderr(
+        "error",
+        r#"
+error NotFound(id: Int)
+
+fn risky(n: Int) -> Int fails NotFound {
+  if n == 0 { fail NotFound(id: 0) }
+  n
+}
+
+fn main() {
+  a = risky(5) escape { NotFound(_) -> -1 }
+  b = risky(0) escape { NotFound(_) -> -1 }
+  dbg(a)
+  dbg(b)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "5\n-1\n");
+}
+
+#[test]
+fn an_error_without_show_reaching_main_shows_its_name() {
+    // An error whose type does not satisfy Show is shown by its name only ([dyn.error]), and the
+    // program still exits with 1 rather than trapping.
+    let Some(run) = run(
+        "error-name",
+        r#"
+error Nope
+
+fn nope() -> Int fails Nope { fail Nope }
+
+fn main() {
+  dbg(nope())
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stdout, "");
+    assert_eq!(run.stderr, "error: Nope\n");
+}
+
+#[test]
+fn an_error_without_show_shows_only_its_name() {
+    // The fields of an error whose type does not satisfy Show are not shown; only the name is
+    // ([dyn.error]).
+    let Some(run) = run(
+        "error-name-fields",
+        r#"
+error Nope(why: String)
+
+fn nope() -> Int fails Nope { fail Nope(why: "no") }
+
+fn main() {
+  dbg(nope())
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stderr, "error: Nope\n");
+}
+
+#[test]
+fn an_error_with_show_reaching_main_keeps_its_display() {
+    // An error whose type satisfies Show is shown the same way as by inspect ([trait.builtin],
+    // [dyn.error]).
+    let Some(run) = run(
+        "error-name-show",
+        r#"
+error Nope(why: String) derive Show
+
+fn nope() -> Int fails Nope { fail Nope(why: "no") }
+
+fn main() {
+  dbg(nope())
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stderr, "error: Nope(why: \"no\")\n");
+}
+
+#[test]
+fn strings_extended() {
+    let Some(out) = stderr(
+        "strings2",
+        "fn main() {\n  dbg(String.contains(\"hello world\", \"o w\"))\n  dbg(String.starts_with(\"hello\", \"he\"))\n  dbg(String.ends_with(\"hello\", \"lo\"))\n  dbg(String.split(\"a,b,c\", \",\"))\n  dbg(String.join([\"a\", \"b\", \"c\"], \"-\"))\n  dbg(String.trim(\"  hi  \"))\n  dbg(String.code_points(\"A\u{20AC}\"))\n  dbg(String.split(\"\", \",\"))\n  dbg(String.trim(\"\u{00A0}hi\u{2003}\"))\n  dbg(String.starts_with(\"h\u{00E9}llo\", \"h\u{00E9}\"))\n}\n",
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "True\nTrue\nTrue\n[\"a\", \"b\", \"c\"]\n\"a-b-c\"\n\"hi\"\n[65, 8364]\n[\"\"]\n\"hi\"\nTrue\n"
+    );
+}
+
+#[test]
+fn ascii_case_matches_the_other_targets() {
+    // The same program as `crates/emela-codegen-c/tests/programs/ascii_case.emel`, whose
+    // `.expected` is the output of the JS target: the three targets must give the same output.
+    let src = include_str!("../../../emela-codegen-c/tests/programs/ascii_case.emel");
+    let expected = include_str!("../../../emela-codegen-c/tests/programs/ascii_case.expected");
+    let expected = expected
+        .split_once("--- stderr\n")
+        .expect("a stderr section")
+        .1;
+    let Some(out) = stderr("ascii-case", src) else {
+        return;
+    };
+    assert_eq!(out, expected);
+}
+
+#[test]
+fn string_contains_scans_every_alignment() {
+    // `str_find` skips four bytes at a time until `sub[0]` matches, then confirms byte by byte.
+    // The needle starts at every offset modulo four, at the last possible start, and in the
+    // byte-wise tail; a candidate whose first byte matches but whose rest does not is rejected.
+    let Some(out) = stderr(
+        "string-find-scan",
+        r#"
+fn main() {
+  dbg(String.contains("hello world", "o w"))
+  dbg(String.contains("abc---------", "abc"))
+  dbg(String.contains("xabc--------", "abc"))
+  dbg(String.contains("xxabc-------", "abc"))
+  dbg(String.contains("xxxabc------", "abc"))
+  dbg(String.contains("xxxxabc-----", "abc"))
+  dbg(String.contains("xxxxxabc----", "abc"))
+  dbg(String.contains("xxxxxxabc---", "abc"))
+  dbg(String.contains("xxxxxxxabc--", "abc"))
+  dbg(String.contains("-------abc", "abc"))
+  dbg(String.contains("--------abc", "abc"))
+  dbg(String.contains("---------abc", "abc"))
+  dbg(String.contains("----------abc", "abc"))
+  dbg(String.contains("xabd--------", "abc"))
+  dbg(String.contains("aaaab", "aab"))
+  dbg(String.contains("aaab", "aac"))
+  dbg(String.contains("abc", "abcd"))
+  dbg(String.contains("abcabc", "cab"))
+  dbg(String.contains("hello", "o"))
+  long = String.join(List.map(List.range(0, 20), |_| "0123456789"), "")
+  dbg(String.contains(long, "8901"))
+  dbg(String.contains(long, "89ab"))
+  dbg(String.contains(long, "6789"))
+  dbg(String.length(long))
+  dbg(String.split("aXbXcXd", "X"))
+  dbg(String.split("a,b,c,d,e,f,g,h", ","))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\n\
+         False\nTrue\nFalse\nFalse\nTrue\nTrue\nTrue\nFalse\nTrue\n200\n\
+         [\"a\", \"b\", \"c\", \"d\"]\n\
+         [\"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\"]\n"
+    );
+}
+
+#[test]
+fn an_unused_operation_keeps_its_runtime() {
+    // The operation is never performed, so the reach walk does not reach its body. The body is
+    // emitted as a trap stub, but the reachable-only gates must still leave the Float runtime out
+    // (and the program must compile): an unreachable body that called `float_parse` would be an
+    // internal error, not a user diagnostic.
+    let Some(out) = stderr(
+        "unused-op-runtime",
+        r#"
+effect Weird {
+  fn value() -> Float
+}
+
+handler WeirdHandler: Weird {
+  fn value() { Float.parse("1") escape { ParseError(_) -> 0.0 } }
+}
+
+fn main() {
+  with WeirdHandler {
+    dbg("hi")
+  }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "\"hi\"\n");
+}
+
+#[test]
+fn split_with_an_empty_separator_splits_by_graphemes() {
+    // A separator that is empty only at run time reaches the runtime, which splits per grapheme
+    // cluster like `String.chars` (16.2).
+    let Some(out) = stderr(
+        "split-empty",
+        "fn main() {\n  sep = String.trim(\" \")\n  dbg(String.split(\"a\u{1F44D}\u{1F3FD}\", sep))\n  dbg(String.length(\"a\u{1F44D}\u{1F3FD}\"))\n}\n",
+    ) else {
+        return;
+    };
+    assert_eq!(out, "[\"a\", \"\u{1F44D}\u{1F3FD}\"]\n2\n");
+}
+
+#[test]
+fn state_holds_references() {
+    // Regression: `State`'s `$Cell` builtins must take their own reference, like the C runtime
+    // (spec 8.8). Without the `dup` the state's value is freed too early and a second `update`
+    // reads a dangling cell (WASM would trap or hang, and even print garbage).
+    let Some(out) = stderr(
+        "state-list",
+        r#"
+import Std.State.{State}
+
+fn bump(lines: List[String]) -> List[String] {
+  List.append(lines, ["x"])
+}
+
+fn main() {
+  (_, final) = State.run([], || {
+    st = use State[List[String]]
+    st.update(bump)
+    st.update(bump)
+  })
+  dbg(final)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "[\"x\", \"x\"]\n");
+}
+
+#[test]
+fn state_through_a_handler() {
+    // The same, reached through a handler operation that calls `use State` each time (the shape
+    // of `TestConsole`, spec 15.2).
+    let Some(out) = stderr(
+        "state-handler",
+        r#"
+import Std.State.{State}
+
+effect Counter {
+  fn add() -> ()
+}
+
+handler CounterHandler: Counter {
+  fn add() { (use State[List[String]]).update(|lines| List.append(lines, ["a"])) }
+}
+
+fn main() {
+  (_, final) = State.run([], || {
+    with CounterHandler {
+      c = use Counter
+      c.add()
+      c.add()
+    }
+  })
+  dbg(final)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "[\"a\", \"a\"]\n");
+}
+
+#[test]
+fn state_of_a_string() {
+    let Some(out) = stderr(
+        "state-string",
+        r#"
+import Std.State.{State}
+
+fn main() {
+  (_, final) = State.run("a", || {
+    st = use State[String]
+    st.update(|s| String.append(s, "b"))
+    st.update(|s| String.append(s, "c"))
+  })
+  dbg(final)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(out, "\"abc\"\n");
+}
+
+#[test]
+fn options_from_builtins() {
+    let Some(out) = stderr(
+        "options",
+        "fn main() {\n  dbg(Int.checked_add(1, 2))\n  dbg(Int.checked_add(2147483647, 1))\n  dbg(Int.checked_add(-2147483647, -2))\n  dbg(String.from_code_point(65))\n  dbg(String.from_code_point(8364))\n  dbg(String.from_code_point(55296))\n  dbg(Int.parse(\"42\"))\n}\n",
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "Some(3)\nNone\nNone\nSome(\"A\")\nSome(\"\u{20AC}\")\nNone\n42\n"
+    );
+}
+
+#[test]
+fn the_scratch_area_does_not_overlap_the_static_data() {
+    // Regression: the runtime's scratch buffers used to overlap the static data (the digits of
+    // `Int64.to_string` wrote over the list-cell descriptor `String.split` uses), so dropping the
+    // split result read a corrupted descriptor and trapped. Every runtime buffer that writes to
+    // the scratch area goes first, then the operations that read the descriptors back.
+    let Some(out) = stderr(
+        "scratch-overlap",
+        "fn main() {\n  big = Int64.from_int(2147483647)\n  dbg(Int64.to_string(big * big))\n  dbg(Int.to_string(0 - 2147483647 - 1))\n  dbg(String.from_code_point(65))\n  dbg(String.split(\"a,b,c\", \",\"))\n  dbg(String.code_points(\"AB\"))\n}\n",
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "\"4611686014132420609\"\n\"-2147483648\"\nSome(\"A\")\n\
+         [\"a\", \"b\", \"c\"]\n[65, 66]\n"
+    );
+}
+
+#[test]
+fn constants_are_evaluated_once_and_remembered() {
+    // `SHOWN` prints from its body: the second reference of `NEXT` must not evaluate it again
+    // (spec 5.6). `GREETING` depends on `NAMES`, so the dependency is evaluated first.
+    let Some(out) = stderr(
+        "const-once",
+        r#"
+const LIMIT = 3 * 7
+const NAMES = ["a", "b", "c"]
+const GREETING = "hello #{List.length(NAMES)}"
+const SHOWN = dbg(LIMIT)
+const NEXT = SHOWN + 1
+
+fn main() {
+  dbg(GREETING)
+  dbg(NAMES)
+  dbg(NEXT)
+  dbg(GREETING)
+  dbg(NEXT)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "\"hello 3\"\n[\"a\", \"b\", \"c\"]\n21\n22\n\"hello 3\"\n22\n"
+    );
+}
+
+#[test]
+fn a_const_that_refers_to_itself_is_a_defect() {
+    let Some(run) = run(
+        "const-self",
+        "const A: Int = if True { A } else { 0 }\nfn main() { dbg(A) }\n",
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: const A refers to itself while being evaluated\n"
+    );
+}
+
+#[test]
+fn a_const_that_fails_wraps_its_defect() {
+    let Some(run) = run(
+        "const-broken",
+        r#"
+const LIMIT = 3 * 7
+const BROKEN = 2 / (LIMIT - 21)
+
+fn main() {
+  dbg(BROKEN)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: while evaluating const BROKEN: division by zero\n"
+    );
+}
+
+#[test]
+fn nested_const_defects_get_each_name() {
+    let Some(run) = run(
+        "const-nested",
+        r#"
+const OUTER = INNER + 1
+const INNER = 1 / zero()
+
+fn zero() -> Int { 0 }
+
+fn main() {
+  dbg(OUTER)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: while evaluating const OUTER: while evaluating const INNER: division by zero\n"
+    );
+}
+
+#[test]
+fn a_failing_release_does_not_wrap_a_self_reference() {
+    // The self-reference defect is the first one, and the release fails while it unwinds. It must
+    // keep no name and must not be remembered (spec 5.6), even though the release appends a note
+    // to it.
+    let Some(run) = run(
+        "const-self-release",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler PoolH: Pool {
+  init { PoolH }
+  release { panic("release failed") }
+  fn get() { 0 }
+}
+
+const SELF: Int = with PoolH { if True { SELF } else { 0 } }
+
+fn main() {
+  dbg(SELF)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: const SELF refers to itself while being evaluated\n\
+         note: the release of handler PoolH also failed: release failed\n"
+    );
+}
+
+// Notes added by task failures (`note: another task also failed: …`, 11.2) are tested in
+// `tests/fiber.rs` (`child_failure_notes_keep_the_first`); this file covers the defect notes of
+// 14.4.
+
+#[test]
+fn a_release_defect_becomes_a_note_of_the_first_defect() {
+    let Some(run) = run(
+        "release-note",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler Outer: Pool {
+  init { Outer }
+  release {
+    dbg("release outer")
+    panic("outer release failed")
+  }
+  fn get() { 0 }
+}
+
+handler Inner: Pool {
+  init { Inner }
+  release { dbg("release inner") }
+  fn get() { 1 }
+}
+
+fn work(xs: List[Int]) -> Int {
+  zero = (use Pool).get()
+  total = List.fold(xs, 0, |a, x| a + x)
+  dbg("total #{total}")
+  total / zero
+}
+
+fn main() {
+  with Outer {
+    with Inner {
+      dbg("inner #{(use Pool).get()}")
+    }
+    work([1, 2, 3])
+  }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "\"inner 1\"\n\"release inner\"\n\"total 6\"\n\"release outer\"\n\
+         defect: division by zero\n\
+         note: the release of handler Outer also failed: outer release failed\n"
+    );
+}
+
+#[test]
+fn notes_keep_the_order_the_defects_happened() {
+    let Some(run) = run(
+        "release-notes",
+        r#"
+effect Pool {
+  fn get() -> Int
+}
+
+handler ResA: Pool {
+  init { ResA }
+  release { panic("a failed") }
+  fn get() { 0 }
+}
+
+handler ResB: Pool {
+  init { ResB }
+  release { panic("b failed") }
+  fn get() { 1 }
+}
+
+fn main() {
+  with ResA {
+    with ResB {
+      panic("body")
+    }
+  }
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: body\n\
+         note: the release of handler ResB also failed: b failed\n\
+         note: the release of handler ResA also failed: a failed\n"
+    );
+}
+
+#[test]
+fn all_scratch_buffers_are_stepped_in_one_program() {
+    // 1 つのプログラムでスクラッチの全バッファ（WASI の iovec / 書き込みバイト数，
+    // 整数の桁，改行，Int64 の桁，JSON escape，1 コードポイントの UTF-8）を触りつつ，
+    // 静的データ（記述子など）を読み戻す。重なりがあれば #257 のように trap する.
+    let Some(out) = stderr(
+        "scratch-all",
+        "fn main() {\n  dbg(42)\n  dbg(Int.to_string(-12345))\n  big = Int64.from_int(2147483647)\n  dbg(Int64.to_string(big * big))\n  dbg(String.from_code_point(65))\n  dbg(String.split(\"a,b,c\", \",\"))\n  dbg(String.code_points(\"AB\"))\n  dbg(String.trim(\"  hi  \"))\n}\n",
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "42\n\"-12345\"\n\"4611686014132420609\"\nSome(\"A\")\n\
+         [\"a\", \"b\", \"c\"]\n[65, 66]\n\"hi\"\n"
+    );
+}
+
+#[test]
+fn floats_show_like_js() {
+    // The shortest round-trip digits, `.0` on a finite integral value, `-0.0` as `0.0`,
+    // exponents, the infinities and NaN (spec 10.6). The values and the expected text are the
+    // same as the JS target's.
+    let Some(out) = stderr(
+        "floats",
+        r#"
+fn main() {
+  dbg(1.5)
+  dbg(1.0)
+  dbg(-0.0)
+  dbg(0.1)
+  dbg(0.1 + 0.2)
+  dbg(1.0 / 3.0)
+  dbg(1.0e21)
+  dbg(1.0e20)
+  dbg(1.5e-7)
+  dbg(0.000001)
+  dbg(123456789.125)
+  dbg(1.7976931348623157e308)
+  dbg(5.0e-324)
+  dbg(1.0e-7)
+  dbg(123.0e-20)
+  dbg(5.641232424577593e-278)
+  dbg(5.641232424577592e-278)
+  dbg(3.6893488147419103e+19)
+  dbg(3.68934881474191e+19)
+  dbg(4.3039187809582457e-283)
+  dbg(4.303918780958246e-283)
+  dbg(2.0 / 0.0)
+  dbg(-2.0 / 0.0)
+  dbg(0.0 / 0.0)
+  dbg(5.5 % 2.0)
+  dbg(-5.5 % 2.0)
+  dbg("v=#{1.5} #{2.0} #{-0.0}")
+  dbg(inspect(1.5))
+  assert Float.floor(2.5) == 2
+  assert 1.0 < 2.0
+  assert !(0.0 / 0.0 == 0.0 / 0.0)
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "1.5\n1.0\n0.0\n0.1\n0.30000000000000004\n0.3333333333333333\n1e+21\n\
+         100000000000000000000.0\n1.5e-7\n0.000001\n123456789.125\n\
+         1.7976931348623157e+308\n5e-324\n1e-7\n1.23e-18\n\
+         5.641232424577593e-278\n5.641232424577592e-278\n\
+         36893488147419103000.0\n36893488147419100000.0\n\
+         4.3039187809582457e-283\n4.303918780958246e-283\n\
+         Infinity\n-Infinity\nNaN\n\
+         1.5\n-1.5\n\"v=1.5 2.0 0.0\"\n\"1.5\"\n"
+    );
+}
+
+#[test]
+fn float_rounding_to_int() {
+    // Ties away from zero, -0.0 to 0, and the ends of the Int range (spec 16.1).
+    let Some(out) = stderr(
+        "float-round",
+        r#"
+fn main() {
+  dbg(Float.floor(2.5))
+  dbg(Float.ceil(2.5))
+  dbg(Float.round(2.5))
+  dbg(Float.round(-2.5))
+  dbg(Float.round(0.5))
+  dbg(Float.round(-0.5))
+  dbg(Float.round(0.49999999999999994))
+  dbg(Float.truncate(-2.7))
+  dbg(Float.floor(-1.5))
+  dbg(Float.ceil(-1.5))
+  dbg(Float.floor(-0.0))
+  dbg(Float.ceil(-0.0))
+  dbg(Float.round(-0.0))
+  dbg(Float.truncate(-0.0))
+  dbg(Float.floor(2147483647.9))
+  dbg(Float.truncate(-2147483648.9))
+  dbg(Float.round(2147483646.6))
+  dbg(Float.ceil(-2147483647.6))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "2\n3\n3\n-3\n1\n-1\n0\n-2\n-2\n-1\n0\n0\n0\n0\n2147483647\n-2147483648\n2147483647\n\
+         -2147483647\n"
+    );
+}
+
+#[test]
+fn float_parse_matches_js() {
+    // `Float.parse` (spec 15.3): the forms `to_string` writes, an optional sign, `Infinity`
+    // and `NaN`; anything else is `None`.
+    let Some(out) = stderr(
+        "float-parse",
+        r#"
+fn f(s: String) -> String {
+  Float.to_string(Float.parse(s)) escape { ParseError(input:) -> "bad #{input}" }
+}
+
+fn main() {
+  dbg(f("1.5"))
+  dbg(f("-0.25"))
+  dbg(f("3"))
+  dbg(f("1e+21"))
+  dbg(f("1.0e20"))
+  dbg(f("Infinity"))
+  dbg(f("-Infinity"))
+  dbg(f("NaN"))
+  dbg(f("+3"))
+  dbg(f("-0"))
+  dbg(f("-0.0"))
+  dbg(f("0.1"))
+  dbg(f("2.2250738585072011e-308"))
+  dbg(f("5e-324"))
+  dbg(f("1e400"))
+  dbg(f("1e-400"))
+  dbg(f(""))
+  dbg(f("1."))
+  dbg(f(".5"))
+  dbg(f("1e"))
+  dbg(f("inf"))
+  dbg(f(" 1"))
+  dbg(f("0x10"))
+  dbg(f("+NaN"))
+  dbg(Float.parse("1.5"))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "\"1.5\"\n\"-0.25\"\n\"3.0\"\n\"1e+21\"\n\"100000000000000000000.0\"\n\"Infinity\"\n\
+         \"-Infinity\"\n\"NaN\"\n\"3.0\"\n\"0.0\"\n\"0.0\"\n\"0.1\"\n\
+         \"2.225073858507201e-308\"\n\"5e-324\"\n\"Infinity\"\n\"0.0\"\n\"bad \"\n\"bad 1.\"\n\
+         \"bad .5\"\n\"bad 1e\"\n\"bad inf\"\n\"bad  1\"\n\"bad 0x10\"\n\"bad +NaN\"\n\
+         1.5\n"
+    );
+}
+
+#[test]
+fn float_parse_keeps_the_dropped_digits() {
+    // `1 + 2^-53` is a midpoint; with `1e-1000` appended the input is above it, even though the
+    // first 800 significant digits are the midpoint itself (the sticky bit decides the tie).
+    let midpoint = "1.00000000000000011102230246251565404236316680908203125";
+    let input = format!("{midpoint}{}1", "0".repeat(946));
+    let src = format!("fn main() {{\n  dbg(Float.to_string(Float.parse(\"{input}\")))\n}}\n");
+    let Some(out) = stderr("float-long-midpoint", &src) else {
+        return;
+    };
+    assert_eq!(out, "\"1.0000000000000002\"\n");
+}
+
+#[test]
+fn float_to_int_out_of_range_is_a_defect() {
+    let cases = [
+        ("Float.floor(0.0 / 0.0)", "NaN"),
+        ("Float.ceil(1.0 / 0.0)", "Infinity"),
+        ("Float.truncate(-1.0 / 0.0)", "-Infinity"),
+        ("Float.truncate(2147483648.0)", "2147483648.0"),
+        ("Float.round(2147483647.5)", "2147483647.5"),
+        ("Float.floor(-2147483648.5)", "-2147483648.5"),
+        ("Float.ceil(2147483647.1)", "2147483647.1"),
+    ];
+    for (i, (call, shown)) in cases.into_iter().enumerate() {
+        let src = format!("fn main() {{\n  dbg({call})\n}}\n");
+        let Some(run) = run(&format!("float-defect-{i}"), &src) else {
+            return;
+        };
+        assert_eq!(run.code, 101, "{call}");
+        assert_eq!(
+            run.stderr,
+            format!("defect: cannot convert {shown} to Int\n"),
+            "{call}"
+        );
+    }
+}
+
+#[test]
+fn a_failed_assert_shows_floats() {
+    // `assert` shows both sides through Show (spec 10.6), so a Float is shown like `dbg` does.
+    let Some(run) = run("float-assert", "fn main() {\n  assert 1.5 == 2.5\n}\n") else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "defect: assertion failed: 1.5 == 2.5\n  left: 1.5\n right: 2.5\n"
+    );
+}
+
+#[test]
+fn option_and_array_get_fusions() {
+    // The Core IR passes turn `Option.or(Array.get(a, i), d)` into `ArrayGetOr` and
+    // `match Array.get(a, i)` into a bounds test and `ArrayLoadUnchecked`. Both must agree with
+    // their source shape, evaluate `a`, `i`, `d` in order (`d` even when `i` is in range), and
+    // keep a failing, suspending or effectful `d`.
+    let Some(out) = stderr(
+        "option-array",
+        r#"
+import Std.Array.{Array}
+import Std.Task.{Task}
+import Std.State.{State}
+
+fn via_match(a: Array[Int], i: Int, d: Int) -> Int {
+  Array.get(a, i) match {
+    None -> d
+    Some(x) -> x
+  }
+}
+
+fn traced_index(i: Int) -> Int {
+  dbg("i=#{i}")
+  i
+}
+
+fn traced_default(d: Int) -> Int {
+  dbg("d=#{d}")
+  d
+}
+
+fn or_suspending(a: Array[Int], i: Int) -> Int {
+  with tasks = Task.Group {
+    Array.get(a, i) |> Option.or(tasks.start(|| 7).join())
+  }
+}
+
+fn or_effectful(a: Array[Int], i: Int) -> Int {
+  (value, updates) = State.run(0, || {
+    st = use State[Int]
+    st.update(|n| n + 1)
+    Array.get(a, i) |> Option.or(st.get())
+  })
+  value + updates * 100
+}
+
+fn main() {
+  a = Array.from_list([10, 20])
+  dbg(Array.get(a, 0) |> Option.or(99))
+  dbg(Array.get(a, 9) |> Option.or(99))
+  dbg(via_match(a, 0, 99))
+  dbg(via_match(a, 9, 99))
+  dbg(Array.get(a, 0) |> Option.or(traced_default(traced_index(5))))
+  dbg(or_suspending(a, 0))
+  dbg(or_suspending(a, 9))
+  dbg(or_effectful(a, 0))
+  dbg(or_effectful(a, 9))
+  dbg(Array.get(Array.from_list(["x"]), 1) |> Option.or("d"))
+  dbg(Array.get(Array.from_list([Int64.from_int(7)]), 5) |> Option.or(Int64.from_int(0)))
+  dbg(Array.get(Array.from_list([1.5]), 0) |> Option.or(0.0))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "10\n99\n10\n99\n\"i=5\"\n\"d=5\"\n10\n10\n7\n110\n101\n\"d\"\n0\n1.5\n"
+    );
+}
+
+#[test]
+fn array_map_range_stops_at_a_defect() {
+    // The fused `Array.from_list(List.map(List.range(lo, hi), f))` calls `f` in a loop. A defect
+    // is not part of `f`'s type, so the loop must stop at the first one and nothing after the
+    // map may run: the array is never complete.
+    let Some(run) = run(
+        "array-map-range-defect",
+        r#"
+import Std.Array.{Array}
+
+fn mapped(i: Int) -> String {
+  dbg("map #{i}")
+  if i == 2 { panic("boom") } else { Int.to_string(i) }
+}
+
+fn main() {
+  xs = Array.from_list(List.map(List.range(0, 5), mapped))
+  dbg(Array.size(xs))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(run.code, 101);
+    assert_eq!(
+        run.stderr,
+        "\"map 0\"\n\"map 1\"\n\"map 2\"\ndefect: boom\n"
+    );
+}
+
+#[test]
+fn list_fold_and_map_over_a_range() {
+    // The range fusion turns `List.fold(List.range(lo, hi), …)` and `List.map(List.range(lo,
+    // hi), …)` into loops. The values, the evaluation order and a failing or suspending `f` must
+    // be those of the list-building form.
+    let Some(out) = stderr(
+        "range-fold-map",
+        r#"
+import Std.Task.{Task}
+import Std.State.{State}
+
+error Missing
+
+fn add(acc: Int, x: Int) -> Int {
+  acc + x
+}
+
+fn traced(label: String, value: Int) -> Int {
+  dbg(label)
+  value
+}
+
+fn main() {
+  dbg(List.fold(List.range(0, 0), 7, add))
+  dbg(List.fold(List.range(1, 0), 7, add))
+  dbg(List.fold(List.range(-3, 3), 0, add))
+  dbg(List.map(List.range(0, 4), |x| x * 2))
+  dbg(List.map(List.range(3, 3), |x| x * 2))
+  dbg(List.fold(List.range(traced("lo", 0), traced("hi", 2)), traced("init", 10), add))
+  dbg(List.fold(List.range(0, 4), 0, |acc, x| {
+    if x == 2 { fail Missing } else { acc + x }
+  }) escape { Missing -> -1 })
+  dbg(with tasks = Task.Group {
+    List.fold(List.range(0, 3), 0, |acc, x| tasks.start(|| acc + x).join())
+  })
+  (value, updates) = State.run(0, || {
+    st = use State[Int]
+    List.fold(List.range(0, 3), 0, |acc, x| {
+      st.update(|n| n + 1)
+      acc + x
+    })
+  })
+  dbg((value, updates))
+  (mapped, map_updates) = State.run(0, || {
+    st = use State[Int]
+    List.map(List.range(0, 3), |x| {
+      st.update(|n| n + 1)
+      x * 2
+    })
+  })
+  dbg((mapped, map_updates))
+  dbg(List.map(List.range(0, 3), |x| Int.to_string(x)))
+}
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        out,
+        "7\n7\n-3\n[0, 2, 4, 6]\n[]\n\"lo\"\n\"hi\"\n\"init\"\n11\n-1\n3\n(3, 3)\n([0, 2, 4], 3)\n[\"0\", \"1\", \"2\"]\n"
+    );
+}

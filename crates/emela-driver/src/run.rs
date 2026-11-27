@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use crate::code;
 use crate::diagnostic::Diagnostic;
-use crate::doctor::Version;
+use crate::version::Version;
 
 thread_local! {
     /// The working directory for the child runner in this thread (see [`with_program_cwd`]).
@@ -279,7 +279,7 @@ pub(crate) const WASMTIME: Host = Host {
     env: WASMTIME_ENV,
     min_major: WASMTIME_MIN_MAJOR,
     code: code::TOOL_UNAVAILABLE,
-    version: crate::doctor::wasmtime_version,
+    version: crate::run::wasmtime_version,
 };
 
 impl Host {
@@ -503,6 +503,21 @@ pub(crate) fn exit_code(status: ExitStatus) -> i32 {
         }
     }
     1
+}
+
+pub(crate) fn wasmtime_version(out: &str) -> Option<Version> {
+    let word = out.split_whitespace().nth(1)?;
+    crate::version::number(word)
+}
+
+/// The command that runs the executable `program` with `args`.
+pub(crate) fn native_command(program: &Path, args: &[OsString]) -> ProgramCommand {
+    let mut command = Command::new(program);
+    command.args(args).stdin(Stdio::inherit());
+    let program = program.to_path_buf();
+    ProgramCommand::new(command, move |err| {
+        Diagnostic::error(format!("cannot start `{}`: {err}", program.display()))
+    })
 }
 
 #[cfg(test)]

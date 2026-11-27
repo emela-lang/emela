@@ -11,8 +11,8 @@ use emela_resolve::hir::{DefId, Fields, Item, Span};
 use emela_syntax::ast::{self, AstNode, HasAttrs};
 use line_index::TextRange;
 
-use crate::frontend::TypedProgram;
-use crate::pipeline::Analysis;
+use crate::analysis::Analysis;
+use crate::program::TypedProgram;
 
 /// A request-local cache. Each queried module is parsed at most once, not once per candidate.
 #[derive(Default)]

@@ -16,7 +16,7 @@ use smol_str::SmolStr;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::InferCtx;
 use crate::row::{Row, RowElem, SetKind, Tag};
-use crate::ty::{ParamKind, Ty, TyConData, TyConId, TyConKind, TyCons, TyParam};
+use crate::ty::{IMMEDIATE, ParamKind, Ty, TyConData, TyConId, TyConKind, TyCons, TyParam};
 
 /// What omitted `fails` and `uses` clauses on a function type mean, decided by where they are
 /// written (spec 9.2).
@@ -1213,7 +1213,7 @@ fn decl_params(program: &Program, def: DefId, sets: &[Option<SetKind>]) -> Vec<T
                         return TyParam::set(name);
                     }
                     let mut p = TyParam::new(name);
-                    crate::signature::with_traits(program, &mut p, tp);
+                    with_traits(program, &mut p, tp);
                     p
                 })
                 .collect();
@@ -1295,9 +1295,6 @@ pub(crate) fn handler_type_params(program: &Program, handler: DefId) -> &[TypePa
     }
 }
 
-/// The name of the built-in Immediate bound (spec 9.5).
-pub(crate) const IMMEDIATE: &str = "Immediate";
-
 /// Effect type parameters (spec 8.1). Empty for effects without them and for non-effects.
 pub(crate) fn effect_params(program: &Program, effect: DefId) -> &[TypeParam] {
     match program.item(effect) {
@@ -1311,6 +1308,21 @@ pub(crate) fn ty_params(program: &Program, defs: &[DefId]) -> Vec<TyParam> {
     defs.iter()
         .map(|&def| TyParam::new(program.defs[def].name.clone()))
         .collect()
+}
+
+/// Adds the trait constraints written on an ordinary type parameter (`A: Ord + Show`). Immediate
+/// is not a trait here; on an ordinary type parameter it is E4304 (`signature::check_bounds`).
+pub(crate) fn with_traits(program: &Program, param: &mut TyParam, tp: &TypeParam) {
+    for &(res, _) in &tp.bounds {
+        if let Res::Def(t) = res
+            && program.defs[t].kind == DefKind::Trait
+            && program.prelude_def(IMMEDIATE) != Some(t)
+            && !param.traits.contains(&t)
+        {
+            param.traits.push(t);
+            param.bounds.push(program.defs[t].name.clone());
+        }
+    }
 }
 
 /// The spans of a type parameter's bounds that refer to the built-in Immediate.

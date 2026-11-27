@@ -13,8 +13,8 @@ use emela_syntax::ast::{self, AstNode};
 use emela_types::{Row, RowElem, Ty};
 use line_index::{TextRange, TextSize};
 
-use crate::frontend::TypedProgram;
-use crate::pipeline::Analysis;
+use crate::analysis::Analysis;
+use crate::program::TypedProgram;
 use crate::source::FileId;
 
 /// `edits` are replacements within the same file (an insertion has an empty range).

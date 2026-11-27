@@ -4,61 +4,16 @@
 //! expression in the current sequence. A compound expression is converted in a new sequence
 //! (`branch`) and its value read from the destination of the statement just pushed (`joined`).
 
-use emela_core::{Expr, Local, StrPart, Type, TypeId, UnOp};
+use emela_core::{Expr, StrPart, Type, TypeId, UnOp};
 
-use super::concat::{self, Piece};
+use super::concat::Piece;
 use super::value::{lit_val, prim_ty};
 use super::{Div, Lower, R, TMP, Val, ix};
-use crate::ir::{Const, Operand, PrimOp, PrimTy, SeqId, Stmt, Term, Value, VarId};
+use crate::ir::{Const, Operand, PrimOp, PrimTy, Stmt, Term, Value};
 use crate::repr::Repr;
 
 impl<'s> Lower<'s> {
-    /// Converts `e`, appending its statements to the current sequence.
-    pub(super) fn expr(&mut self, e: &Expr) -> R {
-        // `let` chains are walked in a loop, not by recursion.
-        let mut e = e;
-        loop {
-            match e {
-                Expr::Let { var, value, body } => {
-                    self.bind(*var, value)?;
-                    e = body;
-                }
-                Expr::With { binds, body } if binds.iter().all(|b| b.release.is_none()) => {
-                    for b in binds {
-                        self.bind(b.var, &b.value)?;
-                    }
-                    e = body;
-                }
-                _ => return self.node(e),
-            }
-        }
-    }
-
-    /// Binds the local to the value. A temporary the value ends in takes the local's name.
-    pub(super) fn bind(&mut self, var: Local, value: &Expr) -> Result<(), Div> {
-        let mark = self.f.vars.len();
-        let v = self.expr(value)?;
-        let local = &self.sh.core.locals[var];
-        let (hint, ty) = (local.hint.clone(), local.ty);
-        let op = match v.op {
-            // A value of another type (a function value with a smaller E or R) is coerced, so
-            // that the variable has the local's type.
-            Some(Operand::Var(x)) if self.differs(self.f.vars[x].ty, ty) => {
-                Some(Operand::Var(self.assign(&hint, ty, Value::Coerce(x))))
-            }
-            Some(Operand::Var(x)) => {
-                if ix(x) >= mark && self.f.vars[x].hint == TMP {
-                    self.f.vars[x].hint = hint;
-                }
-                Some(Operand::Var(x))
-            }
-            op => op,
-        };
-        self.locals.insert(var, op);
-        Ok(())
-    }
-
-    fn node(&mut self, e: &Expr) -> R {
+    pub(super) fn node(&mut self, e: &Expr) -> R {
         match e {
             Expr::Lit(lit) => Ok(lit_val(lit)),
             Expr::Var(l) => {
@@ -250,47 +205,6 @@ impl<'s> Lower<'s> {
         }
     }
 
-    /// Converts `e` into a new sequence that yields its value. Also returns its type, `None` if
-    /// control does not reach the end.
-    pub(super) fn branch(&mut self, e: &Expr) -> (SeqId, Option<TypeId>) {
-        self.open();
-        let ty = match self.expr(e) {
-            Ok(v) => {
-                self.term(Term::Yield(v.op));
-                Some(v.ty)
-            }
-            Err(Div) => None,
-        };
-        (self.close(), ty)
-    }
-
-    /// The value of a compound statement just pushed: `dst` of type `ty`, or `unreachable` if no
-    /// branch reaches its end.
-    ///
-    /// `dst` is made after the arms, since its type is that of the first arm that gives a value;
-    /// so in the dump its number is larger than those of the variables inside the arms.
-    pub(super) fn joined(&mut self, dst: Option<VarId>, ty: Option<TypeId>) -> R {
-        match ty {
-            Some(ty) => Ok(Val {
-                op: dst.map(Operand::Var),
-                ty,
-            }),
-            None => {
-                self.term(Term::Unreachable);
-                Err(Div)
-            }
-        }
-    }
-
-    /// Values for container slots: `()` gets the placeholder.
-    pub(super) fn slots(&mut self, es: &[Expr]) -> Result<Vec<Operand>, Div> {
-        let mut ops = Vec::with_capacity(es.len());
-        for e in es {
-            ops.push(self.expr(e)?.op.unwrap_or(Operand::Const(Const::Unit)));
-        }
-        Ok(ops)
-    }
-
     /// String interpolation: the values left to right, then the string. A String is embedded as
     /// is; other values are shown.
     fn interpolate(&mut self, parts: &[StrPart]) -> R {
@@ -315,7 +229,7 @@ impl<'s> Lower<'s> {
                 }
             }
         }
-        let s = concat::build(self, pieces);
+        let s = self.concat(pieces);
         Ok(Val {
             op: Some(s),
             ty: TypeId::STRING,

@@ -14,7 +14,7 @@ use emela_resolve::EXTENSION;
 
 use crate::code;
 use crate::diagnostic::{Diagnostic, Location};
-use crate::pipeline::{Input, TEST_DIR};
+use crate::project::{Input, TEST_DIR};
 use crate::render::{render_one, summary};
 use crate::source::{FileSystem, SourceDb};
 

@@ -6,7 +6,7 @@
 use emela_resolve::hir::{DefId, DefKind, DefModule, Item, Program};
 use emela_resolve::{ModuleId, PRELUDE};
 
-use crate::check::ProgramTypes;
+use crate::program_types::ProgramTypes;
 use crate::signature::Signatures;
 use crate::traits::{Traits, head_def};
 use crate::ty::{Ty, TyParam};

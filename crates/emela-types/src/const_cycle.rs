@@ -11,8 +11,8 @@ use emela_resolve::hir::{
 };
 use rustc_hash::FxHashMap;
 
-use crate::check::strongly_connected;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
+use crate::scc::strongly_connected;
 
 pub(crate) fn check(program: &Program, diags: &mut Vec<Diagnostic>) {
     let consts: Vec<DefId> = program

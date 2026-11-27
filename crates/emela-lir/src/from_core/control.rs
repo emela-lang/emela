@@ -7,67 +7,11 @@
 
 use emela_core::{Assert, AssertCond, BinOp, Expr, TypeId, WithBind};
 
-use super::concat::{self, Piece};
-use super::{Div, Lower, Open, R, TMP, Val};
-use crate::ir::{Const, OnFail, Operand, RuntimeOp, Seq, SeqId, Stmt, Term, Value};
+use super::concat::Piece;
+use super::{Div, Lower, R, TMP, Val};
+use crate::ir::{Const, Operand, RuntimeOp, Stmt, Term, Value};
 
 impl<'s> Lower<'s> {
-    pub(super) fn open(&mut self) {
-        self.open.push(Open {
-            stmts: Vec::new(),
-            term: None,
-            cache_mark: self.cache.len(),
-        });
-    }
-
-    /// Ends the innermost open sequence (with `yield` without value unless it has a terminator).
-    pub(super) fn close(&mut self) -> SeqId {
-        let open = self.open.pop().expect("no open sequence");
-        self.cache.truncate(open.cache_mark);
-        self.f.seqs.alloc(Seq {
-            stmts: open.stmts,
-            term: open.term.unwrap_or(Term::Yield(None)),
-        })
-    }
-
-    /// An empty sequence (`{}`).
-    pub(super) fn empty(&mut self) -> SeqId {
-        self.open();
-        self.close()
-    }
-
-    pub(super) fn push(&mut self, stmt: Stmt) {
-        let id = self.f.stmts.alloc(stmt);
-        let open = self.open.last_mut().expect("no open sequence");
-        debug_assert!(open.term.is_none(), "a statement after a terminator");
-        open.stmts.push(id);
-    }
-
-    pub(super) fn term(&mut self, term: Term) {
-        let open = self.open.last_mut().expect("no open sequence");
-        debug_assert!(open.term.is_none(), "a second terminator");
-        open.term = Some(term);
-    }
-
-    /// Where a failure goes from here.
-    pub(super) fn on_fail(&self) -> OnFail {
-        match self.fail.last() {
-            Some(&l) => OnFail::Break(l),
-            None => OnFail::Propagate,
-        }
-    }
-
-    /// The terminator passing the error value to where failures go from here.
-    pub(super) fn fail_term(&self, error: Operand) -> Term {
-        match self.fail.last() {
-            Some(&label) => Term::Break {
-                label,
-                value: Some(error),
-            },
-            None => Term::Fail(error),
-        }
-    }
-
     /// `with`: the bindings in order; each binding with release puts the rest inside `protect`,
     /// whose cleanup evaluates the release and then marks the handler value released (also when
     /// the release ends in a defect).
@@ -201,15 +145,12 @@ impl<'s> Lower<'s> {
         } else {
             a.text.clone()
         };
-        let msg = concat::build(
-            self,
-            vec![
-                Piece::Text(format!("assertion failed: {head}\n  left: ")),
-                Piece::Op(left),
-                Piece::Text("\n right: ".into()),
-                Piece::Op(right),
-            ],
-        );
+        let msg = self.concat(vec![
+            Piece::Text(format!("assertion failed: {head}\n  left: ")),
+            Piece::Op(left),
+            Piece::Text("\n right: ".into()),
+            Piece::Op(right),
+        ]);
         self.term(Term::Defect(msg, a.location.clone()));
         let else_ = self.close();
         self.push(Stmt::If {

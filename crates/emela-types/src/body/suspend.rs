@@ -30,10 +30,10 @@ use smol_str::SmolStr;
 
 use super::{BodyInfer, ImmediateObligation};
 use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, SuspendingCall};
-use crate::lower::{IMMEDIATE, TyTable, is_immediate_effect};
+use crate::lower::{TyTable, is_immediate_effect};
 use crate::row::{CapElem, Row, RowElem};
 use crate::signature::Signatures;
-use crate::ty::{Ty, TyParam};
+use crate::ty::{IMMEDIATE, Ty, TyParam};
 
 impl BodyInfer<'_> {
     /// A reference to `def` instantiated type parameters `params` with the sets `rows`. Records
@@ -416,22 +416,46 @@ impl BodyInfer<'_> {
         let member = self.member_item(item)?;
         self.suspending_member(member)
     }
-}
 
-/// Whether the body `body` of a suspend fn implementation uses `resume` (the local `resume`) in
-/// any way other than calling it directly (spec 8.7). Calling directly means writing `resume(v)`
-/// or `v |> resume` outside any lambda. The arguments of a handler a later item of a `with`
-/// overrides are not evaluated (`[effect.with]`), so `resume` in them does not count.
-pub(super) fn resume_escapes(infer: &BodyInfer<'_>, body: ExprId, resume: LocalId) -> bool {
-    Walker {
-        program: infer.program,
-        sigs: infer.sigs,
-        ty_table: infer.ty_table,
-        insts: infer.items_insts(),
-        resume,
-        escapes: false,
+    /// Whether the body `body` of a suspend fn implementation uses `resume` (the local `resume`)
+    /// in any way other than calling it directly (spec 8.7). Calling directly means writing
+    /// `resume(v)` or `v |> resume` outside any lambda. The arguments of a handler a later item of
+    /// a `with` overrides are not evaluated (`[effect.with]`), so `resume` in them does not count.
+    pub(super) fn resume_escapes(&self, body: ExprId, resume: LocalId) -> bool {
+        Walker {
+            program: self.program,
+            sigs: self.sigs,
+            ty_table: self.ty_table,
+            insts: self.items_insts(),
+            resume,
+            escapes: false,
+        }
+        .run(body)
     }
-    .run(body)
+
+    /// The first mention of `resume` in `expr`, including inside lambdas and local fns: a use of it
+    /// that is not a direct call where the implementation runs (`[effect.async]`).
+    fn mention_of(&self, expr: ExprId, resume: LocalId) -> Resumed {
+        let program = self.program;
+        if is_local(program, expr, resume) {
+            return Some((program.exprs[expr].span, true));
+        }
+        let mut subs = self.sub_exprs(expr);
+        match &program.exprs[expr].kind {
+            ExprKind::Lambda { body, .. } => subs.push(*body),
+            ExprKind::Block(block) => {
+                for stmt in &block.stmts {
+                    if let Stmt::LocalFn(f) = stmt {
+                        subs.push(f.body);
+                    }
+                }
+            }
+            _ => {}
+        }
+        subs.into_iter()
+            .filter_map(|sub| self.mention_of(sub, resume))
+            .min_by_key(|(span, _)| span.range.start())
+    }
 }
 
 struct Walker<'a> {
@@ -619,7 +643,7 @@ impl BodyInfer<'_> {
         let span = program.exprs[expr].span;
         match &program.exprs[expr].kind {
             ExprKind::Path(Res::Local(l)) if *l == resume => state.or(Some((span, true))),
-            ExprKind::Lambda { body, .. } => state.or(mention_of(self, *body, resume)),
+            ExprKind::Lambda { body, .. } => state.or(self.mention_of(*body, resume)),
             ExprKind::Call { callee, args } => {
                 let direct = is_local(program, *callee, resume);
                 if !direct {
@@ -656,7 +680,7 @@ impl BodyInfer<'_> {
                         Stmt::Let { value, .. } | Stmt::Expr(value) => {
                             self.after_resume(*value, resume, state)
                         }
-                        Stmt::LocalFn(f) => state.or(mention_of(self, f.body, resume)),
+                        Stmt::LocalFn(f) => state.or(self.mention_of(f.body, resume)),
                     };
                 }
                 match block.tail {
@@ -752,28 +776,4 @@ impl BodyInfer<'_> {
 
 fn is_local(program: &Program, expr: ExprId, local: LocalId) -> bool {
     matches!(program.exprs[expr].kind, ExprKind::Path(Res::Local(l)) if l == local)
-}
-
-/// The first mention of `resume` in `expr`, including inside lambdas and local fns: a use of it
-/// that is not a direct call where the implementation runs (`[effect.async]`).
-fn mention_of(infer: &BodyInfer<'_>, expr: ExprId, resume: LocalId) -> Resumed {
-    let program = infer.program;
-    if is_local(program, expr, resume) {
-        return Some((program.exprs[expr].span, true));
-    }
-    let mut subs = infer.sub_exprs(expr);
-    match &program.exprs[expr].kind {
-        ExprKind::Lambda { body, .. } => subs.push(*body),
-        ExprKind::Block(block) => {
-            for stmt in &block.stmts {
-                if let Stmt::LocalFn(f) = stmt {
-                    subs.push(f.body);
-                }
-            }
-        }
-        _ => {}
-    }
-    subs.into_iter()
-        .filter_map(|sub| mention_of(infer, sub, resume))
-        .min_by_key(|(span, _)| span.range.start())
 }

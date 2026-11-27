@@ -4,6 +4,7 @@
 //! on node (or builds the emitted C with cc and runs the executable).
 
 mod actions;
+mod analysis;
 mod attributes;
 mod c;
 pub mod code;
@@ -34,14 +35,18 @@ mod new;
 mod output;
 mod pipeline;
 mod pome;
+mod program;
+mod project;
 mod render;
 mod run;
 mod signature;
 mod source;
 mod structure;
 mod target;
+mod test_fns;
 mod testing;
 mod tokens;
+mod version;
 mod wasm;
 
 pub use actions::{CodeAction, CodeActionKind};
@@ -59,12 +64,13 @@ pub use fmt::{
     FmtFailure, FmtReport, FmtTarget, STDIN_DISPLAY, STDIN_PATH, WriteFile, fmt, fmt_targets,
     format_source,
 };
-pub use frontend::{Lower, ParseOnly, Resolve, Typecheck, TypedProgram};
+pub use frontend::{Lower, ParseOnly, Resolve, Typecheck};
 pub use hints::{HintKind, InlayHint};
 pub use hover::HoverInfo;
 pub use js::{CoreJs, JS_ENTRY_FILE};
 pub use links::{DocumentLink, document_links};
 
+pub use analysis::Analysis;
 pub use js_host::{JS_HOST_ENV, JsHost, NODE_ENV, js_host, js_host_program};
 pub use nav::{
     DocumentSymbol, NavTarget, RenameError, SymbolKind, WorkspaceSymbol, document_symbols,
@@ -73,11 +79,15 @@ pub use nav::{
 pub use new::{NewFile, NewPome, new};
 pub use output::{BuildOutput, OutputFile, write_files, write_output};
 pub use pipeline::{
-    Analysis, Backend, CORE_DIR, Checked, CoreSource, DOC_OUT_DIR, Dependencies, DependencyPome,
-    DependencyRef, ENTRY_FILE, Frontend, Input, JS_OUT_DIR, LexOnly, NATIVE_OUT_DIR, NoJsBackend,
-    Parsed, RunOptions, Runner, SOURCE_DIR, TEST_DIR, WASM_OUT_DIR, build, check, run,
+    Backend, CORE_DIR, Checked, CoreSource, Frontend, LexOnly, NoJsBackend, Parsed, RunOptions,
+    Runner, build, check, run,
 };
 pub use pome::project_dependencies;
+pub use program::TypedProgram;
+pub use project::{
+    DOC_OUT_DIR, Dependencies, DependencyPome, DependencyRef, ENTRY_FILE, Input, JS_OUT_DIR,
+    NATIVE_OUT_DIR, SOURCE_DIR, TEST_DIR, WASM_OUT_DIR, enclosing_project_target, project_target,
+};
 pub use render::{render, render_one, summary};
 pub use run::{
     DEFECT_EXIT_CODE, DEFECT_NAME, ERROR_EXIT_CODE, FAIL_KEY, INTERRUPTED_EXIT_CODE, Output,
@@ -87,12 +97,12 @@ pub use run::{
 pub use signature::SignatureInfo;
 pub use source::{FileId, FileSystem, MemoryFiles, SourceDb, SourceFile};
 pub use structure::{FoldKind, FoldRange, folding_ranges, selection_ranges};
-pub use target::{Target, enclosing_project_target, project_target};
+pub use target::Target;
+pub use test_fns::{TEST_ANNOTATION, TestDef, TestFn, collect_tests, is_test_fn};
 pub use testing::{
     AGENT_ENV_VARS, JS_TEST_ENTRY_FILE, JS_TEST_OUT_DIR, LowerTests, NATIVE_TEST_OUT_DIR, Reporter,
-    TEST_ANNOTATION, TEST_FAILURE_EXIT_CODE, TestBackend, TestCase, TestDef, TestFn, TestModule,
-    TestOptions, TestOutcome, TestReport, TestResult, collect_tests, default_test_out_dir,
-    default_test_out_dir_for, is_test_fn, runs_in_agent, test,
+    TEST_FAILURE_EXIT_CODE, TestBackend, TestCase, TestModule, TestOptions, TestOutcome,
+    TestReport, TestResult, default_test_out_dir, default_test_out_dir_for, runs_in_agent, test,
 };
 pub use tokens::{SemanticToken, TokenKind};
 pub use wasm::{CoreWasm, WASM_ENTRY_FILE};

@@ -1,11 +1,11 @@
 //! Declarations (spec 17.3).
 
 use super::expressions::{block, expr, supply};
-use super::param_list;
 use super::types::{
     effect_type_args, effects_and_errors, old_uses_clause_on_next_line, path, ret_type, type_,
     uses_clause,
 };
+use super::{newlines_with_doc, param_list};
 use crate::SyntaxKind::*;
 use crate::diagnostic::DiagnosticCode;
 use crate::parser::{Marker, Parser};
@@ -45,20 +45,6 @@ pub(crate) fn source_file(p: &mut Parser<'_>) {
         }
     }
     root.complete(p, ROOT);
-}
-
-/// Reads separating newlines. If a doc comment is attached, returns a marker opened at its
-/// position. The declaration opens with this marker, so `sink` puts the comment inside the
-/// declaration node.
-pub(crate) fn newlines_with_doc(p: &mut Parser<'_>) -> Option<Marker> {
-    let mut doc = None;
-    while p.at(NEWLINE) {
-        if doc.is_none() && p.at_doc_comment() {
-            doc = Some(p.start());
-        }
-        p.bump();
-    }
-    doc
 }
 
 /// `"import" module_path [ "." "{" import_item { "," import_item } "}" ]`
@@ -259,43 +245,9 @@ fn fn_decl(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, FN_DECL);
 }
 
-/// `local_fn = "fn" lower_name "(" [ params ] ")" [ signature ] block` (`[fn.local]`), a statement
-/// of a block. `m` is opened before its doc comment, if any.
-///
-/// The parser also reads the attributes, `pub`, `suspend` and type parameters of a top-level fn
-/// into the node, and validation reports them (E1212, E1213). A missing body is reported here.
-pub(crate) fn local_fn(p: &mut Parser<'_>, m: Marker) {
-    while p.at(AT) {
-        annotation(p);
-        while p.eat(NEWLINE) {}
-    }
-    p.eat(PUB_KW);
-    let has_body = fn_head_and_body(p);
-    if !has_body {
-        p.error(
-            DiagnosticCode::ExpectedToken,
-            "expected `{` and the body of the local function",
-        );
-    }
-    m.complete(p, LOCAL_FN);
-}
-
-/// Whether the parser is at the start of a local fn: `fn` and a name, or the attributes, `pub`
-/// and `suspend` that a top-level fn can have before `fn`. A statement cannot start with any of
-/// them otherwise.
-pub(crate) fn at_local_fn_start(p: &Parser<'_>) -> bool {
-    match p.current() {
-        FN_KW => p.nth(1) == LOWER_NAME,
-        SUSPEND_KW => p.nth(1) == FN_KW,
-        PUB_KW => matches!(p.nth(1), FN_KW | SUSPEND_KW),
-        AT => true,
-        _ => false,
-    }
-}
-
 /// The part of a fn from `suspend` to its body, shared by top-level and local fns. Returns
 /// whether there is a body.
-fn fn_head_and_body(p: &mut Parser<'_>) -> bool {
+pub(super) fn fn_head_and_body(p: &mut Parser<'_>) -> bool {
     p.eat(SUSPEND_KW);
     p.expect(FN_KW);
     decl_name(p, LOWER_NAME);
