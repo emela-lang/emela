@@ -6,9 +6,10 @@ use smol_str::SmolStr;
 
 use super::{BodyInfer, HandlerBody, HandlerPart};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::infer::{SetKind, substitute, substitute_bound};
+use crate::infer::SetKind;
 use crate::lower::is_intrinsic_effect;
 use crate::row::{CapElem, CapId, Row, RowElem, Tag};
+use crate::scheme::{substitute, substitute_bound};
 use crate::ty::Ty;
 
 impl BodyInfer<'_> {

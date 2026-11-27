@@ -25,6 +25,7 @@
 //! Constraints on effect sets R (`body/effects.rs`) go into the same table and are solved here
 //! together. E and R get separate set variables, so they never mix.
 
+use crate::scheme::substitute_row;
 use crate::sparse::SparseMap;
 use emela_resolve::hir::{
     Arm, Block, DefId, DefKind, DefModule, ExprId, ExprKind, Item, LocalId, PatId, PatKind,
@@ -38,7 +39,7 @@ use crate::coverage::Shapes;
 use crate::diagnostic::LeakFrom;
 use crate::diagnostic::{BoundItem, EffectContext, LayerArg};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::infer::{Origin, SetKind, Subset, substitute_row};
+use crate::infer::{Origin, SetKind, Subset};
 use crate::row::{CapElem, CapId, Row, RowElem, RowVar, Tag};
 use crate::ty::{Ty, TyParam};
 

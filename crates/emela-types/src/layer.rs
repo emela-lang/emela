@@ -19,9 +19,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::infer::substitute_bound;
 use crate::lower::{Omitted, Scope, TyTable};
 use crate::row::{Row, RowElem, Tag};
+use crate::scheme::substitute_bound;
 use crate::signature::{Signatures, is_label};
 use crate::ty::{Ty, TyCons};
 
@@ -875,7 +875,7 @@ pub(crate) fn instantiate_row(row: &Row, ty_args: &[Ty]) -> Row {
     if ty_args.is_empty() {
         return row.clone();
     }
-    crate::infer::substitute_row(row, ty_args, &[])
+    crate::scheme::substitute_row(row, ty_args, &[])
 }
 
 /// The effect name for diagnostics; `State[Int]` if it has type arguments.

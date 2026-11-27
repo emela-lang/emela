@@ -30,10 +30,10 @@ use smol_str::SmolStr;
 
 use super::{BodyInfer, ImmediateObligation};
 use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, SuspendingCall};
-use crate::lower::{IMMEDIATE, TyTable, is_immediate_effect};
+use crate::lower::{TyTable, is_immediate_effect};
 use crate::row::{CapElem, Row, RowElem};
 use crate::signature::Signatures;
-use crate::ty::{Ty, TyParam};
+use crate::ty::{IMMEDIATE, Ty, TyParam};
 
 impl BodyInfer<'_> {
     /// A reference to `def` instantiated type parameters `params` with the sets `rows`. Records

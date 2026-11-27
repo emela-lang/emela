@@ -14,8 +14,8 @@ use smol_str::SmolStr;
 use crate::exhaustiveness::{
     self, CtorTable, Lit, MatchCheck, Pat, TyShape, VariantShape, check_match,
 };
-use crate::infer::substitute_bound;
 use crate::lower::TyTable;
+use crate::scheme::substitute_bound;
 use crate::signature::Signatures;
 use crate::ty::{Prim, Ty};
 

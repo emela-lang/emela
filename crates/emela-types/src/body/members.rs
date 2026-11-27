@@ -5,8 +5,9 @@ use smol_str::SmolStr;
 
 use super::{BodyInfer, FieldTy, cap_effects_name};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::infer::{Origin, SetKind, substitute, substitute_bound};
+use crate::infer::{Origin, SetKind};
 use crate::row::{CapElem, CapId, Row, RowElem, Tag};
+use crate::scheme::{substitute, substitute_bound};
 use crate::ty::Ty;
 
 impl BodyInfer<'_> {

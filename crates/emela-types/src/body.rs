@@ -8,6 +8,7 @@
 //! ([`crate::check`]). Handlers are definitions in the group too: their operation bodies are
 //! inferred and their dependencies (the R of the operation bodies) computed.
 
+use crate::scheme::substitute;
 use crate::sparse::SparseMap;
 use emela_resolve::hir::{
     Arg, Arm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, FnSig, Item, Label,
@@ -22,7 +23,7 @@ use crate::builtin::Builtins;
 use crate::coverage::Shapes;
 use crate::diagnostic::{Diagnostic, DiagnosticKind, EffectContext};
 use crate::exhaustiveness::{Witness, check_match};
-use crate::infer::{InferCtx, Origin, SetKind, substitute};
+use crate::infer::{InferCtx, Origin, SetKind};
 use crate::lower::{
     Omitted, Scope, TyTable, effect_params, has_omitted_fails, is_intrinsic_effect,
 };
