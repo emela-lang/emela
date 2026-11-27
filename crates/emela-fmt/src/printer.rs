@@ -369,6 +369,71 @@ impl Printer {
     }
 }
 
+/// Each kind of node goes to the printer for its kind. Declarations and expressions contain each
+/// other (a local `fn` sits in a block, a block is a function's body), so the choice is made here
+/// rather than in either of them.
+impl Printer {
+    pub(crate) fn node(&mut self, node: &SyntaxNode) -> Doc {
+        match node.kind() {
+            PAREN_EXPR if exprs::paren_or_chain(node).is_some() => self.paren_or_chain(node),
+            PATH | PATH_TYPE | TYPE_VAR | SELF_TYPE | NAME_REF | PATH_EXPR | UNDERSCORE_EXPR
+            | PAREN_EXPR | FIELD_EXPR | PREFIX_EXPR | REST_EXPR | LITERAL | PAREN_TYPE
+            | SPREAD_ARG | WILDCARD_PAT | IDENT_PAT | CONST_PAT | LITERAL_PAT | VARIANT_PAT
+            | REST_PAT | ANNOTATION | ANNOT_PATH | CAP_MEMBER => self.seq(node, |_, _| false),
+            // `src = Files.Open(path)` in `with` (`[effect.with]`).
+            WITH_BIND => self.seq(node, |_, _| true),
+            TYPE_ARG_LIST | PARAM_TYPE_LIST | UNIT_TYPE | TUPLE_TYPE | TYPE_PARAM_LIST
+            | PARAM_LIST | UNIT_EXPR | TUPLE_EXPR | LIST_EXPR | PAT_ARG_LIST | UNIT_PAT
+            | TUPLE_PAT | LIST_PAT | ANNOT_ARG_LIST | FIELD_LIST | TUPLE_FIELD_LIST
+            | IMPORT_LIST => self.list(node, |p, n| p.node(n)),
+            VARIANT => self.variant(node),
+            FIELD => self.seq(node, |_, cur| cur != COLON),
+            DERIVE_CLAUSE => self.seq(node, |_, cur| cur != COMMA),
+            // Effect type arguments (`handler H: State[Int]`, `use State[Int]`, `of State[Int]`)
+            // attach to the name.
+            HANDLER_EFFECT | USE_EXPR | EFFECT_LABEL | EFFECT_ALIAS => {
+                self.seq(node, |_, cur| cur != TYPE_ARG_LIST)
+            }
+            WITH_BY => self.seq(node, |_, cur| cur != TYPE_ARG_LIST),
+            // `Map[K: Eq, V: Eq]` in `impl Map[K: Eq, V: Eq]: Eq`.
+            IMPL_TYPE => self.seq(node, |_, cur| cur != TYPE_PARAM_LIST),
+            RET_TYPE | FAILS_CLAUSE | FAIL_EXPR | ASSERT_EXPR | MATCH_GUARD | CAP_TYPE => {
+                self.seq(node, |_, _| true)
+            }
+            USES_CLAUSE => self.uses_clause(node),
+            // No space before `:`.
+            PARAM | TYPE_PARAM | NAMED_ARG | FIELD_PAT | BINDING | ANNOT_ARG => {
+                self.seq(node, |_, cur| cur != COLON)
+            }
+            FN_TYPE => self.seq(node, |_, cur| cur != PARAM_TYPE_LIST),
+            ERROR_SET => self.seq(node, |prev, cur| prev != L_BRACE && cur != R_BRACE),
+            EFFECT_SET if child_token(node, L_BRACE).is_some() => self.list(node, |p, n| p.node(n)),
+            EFFECT_SET => self.seq(node, |_, _| true),
+            STRING => self.string(node),
+            INTERP => self.interp(node),
+            // `WorkerKv(binding: "KV")` in `with` and `layer` reads as a call.
+            CALL_EXPR | SUPPLY => self.call(node),
+            BIN_EXPR => self.bin_chain(node),
+            BLOCK_EXPR => self.block(node).assemble(false).group(),
+            // A local fn is laid out as a top-level fn, indented in its block (`[fn.local]`).
+            LOCAL_FN => self.decl_seq(node),
+            IF_EXPR => self.if_chain(node).group(),
+            MATCH_EXPR | ESCAPE_EXPR => self.arms_expr(node),
+            MATCH_ARM_LIST => self.arm_list(node),
+            WITH_EXPR => self.with_expr(node),
+            LAMBDA_EXPR => self.lambda(node),
+            _ => self.verbatim(node),
+        }
+    }
+
+    pub(crate) fn element(&mut self, element: &SyntaxElement) -> Doc {
+        match element {
+            rowan::NodeOrToken::Token(t) => self.tok(t),
+            rowan::NodeOrToken::Node(n) => self.node(n),
+        }
+    }
+}
+
 /// Every element except the last includes its separating comma.
 pub(crate) struct ListParts {
     pub(crate) open: Doc,
