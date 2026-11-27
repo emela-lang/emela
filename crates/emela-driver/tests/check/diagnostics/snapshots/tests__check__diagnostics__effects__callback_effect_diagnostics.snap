@@ -1,0 +1,32 @@
+---
+source: crates/emela-driver/tests/check/diagnostics/effects.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E5003]: effect `Greeter` cannot be in the `uses` of a callback: the host calls it without handlers
+    ╭─[ main.emel:13:16 ]
+    │
+ 13 │ fn declared(f: fn() -> () uses { Greeter }) -> () uses {}
+    │                ─────────────┬─────────────  
+    │                             ╰─────────────── 
+────╯
+   = help: capture the capability of a named item (`with g = H { ... }`) and call its operations
+
+error[E5003]: effect `Greeter` cannot be used by a callback of external function `later`: the host calls it without handlers
+    ╭─[ main.emel:17:5 ]
+    │
+ 17 │     later(|| {
+    │     ──┬──  
+    │       ╰──── 
+────╯
+   = help: capture the capability of a named item (`with g = H { ... }`) and call its operations
+
+error[E5003]: capability `g` cannot be used by a callback of external function `later`: the host may call it after `g` has ended
+    ╭─[ main.emel:23:5 ]
+    │
+ 23 │     later(|| {
+    │     ──┬──  
+    │       ╰──── 
+────╯
+   = help: finish the work on the host side, or hand it to a fiber through a `Queue`
+
+3 errors

@@ -75,8 +75,8 @@ unchanged, and a build that sets the flags off gets exactly the previous output.
 because, with both on, the `effects` benchmark measured 0.86–0.91x on WASM and 0.85x on C across
 the isolated and integrated runs,
 the WASM output of the other 16 benchmark cases was byte-identical, and the passes are covered end to
-end by `crates/emela-driver/tests/closure_sra.rs`. Record SRA stays off because it rewrites nothing
-on the corpus.
+end by `crates/emela-driver/tests/opt/closure_sra.rs`. Record SRA stays off because it rewrites
+nothing on the corpus.
 
 The same shape, `|n| n + 1` made and only called in one function, is what E5 turns into a direct call
 and what closure SRA removes the record of; the lifted function is specialised on its scalar

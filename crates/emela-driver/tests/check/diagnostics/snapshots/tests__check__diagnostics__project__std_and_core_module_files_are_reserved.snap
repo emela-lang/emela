@@ -1,0 +1,23 @@
+---
+source: crates/emela-driver/tests/check/diagnostics/project.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E2002]: module name `Std` is reserved
+   ─[ src/std ]
+
+error[E2002]: module name `Std` is reserved
+   ─[ src/std.emel ]
+
+error[E2002]: module name `List` is reserved
+   ─[ src/list.emel ]
+
+warning[W3001]: the value of type `Int` returned by `main` is discarded
+   ╭─[ src/main.emel:3:4 ]
+   │
+ 3 │ fn main() { Instant.f() }
+   │    ──┬─  
+   │      ╰─── 
+───╯
+   = help: return `()`, or return an `ExitCode` to choose the exit code
+
+3 errors, 1 warning

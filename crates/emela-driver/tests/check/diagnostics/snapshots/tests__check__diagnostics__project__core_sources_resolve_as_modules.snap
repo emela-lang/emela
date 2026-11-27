@@ -1,0 +1,17 @@
+---
+source: crates/emela-driver/tests/check/diagnostics/project.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E2002]: module name `String` is reserved
+   ─[ src/string.emel ]
+
+error[E2201]: `@intrinsic` can only be used in the bundled core library
+   ╭─[ src/main.emel:5:1 ]
+   │
+ 5 │ @intrinsic
+   │ ─────┬────  
+   │      ╰────── 
+───╯
+   = help: use `@external` to bind a host function
+
+2 errors

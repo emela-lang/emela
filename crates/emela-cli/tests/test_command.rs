@@ -2,7 +2,7 @@
 //!
 //! Covers argument parsing, the `@test` checks (E2203), and lowering the source's test functions
 //! and running them on node. Details of the result output are tested in emela-driver's
-//! tests/test_runner.rs.
+//! tests/runtime/test_runner.rs.
 
 use std::path::PathBuf;
 use std::process::Command;
