@@ -1,0 +1,1623 @@
+//! Diagnostics of emela-types and of the lowering to Core IR.
+
+use emela_resolve::ModuleId;
+use emela_types::{
+    DiagnosticKind as TypeDiagnosticKind, EffectContext, ImmediateSource, InnerHandlerMismatch,
+    SetKind, SuspendingCall, Ty, TyCons, TypeError, TypeErrorKind,
+};
+use la_arena::ArenaMap;
+use smol_str::SmolStr;
+
+use super::{Diagnostic, Severity, Span};
+use crate::code;
+use crate::source::FileId;
+use crate::target::Target;
+
+impl Diagnostic {
+    /// E4405: a capability leaves what made it (`[effect.escape]`, `[diag.list]`).
+    pub fn from_capability_leak(
+        diagnostic: &emela_types::Diagnostic,
+        files: &ArenaMap<ModuleId, FileId>,
+    ) -> Self {
+        let TypeDiagnosticKind::CapabilityLeak { cap, from, made_at } = &diagnostic.kind else {
+            unreachable!("only for CapabilityLeak");
+        };
+        let span_of =
+            |s: emela_resolve::hir::Span| files.get(s.module).map(|&file| Span::new(file, s.range));
+        let (message, made) = match from {
+            emela_types::LeakFrom::With => (
+                format!("capability `{cap}` leaves the `with` that made it"),
+                "made here; it ends with this `with`".to_owned(),
+            ),
+            emela_types::LeakFrom::Call(callee) => (
+                format!("capability `{cap}` leaves the `{callee}` that made it"),
+                format!("made for this function by `{callee}`"),
+            ),
+            emela_types::LeakFrom::Handler(handler) => (
+                format!("capability `{cap}` leaves the handler `{handler}`"),
+                String::new(),
+            ),
+            emela_types::LeakFrom::Quantified => (
+                format!(
+                    "capability `{cap}` leaves the function that received it: a function of a quantified type cannot return what it receives"
+                ),
+                String::new(),
+            ),
+        };
+        let mut out = Diagnostic::error(message).with_code(code::CAPABILITY_LEAK);
+        if let Some(span) = diagnostic.span.and_then(span_of) {
+            out = out.with_span(span);
+        }
+        if let Some(at) = made_at.and_then(span_of)
+            && !made.is_empty()
+        {
+            out = out.with_label(at, made);
+        }
+        out
+    }
+
+    /// `TypeError` has no location, so the caller passes `span`.
+    pub fn from_type_error(error: &TypeError, cons: &TyCons, span: Span) -> Self {
+        Diagnostic::type_error(error, cons).with_span(span)
+    }
+
+    /// A type mismatch diagnostic without a location.
+    fn type_error(error: &TypeError, cons: &TyCons) -> Self {
+        let show = |ty: &Ty| format!("`{}`", ty.display(cons));
+        let diagnostic = match &*error.kind {
+            TypeErrorKind::Mismatch { expected, actual } => {
+                let diagnostic = Diagnostic::error(format!(
+                    "type mismatch: expected {}, found {}",
+                    show(&error.expected),
+                    show(&error.actual)
+                ));
+                if *expected == error.expected && *actual == error.actual {
+                    diagnostic
+                } else {
+                    diagnostic.with_note(format!(
+                        "the mismatch is between {} and {}",
+                        show(expected),
+                        show(actual)
+                    ))
+                }
+            }
+            TypeErrorKind::InfiniteType { var, ty } => Diagnostic::error(format!(
+                "infinite type: {} occurs in {}",
+                show(&Ty::Var(*var)),
+                show(ty)
+            ))
+            .with_note(format!(
+                "expected {}, found {}",
+                show(&error.expected),
+                show(&error.actual)
+            )),
+        };
+        let code = match &*error.kind {
+            TypeErrorKind::Mismatch { .. } => code::TYPE_MISMATCH,
+            TypeErrorKind::InfiniteType { .. } => code::INFINITE_TYPE,
+        };
+        diagnostic.with_code(code)
+    }
+}
+
+impl Diagnostic {
+    /// Places that type-checked but cannot be lowered to Core IR yet. The message matches the
+    /// type checker's `Unsupported`, and the location is found as in [`Diagnostic::from_type`].
+    pub fn from_lower(error: &emela_core::LowerError, files: &ArenaMap<ModuleId, FileId>) -> Self {
+        let (diagnostic, span) = match error {
+            emela_core::LowerError::Unsupported { what, span } => (
+                Diagnostic::error(format!("not supported yet: {what}")),
+                span,
+            ),
+            emela_core::LowerError::MissingExternal {
+                name,
+                language,
+                span,
+            } => {
+                let target = Target::of_language(language)
+                    .map_or_else(|| language.clone(), |t| t.name().to_owned());
+                (
+                    Diagnostic::error(format!(
+                        "external function `{name}` has no `@external({language}, ...)` for target `{target}`"
+                    ))
+                    .with_code(code::MISSING_EXTERNAL_TARGET)
+                    .with_help(format!(
+                        "add `@external({language}, ...)`, or avoid calling it from the entry"
+                    )),
+                    span,
+                )
+            }
+            emela_core::LowerError::SuspendingExport { name, span } => (
+                Diagnostic::error(format!(
+                    "exported function `{name}` may suspend, which target `native` does not support"
+                ))
+                .with_code(code::SUSPENDING_EXPORT),
+                span,
+            ),
+            emela_core::LowerError::WasmExport { name, span } => (
+                Diagnostic::error(format!(
+                    "exported function `{name}` has a `wasm` export, which the WASI 0.3 component target does not support yet"
+                )),
+                span,
+            ),
+            emela_core::LowerError::HttpServiceOnC { span } => (
+                Diagnostic::error("HTTP services are not supported on target `native` yet")
+                    .with_code(code::HTTP_SERVICE_ON_C),
+                span,
+            ),
+            emela_core::LowerError::MissingCoreFile { path, span } => (
+                Diagnostic::error(format!(
+                    "internal error: the bundled core has no file `{path}`"
+                )),
+                span,
+            ),
+        };
+        match span.and_then(|s| files.get(s.module).map(|&file| Span::new(file, s.range))) {
+            Some(span) => diagnostic.with_span(span),
+            None => diagnostic,
+        }
+    }
+
+    /// The location is a HIR position (module and range), whose file is looked up in `files`.
+    /// Positions without source (Prelude declarations) get no location.
+    pub fn from_type(
+        diagnostic: &emela_types::Diagnostic,
+        cons: &TyCons,
+        files: &ArenaMap<ModuleId, FileId>,
+    ) -> Self {
+        let span = diagnostic
+            .span
+            .and_then(|s| files.get(s.module).map(|&file| Span::new(file, s.range)));
+        let show = |ty: &Ty| format!("`{}`", ty.display(cons));
+        let mut help = None;
+        let mut note = None;
+        let mut label: Option<(Span, String)> = None;
+        let (severity, code, message) = match &diagnostic.kind {
+            TypeDiagnosticKind::CapabilityLeak { .. } => {
+                return Diagnostic::from_capability_leak(diagnostic, files);
+            }
+            TypeDiagnosticKind::Mismatch(error) => {
+                let out = Diagnostic::type_error(error, cons);
+                return match span {
+                    Some(span) => out.with_span(span),
+                    None => out,
+                };
+            }
+            // The note and help quote the source, so the frontend adds them.
+            TypeDiagnosticKind::MatchOnLogical(m) => {
+                let out = Diagnostic::type_error(&m.error, cons);
+                return match span {
+                    Some(span) => out.with_span(span),
+                    None => out,
+                };
+            }
+            TypeDiagnosticKind::WrongTypeArgCount {
+                name,
+                expected,
+                found,
+            } => (
+                Severity::Error,
+                Some(code::WRONG_COUNT),
+                format!("wrong number of type arguments: `{name}` takes {expected}, found {found}"),
+            ),
+            TypeDiagnosticKind::Unsupported { what } => {
+                (Severity::Error, None, format!("not supported yet: {what}"))
+            }
+            TypeDiagnosticKind::WrongArgCount {
+                callee,
+                expected,
+                found,
+            } => (
+                Severity::Error,
+                Some(code::WRONG_COUNT),
+                match callee {
+                    Some(callee) => format!(
+                        "wrong number of arguments: `{callee}` takes {expected}, found {found}"
+                    ),
+                    None => format!(
+                        "wrong number of arguments: this function takes {expected}, found {found}"
+                    ),
+                },
+            ),
+            TypeDiagnosticKind::UnknownLabel { callee, label } => (
+                Severity::Error,
+                Some(code::UNKNOWN_LABEL),
+                format!("no parameter named `{label}` in `{callee}`"),
+            ),
+            TypeDiagnosticKind::LabelOnUnnamedCallee { label } => (
+                Severity::Error,
+                Some(code::UNKNOWN_LABEL),
+                format!("no parameter named `{label}`: a function value has no parameter names"),
+            ),
+            TypeDiagnosticKind::DuplicateArg { label } => (
+                Severity::Error,
+                Some(code::DUPLICATE_ARG),
+                format!("argument `{label}` given more than once"),
+            ),
+            TypeDiagnosticKind::MissingPatternFields { ctor, fields } => {
+                help = Some("add `..` to ignore the remaining fields".to_owned());
+                (
+                    Severity::Error,
+                    Some(code::MISSING_PATTERN_FIELDS),
+                    format!(
+                        "pattern `{ctor}` does not mention {}",
+                        quoted_list("field", "fields", fields)
+                    ),
+                )
+            }
+            TypeDiagnosticKind::PatternFieldCount {
+                ctor,
+                expected,
+                found,
+            } => (
+                Severity::Error,
+                Some(code::WRONG_COUNT),
+                format!("pattern `{ctor}` has {expected} fields, found {found}"),
+            ),
+            TypeDiagnosticKind::NotNumeric { found, integer } => (
+                Severity::Error,
+                Some(code::NOT_NUMERIC),
+                if *integer {
+                    format!(
+                        "expected an integer (`Int` or `Int64`), found {}",
+                        show(found)
+                    )
+                } else {
+                    format!(
+                        "expected a number (`Int`, `Int64` or `Float`), found {}",
+                        show(found)
+                    )
+                },
+            ),
+            TypeDiagnosticKind::IntLiteralOutOfRange { literal, ty } => (
+                Severity::Error,
+                Some(code::INT_LITERAL_OUT_OF_RANGE),
+                format!(
+                    "integer literal `{literal}` is out of range for {}",
+                    show(ty)
+                ),
+            ),
+            TypeDiagnosticKind::NoField { ty, field } => (
+                Severity::Error,
+                Some(code::NO_FIELD),
+                format!("no field `{field}` on type {}", show(ty)),
+            ),
+            TypeDiagnosticKind::NoFieldOrFunction { ty, name } => (
+                Severity::Error,
+                Some(code::NO_FIELD),
+                format!("no field or function `{name}` for type {}", show(ty)),
+            ),
+            TypeDiagnosticKind::MethodNotCalled { ty, name, receiver } => {
+                let receiver = receiver.as_deref().unwrap_or("x");
+                help = Some(format!("call it as `{receiver}.{name}(...)`"));
+                (
+                    Severity::Error,
+                    Some(code::NO_FIELD),
+                    format!("no field `{name}` for type {}", show(ty)),
+                )
+            }
+            TypeDiagnosticKind::NoFields { ty, field } => (
+                Severity::Error,
+                Some(code::NO_FIELDS),
+                format!("type {} has no field or function `{field}`", show(ty)),
+            ),
+            TypeDiagnosticKind::FieldOnUnknownType { field, call } => {
+                help = Some("add a type annotation".to_owned());
+                let what = if *call {
+                    format!("call `{field}`")
+                } else {
+                    format!("access field `{field}`")
+                };
+                (
+                    Severity::Error,
+                    Some(code::FIELD_ON_UNKNOWN_TYPE),
+                    format!("the type of this value must be known to {what}"),
+                )
+            }
+            TypeDiagnosticKind::AmbiguousMethod {
+                ty,
+                name,
+                field,
+                qualified,
+                receiver,
+            } => {
+                let receiver = receiver.as_deref().unwrap_or("x");
+                let mut candidates: Vec<String> = Vec::new();
+                if *field {
+                    candidates.push(format!("the field `{name}`"));
+                }
+                candidates.extend(qualified.iter().map(|q| format!("`{q}`")));
+                let calls: Vec<String> = qualified
+                    .iter()
+                    .map(|q| format!("`{q}({receiver})`"))
+                    .collect();
+                let mut text = format!("write {}", or_list(&calls));
+                if *field {
+                    text.push_str(&format!(
+                        ", or take the field out first (`f = {receiver}.{name}`)"
+                    ));
+                }
+                help = Some(text);
+                (
+                    Severity::Error,
+                    Some(code::AMBIGUOUS_METHOD),
+                    format!(
+                        "ambiguous method `{name}` for {}: {}",
+                        show(ty),
+                        and_list(&candidates)
+                    ),
+                )
+            }
+            TypeDiagnosticKind::OpaqueField { ty, field } => (
+                Severity::Error,
+                Some(code::OPAQUE_OUTSIDE_MODULE),
+                format!(
+                    "cannot access field `{field}` of opaque type {} outside its module",
+                    show(ty)
+                ),
+            ),
+            TypeDiagnosticKind::MissingParamType { param } => (
+                Severity::Error,
+                Some(code::MISSING_PARAM_TYPE),
+                format!("parameter `{param}` of a top-level function needs a type"),
+            ),
+            TypeDiagnosticKind::MissingLocalFnParamType { param } => (
+                Severity::Error,
+                Some(code::MISSING_PARAM_TYPE),
+                format!("parameter `{param}` of a local function needs a type"),
+            ),
+            TypeDiagnosticKind::MissingInitParamType { handler, param } => (
+                Severity::Error,
+                Some(code::MISSING_PARAM_TYPE),
+                format!("parameter `{param}` of the `init` of `{handler}` needs a type"),
+            ),
+            TypeDiagnosticKind::NonExhaustiveMatch { missing } => (
+                Severity::Error,
+                Some(code::NON_EXHAUSTIVE_MATCH),
+                format!(
+                    "non-exhaustive match: {} not covered",
+                    quoted_list("pattern", "patterns", missing)
+                ),
+            ),
+            TypeDiagnosticKind::RefutableBinding { missing } => {
+                help = Some("use `match` to handle the other cases".to_owned());
+                (
+                    Severity::Error,
+                    Some(code::REFUTABLE_BINDING),
+                    format!(
+                        "refutable pattern in binding: {} not covered",
+                        quoted_list("pattern", "patterns", missing)
+                    ),
+                )
+            }
+            TypeDiagnosticKind::UnusedDerive { trait_name, ty } => {
+                // dbg and a failed assert show a value by its Show if it has one (spec 10.6,
+                // 13.2), and do not count as uses.
+                help = Some(if trait_name == "Show" {
+                    format!(
+                        "remove it from `derive`; `dbg` then shows `{ty}` as constructed, and a failed `assert` no longer shows its values"
+                    )
+                } else {
+                    "remove it from `derive`".to_owned()
+                });
+                (
+                    Severity::Warning,
+                    Some(code::UNUSED_DERIVE),
+                    format!("derived `{trait_name}` for `{ty}` is never used"),
+                )
+            }
+            TypeDiagnosticKind::MainValueDiscarded { ty } => {
+                help =
+                    Some("return `()`, or return an `ExitCode` to choose the exit code".to_owned());
+                (
+                    Severity::Warning,
+                    Some(code::MAIN_VALUE_DISCARDED),
+                    format!("the value of type `{ty}` returned by `main` is discarded"),
+                )
+            }
+            TypeDiagnosticKind::UnusedTypeParam { param, function } => {
+                help = Some(format!(
+                    "a call cannot determine `{param}`; remove it, or use it in a parameter, the return type, `fails` or `uses`"
+                ));
+                (
+                    Severity::Warning,
+                    Some(code::UNUSED_TYPE_PARAM),
+                    format!(
+                        "type parameter `{param}` of `{function}` does not appear in its signature"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::UnreachableArm => (
+                Severity::Warning,
+                Some(code::UNREACHABLE_MATCH_ARM),
+                "unreachable match arm".to_owned(),
+            ),
+            TypeDiagnosticKind::UnhandledErrors {
+                errors,
+                declared,
+                layer_arg,
+            } => {
+                let list = quoted_list("error", "errors", errors);
+                if let Some(arg) = layer_arg {
+                    help = Some(layer_arg_help(arg));
+                    (
+                        Severity::Error,
+                        Some(code::UNDECLARED_ERRORS),
+                        format!("unhandled {list}"),
+                    )
+                } else if *declared {
+                    help = Some("add it to `fails` or handle it with `escape`".to_owned());
+                    let verb = if errors.len() == 1 { "is" } else { "are" };
+                    (
+                        Severity::Error,
+                        Some(code::UNDECLARED_ERRORS),
+                        format!("{list} {verb} not declared in `fails`"),
+                    )
+                } else {
+                    help = Some("handle it with `escape`, or declare it with `fails`".to_owned());
+                    (
+                        Severity::Error,
+                        Some(code::UNDECLARED_ERRORS),
+                        format!("unhandled {list}"),
+                    )
+                }
+            }
+            TypeDiagnosticKind::NotAnError { found } => (
+                Severity::Error,
+                Some(code::NOT_AN_ERROR),
+                format!("expected an error value, found {}", show(found)),
+            ),
+            TypeDiagnosticKind::EscapeArmNotError => (
+                Severity::Error,
+                Some(code::INVALID_ESCAPE_ARM),
+                "escape arms must match an error constructor or `_`".to_owned(),
+            ),
+            TypeDiagnosticKind::EscapeWildcardGuard => (
+                Severity::Error,
+                Some(code::INVALID_ESCAPE_ARM),
+                "a `_` escape arm cannot have a guard".to_owned(),
+            ),
+            TypeDiagnosticKind::ErrorSetMismatch { expected, found } => (
+                Severity::Error,
+                Some(code::UNDECLARED_ERRORS),
+                format!("error set mismatch: expected `fails {expected}`, found `fails {found}`"),
+            ),
+            TypeDiagnosticKind::UnraisedError { error } => (
+                Severity::Warning,
+                Some(code::UNRAISED_ERROR),
+                format!("error `{error}` is never raised here"),
+            ),
+            TypeDiagnosticKind::NoErrorRaised => (
+                Severity::Warning,
+                Some(code::UNRAISED_ERROR),
+                "no error is raised here".to_owned(),
+            ),
+            TypeDiagnosticKind::UnusedLabelProvider { label } => (
+                Severity::Warning,
+                Some(code::UNUSED_LABEL_PROVIDER),
+                format!("label `{label}` is listed here but never used"),
+            ),
+            TypeDiagnosticKind::ExportOutsideEntry { attr } => (
+                Severity::Error,
+                Some(code::EXPORT_OUTSIDE_ENTRY),
+                format!("`@{attr}` is only allowed in the entry module"),
+            ),
+            TypeDiagnosticKind::NotEntryAdapter { name } => (
+                Severity::Error,
+                Some(code::NOT_ENTRY_ADAPTER),
+                match name {
+                    Some(name) => format!("`{name}` is not an entry adapter"),
+                    None => "the argument of `@entry` must name an entry adapter".to_owned(),
+                },
+            ),
+            TypeDiagnosticKind::DuplicateExport { name, target } => (
+                Severity::Error,
+                Some(code::DUPLICATE_EXPORT),
+                format!("`{name}` is exported twice for target `{target}`"),
+            ),
+            TypeDiagnosticKind::NotBoundary { function, ty, ret } => (
+                Severity::Error,
+                Some(code::NOT_BOUNDARY_EXPORT),
+                if *ret {
+                    format!("exported function `{function}` cannot return `{ty}`")
+                } else {
+                    format!("exported function `{function}` cannot take `{ty}`")
+                },
+            ),
+            TypeDiagnosticKind::ExportFails { function, errors } => (
+                Severity::Error,
+                Some(code::UNDECLARED_EFFECTS),
+                format!("exported function `{function}` cannot fail with `{errors}`"),
+            ),
+            TypeDiagnosticKind::EntryMismatch { entry, adapter } => (
+                Severity::Error,
+                Some(code::ENTRY_MISMATCH),
+                format!("`{entry}` does not fit `{adapter}`"),
+            ),
+            TypeDiagnosticKind::UnknownOperation { effect, op } => (
+                Severity::Error,
+                Some(code::UNKNOWN_OPERATION),
+                format!("effect `{effect}` has no operation `{op}`"),
+            ),
+            TypeDiagnosticKind::UnhandledEffects {
+                effects,
+                context,
+                in_task,
+                hosts,
+                process,
+                bound,
+                external,
+            } => {
+                if *in_task {
+                    note = Some(
+                        "tasks get their handlers from outside the `with` of their group, so `with` inside it does not reach them"
+                            .to_owned(),
+                    );
+                }
+                // Only the entry provides a host effect (`[effect.host]`): name it and what it
+                // provides.
+                if !hosts.is_empty()
+                    && let Some(entry) = host_entry(context)
+                {
+                    let provided = context.provided_hosts();
+                    let provided = match provided.as_slice() {
+                        [one] => format!("only `{one}`"),
+                        _ => {
+                            let quoted: Vec<String> =
+                                provided.iter().map(|e| format!("`{e}`")).collect();
+                            and_list(&quoted)
+                        }
+                    };
+                    let missing: Vec<String> = hosts.iter().map(|e| format!("`{e}`")).collect();
+                    note = Some(format!(
+                        "{entry} provides {provided}, not {}",
+                        or_list(&missing)
+                    ));
+                }
+                let list = quoted_list("effect", "effects", effects);
+                let verb = if effects.len() == 1 { "is" } else { "are" };
+                let message = match context {
+                    EffectContext::Declared => {
+                        help = Some(if *in_task {
+                            "add it to `uses` or provide it with `with` outside the group"
+                                .to_owned()
+                        } else {
+                            "add it to `uses` or provide it with `with`".to_owned()
+                        });
+                        format!("{list} {verb} not declared in `uses`")
+                    }
+                    EffectContext::Const => format!("constant values cannot use {list}"),
+                    EffectContext::LayerArg(arg) => {
+                        help = Some(layer_arg_help(arg));
+                        format!("arguments in layer `{}` cannot use {list}", arg.layer)
+                    }
+                    EffectContext::Main => {
+                        help = Some(if *in_task {
+                            "provide it with `with` outside the group".to_owned()
+                        } else {
+                            "provide it with `with`".to_owned()
+                        });
+                        format!("{list} {verb} not provided in `main`")
+                    }
+                    EffectContext::Export { name, .. } => {
+                        help = Some(if *in_task {
+                            "provide it with `with` outside the group".to_owned()
+                        } else {
+                            "provide it with `with`".to_owned()
+                        });
+                        format!("{list} {verb} not provided in exported function `{name}`")
+                    }
+                    EffectContext::Test { name } => {
+                        help = Some(if *in_task {
+                            "provide it with `with` outside the group".to_owned()
+                        } else {
+                            "provide it with `with`".to_owned()
+                        });
+                        format!("{list} {verb} not provided in test function `{name}`")
+                    }
+                };
+                // A bound item provides nothing by name (`[effect.with]`).
+                if let Some(bound) = bound {
+                    let emela_types::BoundItem { span, name, effect } = bound.as_ref();
+                    note = Some(format!(
+                        "`{name}` is a bound item, so it does not provide `{effect}` by name"
+                    ));
+                    help = Some(format!(
+                        "remove `{name} =` to provide it by name, or call through `{name}`"
+                    ));
+                    if let Some(&file) = files.get(span.module) {
+                        label = Some((Span::new(file, span.range), format!("`{name}` is bound here")));
+                    }
+                }
+                // A with cannot provide a host effect (`[effect.host]`).
+                if hosts.len() == effects.len() {
+                    help = None;
+                }
+                if *process {
+                    help = Some(
+                        "`Platform` has only the handlers every host has; use `Process` for the ones that need a process"
+                            .to_owned(),
+                    );
+                }
+                // Only the handlers of M remove the External of M (`[effect.external]`): neither
+                // `uses` nor `with` helps.
+                if let Some(module) = external {
+                    help = Some(format!(
+                        "`External` of `{module}` is removed only in the handlers of `{module}`; call it in a handler of `{module}`, or declare in `{module}` an effect and a handler that call it"
+                    ));
+                }
+                (Severity::Error, Some(code::UNDECLARED_EFFECTS), message)
+            }
+            TypeDiagnosticKind::EffectSetMismatch {
+                expected,
+                found,
+                widened,
+                external,
+            } => {
+                if *widened {
+                    help = Some(
+                        "take the capability as a parameter `use E`, or capture it in a closure"
+                            .to_owned(),
+                    );
+                }
+                if let Some(module) = external {
+                    help = Some(format!(
+                        "`External` of `{module}` is removed only in the handlers of `{module}`"
+                    ));
+                }
+                (
+                    Severity::Error,
+                    Some(code::UNDECLARED_EFFECTS),
+                    format!(
+                        "effect set mismatch: expected `uses {expected}`, found `uses {found}`"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::CapabilityInOpResult { op, ty } => {
+                help = Some(
+                    "hand out a capability with a handler member (`with c = Pool.Conn()`)"
+                        .to_owned(),
+                );
+                (
+                    Severity::Error,
+                    Some(code::CAPABILITY_IN_OP_RESULT),
+                    format!(
+                        "the result of operation `{op}` cannot contain a capability type: `{ty}`"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::BoundTypeOutsideHandler { ty, effect } => {
+                note = Some(format!(
+                    "a value of `{ty}` lives only while a capability of `{effect}` does, so only a handler of `{effect}` can make one"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::BOUND_TYPE_OUTSIDE_HANDLER),
+                    format!("a value of `{ty}` can only be made inside a handler of `{effect}`"),
+                )
+            }
+            TypeDiagnosticKind::CapabilitySetMismatch { expected, found } => (
+                Severity::Error,
+                Some(code::TYPE_MISMATCH),
+                format!("capability set mismatch: expected `{expected}`, found `{found}`"),
+            ),
+            TypeDiagnosticKind::MissingHandlerOps {
+                handler,
+                ops,
+                members,
+            } => {
+                let mut missing = Vec::new();
+                if !ops.is_empty() {
+                    missing.push(quoted_list("operation", "operations", ops));
+                }
+                if !members.is_empty() {
+                    missing.push(quoted_list("handler member", "handler members", members));
+                }
+                (
+                    Severity::Error,
+                    Some(code::MISSING_HANDLER_OPS),
+                    format!(
+                        "handler `{handler}` does not implement {}",
+                        missing.join(" or ")
+                    ),
+                )
+            }
+            TypeDiagnosticKind::UnboundMemberItem { member, effect } => {
+                help = Some(format!("bind it to a name: `x = {effect}.{member}(...)`"));
+                (
+                    Severity::Error,
+                    Some(code::MEMBER_ITEM_FORM),
+                    format!("handler member `{member}` must be bound to a name in `with`"),
+                )
+            }
+            TypeDiagnosticKind::MissingMemberArgs {
+                member,
+                effect,
+                params,
+            } => {
+                let args: Vec<String> = params.iter().map(|p| format!("{p}: ...")).collect();
+                help = Some(format!("write `{effect}.{member}({})`", args.join(", ")));
+                (
+                    Severity::Error,
+                    Some(code::INIT_ARGS_MISMATCH),
+                    format!("handler member `{member}` needs arguments"),
+                )
+            }
+            TypeDiagnosticKind::MemberInLayer { member, layer } => (
+                Severity::Error,
+                Some(code::MEMBER_ITEM_FORM),
+                format!("handler member `{member}` cannot be an item of layer `{layer}`"),
+            ),
+            TypeDiagnosticKind::BoundLayer { layer } => (
+                Severity::Error,
+                Some(code::MEMBER_ITEM_FORM),
+                format!(
+                    "layer `{layer}` cannot be bound to a name: it provides more than one effect"
+                ),
+            ),
+            TypeDiagnosticKind::BoundLabelItem { item, name, effect } => {
+                help = Some(format!(
+                    "list it without a name, and write `{name} <- {effect}` in the body"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::MEMBER_ITEM_FORM),
+                    format!("label item `{item}` cannot be bound to a name: it makes no handler"),
+                )
+            }
+            TypeDiagnosticKind::MemberOutsideInit { member, effect } => {
+                help = Some(format!(
+                    "open it as an item of `with`: `with x = {effect}.{member}(...) {{ ... }}`"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::MEMBER_OUTSIDE_INIT),
+                    format!(
+                        "handler member `{member}` can only be opened in `with` or called in an `init`"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::InnerHandlerMismatch {
+                handler,
+                member,
+                effect,
+                reason,
+            } => {
+                let message = match reason.as_ref() {
+                    InnerHandlerMismatch::Params { params, found } => {
+                        help = Some(format!("write `init{params} {{ ... }}`"));
+                        match found {
+                            Some(found) => format!(
+                                "the init of `{handler}` takes `{found}`, but handler member `{member}` of `{effect}` takes `{params}`"
+                            ),
+                            None => format!(
+                                "`{handler}` has no init, but handler member `{member}` of `{effect}` takes `{params}`"
+                            ),
+                        }
+                    }
+                    InnerHandlerMismatch::Effect { expected, found } => format!(
+                        "`{handler}` implements `{found}`, but handler member `{member}` of `{effect}` is `{expected}`"
+                    ),
+                };
+                (Severity::Error, Some(code::INNER_HANDLER_MISMATCH), message)
+            }
+            TypeDiagnosticKind::SuspendingMemberPart {
+                member,
+                effect,
+                call,
+            } => {
+                help = Some(format!(
+                    "declare `{member}` as a `suspend handler` in the effect"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::SUSPENDING_FN_OP),
+                    format!(
+                        "{}, but handler member `{member}` of `{effect}` is not a `suspend handler`",
+                        suspending_cause(call)
+                    ),
+                )
+            }
+            TypeDiagnosticKind::SharedOperationName {
+                handler,
+                op,
+                first,
+                second,
+            } => {
+                help = Some(format!(
+                    "implement `{first}` and `{second}` in separate handlers"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::REPEATED_IN_HANDLER_HEAD),
+                    format!(
+                        "effects `{first}` and `{second}` of handler `{handler}` both have `{op}`"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::RepeatedHandlerEffect { handler, effect } => (
+                Severity::Error,
+                Some(code::REPEATED_IN_HANDLER_HEAD),
+                format!("effect `{effect}` is listed more than once in handler `{handler}`"),
+            ),
+            TypeDiagnosticKind::MissingCapabilityEffects {
+                expected,
+                found,
+                missing,
+            } => {
+                note = Some(
+                    "a capability can be passed as fewer of its effects, but not as more".into(),
+                );
+                let missing: Vec<String> = missing.iter().map(|m| format!("`{m}`")).collect();
+                (
+                    Severity::Error,
+                    Some(code::MISSING_CAPABILITY_EFFECTS),
+                    format!(
+                        "expected `{expected}`, found `{found}`, which does not have {}",
+                        missing.join(", ")
+                    ),
+                )
+            }
+            TypeDiagnosticKind::DuplicateHandlerOp { op } => (
+                Severity::Error,
+                Some(code::DUPLICATE_HANDLER_OP),
+                format!("operation `{op}` is implemented more than once"),
+            ),
+            TypeDiagnosticKind::HandlerOpArgCount {
+                op,
+                expected,
+                found,
+            } => (
+                Severity::Error,
+                Some(code::WRONG_COUNT),
+                format!(
+                    "wrong number of parameters: operation `{op}` takes {expected}, found {found}"
+                ),
+            ),
+            TypeDiagnosticKind::HandlerCycle { cycle } => {
+                let path: Vec<String> = cycle.iter().map(|h| format!("`{h}`")).collect();
+                (
+                    Severity::Error,
+                    Some(code::HANDLER_CYCLE),
+                    format!("handlers depend on each other: {}", path.join(" -> ")),
+                )
+            }
+            TypeDiagnosticKind::ConstCycle { cycle } => {
+                let path: Vec<String> = cycle.iter().map(|c| format!("`{c}`")).collect();
+                (
+                    Severity::Error,
+                    Some(code::CONST_CYCLE),
+                    format!("constants refer to each other: {}", path.join(" -> ")),
+                )
+            }
+            TypeDiagnosticKind::HandlerCtorOutsideInit { handler } => {
+                help = Some(format!(
+                    "use `with {handler} {{ ... }}`; `init` and `release` run there"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::HANDLER_CTOR_OUTSIDE_INIT),
+                    format!("handler `{handler}` can only be constructed in its own `init`"),
+                )
+            }
+            TypeDiagnosticKind::MissingInit { handler } => {
+                help = Some(format!(
+                    "add `init {{ ... }}` that returns `{handler}(...)`"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::MISSING_INIT),
+                    format!("handler `{handler}` has fields but no `init`"),
+                )
+            }
+            TypeDiagnosticKind::MissingInitArgs { handler, params } => {
+                let args: Vec<String> = params.iter().map(|p| format!("{p}: ...")).collect();
+                help = Some(format!("write `{handler}({})`", args.join(", ")));
+                (
+                    Severity::Error,
+                    Some(code::INIT_ARGS_MISMATCH),
+                    format!("handler `{handler}` needs arguments for its `init`"),
+                )
+            }
+            TypeDiagnosticKind::UnexpectedInitArgs { name, kind } => {
+                help = Some(format!("write `{name}` without parentheses"));
+                (
+                    Severity::Error,
+                    Some(code::INIT_ARGS_MISMATCH),
+                    format!("{kind} `{name}` takes no arguments"),
+                )
+            }
+            TypeDiagnosticKind::ReleaseFails { handler, errors } => {
+                help = Some(
+                    "handle it with `escape`, or turn it into a defect with `panic`".to_owned(),
+                );
+                let list = quoted_list("error", "errors", errors);
+                (
+                    Severity::Error,
+                    Some(code::RELEASE_FAILS),
+                    format!(
+                        "`release` of handler `{handler}` cannot fail, but this may fail with {list}"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::DuplicateLayerEffect {
+                layer,
+                effect,
+                first,
+                second,
+            } => {
+                let message = if first == second {
+                    format!("handler `{first}` appears more than once in layer `{layer}`")
+                } else {
+                    format!(
+                        "effect `{effect}` is provided by both `{first}` and `{second}` in layer `{layer}`"
+                    )
+                };
+                if first != second {
+                    help = Some(format!(
+                        "keep one of them, or override it with `with {layer}, {second} {{ ... }}`"
+                    ));
+                }
+                (Severity::Error, Some(code::DUPLICATE_LAYER_EFFECT), message)
+            }
+            TypeDiagnosticKind::LayerCycle { cycle } => {
+                let path: Vec<String> = cycle.iter().map(|l| format!("`{l}`")).collect();
+                (
+                    Severity::Error,
+                    Some(code::LAYER_CYCLE),
+                    format!("layers include each other: {}", path.join(" -> ")),
+                )
+            }
+            TypeDiagnosticKind::MissingEffectTypeArgs {
+                effect,
+                params,
+                handler,
+            } => {
+                let holes = vec!["..."; params.len()].join(", ");
+                let message = match handler {
+                    Some(handler) => {
+                        help = Some(format!(
+                            "write the types, like `handler {handler}: {effect}[{holes}]`, or give the handler type parameters, like `handler {handler}[{params}]: {effect}[{params}]`",
+                            params = params.join(", ")
+                        ));
+                        format!(
+                            "handler `{handler}` must implement `{effect}[{}]` with concrete types",
+                            params.join(", ")
+                        )
+                    }
+                    None => {
+                        help = Some(format!("write the types, like `{effect}[{holes}]`"));
+                        format!(
+                            "missing type arguments for effect `{effect}[{}]`",
+                            params.join(", ")
+                        )
+                    }
+                };
+                (
+                    Severity::Error,
+                    Some(code::MISSING_EFFECT_TYPE_ARGS),
+                    message,
+                )
+            }
+            TypeDiagnosticKind::HandlerParamNotType { handler, param } => (
+                Severity::Error,
+                Some(code::EFFECT_PARAM_NOT_TYPE),
+                format!(
+                    "type parameter `{param}` of handler `{handler}` is used as a set, but handler type parameters must be ordinary types"
+                ),
+            ),
+            TypeDiagnosticKind::UnusedHandlerParam { handler, param } => (
+                Severity::Error,
+                Some(code::UNUSED_HANDLER_PARAM),
+                format!(
+                    "type parameter `{param}` of handler `{handler}` does not appear in its effects, fields or init parameters"
+                ),
+            ),
+            TypeDiagnosticKind::InnerHandlerTypeParams { handler } => {
+                help = Some(
+                    "an inner handler implements a handler member declared by the effect; use the type parameters of the outer handler"
+                        .into(),
+                );
+                (
+                    Severity::Error,
+                    Some(code::MISPLACED_TYPE_PARAMS),
+                    format!("inner handler `{handler}` cannot have type parameters"),
+                )
+            }
+            TypeDiagnosticKind::HandlerArgsUnknown { handler, reason } => {
+                let name = handler.split('[').next().unwrap_or(handler);
+                help = Some(format!("write them, like `{name}[...]`"));
+                let message = match reason {
+                    emela_types::HandlerArgsReason::Unknown => {
+                        format!("cannot infer the type arguments of handler `{handler}`")
+                    }
+                    emela_types::HandlerArgsReason::Layer => {
+                        note = Some(
+                            "a layer infers type arguments only from the arguments of init".into(),
+                        );
+                        format!("cannot infer the type arguments of handler `{handler}`")
+                    }
+                    emela_types::HandlerArgsReason::Several { first, second } => format!(
+                        "cannot infer the type arguments of handler `{handler}`: both `{first}` and `{second}` fit"
+                    ),
+                    emela_types::HandlerArgsReason::Overrides { effect, other, at } => {
+                        if let Some(&file) = files.get(at.module) {
+                            label = Some((
+                                Span::new(file, at.range),
+                                format!("`{other}` provides `{effect}` here"),
+                            ));
+                        }
+                        format!(
+                            "cannot infer the type arguments of handler `{handler}`: it may override `{effect}` of `{other}`"
+                        )
+                    }
+                };
+                (Severity::Error, Some(code::HANDLER_ARGS_UNKNOWN), message)
+            }
+            TypeDiagnosticKind::EffectParamNotType { effect, param } => (
+                Severity::Error,
+                Some(code::EFFECT_PARAM_NOT_TYPE),
+                format!(
+                    "type parameter `{param}` of effect `{effect}` is used as a set, but effect type parameters must be ordinary types"
+                ),
+            ),
+            TypeDiagnosticKind::LabelBase {
+                label,
+                base,
+                reason,
+            } => {
+                let why = match reason {
+                    emela_types::LabelBaseReason::Label(inner) => {
+                        help = Some(format!(
+                            "write `effect {label} of {inner}`; `{base}` can still be plugged into it with `with {label} by {base}`"
+                        ));
+                        format!("`{base}` is a label")
+                    }
+                    emela_types::LabelBaseReason::BuiltIn => {
+                        format!("`{base}` is a built-in effect")
+                    }
+                };
+                (
+                    Severity::Error,
+                    Some(code::LABEL_BASE),
+                    format!("label `{label}` cannot stand for `{base}`: {why}"),
+                )
+            }
+            TypeDiagnosticKind::NotALabel { name, by } => {
+                if *by {
+                    (
+                        Severity::Error,
+                        Some(code::NOT_A_LABEL),
+                        format!("only a label can take `by`, but `{name}` is not a label"),
+                    )
+                } else {
+                    help = Some(format!(
+                        "list a handler of `{name}`, or declare a label with `effect L of {name}`"
+                    ));
+                    (
+                        Severity::Error,
+                        Some(code::NOT_A_LABEL),
+                        format!(
+                            "effect `{name}` is not a label: `with` takes a handler, a layer or a label"
+                        ),
+                    )
+                }
+            }
+            TypeDiagnosticKind::LabelMismatch {
+                label,
+                base,
+                provider,
+                provided,
+            } => (
+                Severity::Error,
+                Some(code::LABEL_MISMATCH),
+                format!(
+                    "label `{label}` stands for `{base}`, but `{provider}` provides `{provided}`"
+                ),
+            ),
+            TypeDiagnosticKind::LabelProvidedTwice { label } => (
+                Severity::Error,
+                Some(code::LABEL_PROVIDED_TWICE),
+                format!("label `{label}` is given a provider more than once in this `with`"),
+            ),
+            TypeDiagnosticKind::HandlerOfLabel {
+                handler,
+                label,
+                base,
+            } => {
+                help = Some(format!(
+                    "implement `{base}` instead, and plug it in with `with {label} by {handler}`"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::UNIMPLEMENTABLE_BY_HANDLER),
+                    format!("handler `{handler}` cannot implement label `{label}`"),
+                )
+            }
+            TypeDiagnosticKind::HostEffectHandler { handler, effect } => (
+                Severity::Error,
+                Some(code::UNIMPLEMENTABLE_BY_HANDLER),
+                format!(
+                    "handler `{handler}` cannot implement `{effect}`: only the host provides it"
+                ),
+            ),
+            TypeDiagnosticKind::IntrinsicHandler {
+                handler,
+                effect,
+                provider,
+            } => (
+                Severity::Error,
+                Some(code::UNIMPLEMENTABLE_BY_HANDLER),
+                format!(
+                    "handler `{handler}` cannot implement `{effect}`: only `{provider}` provides it"
+                ),
+            ),
+            TypeDiagnosticKind::OpTypeParams { op } => (
+                Severity::Error,
+                Some(code::MISPLACED_TYPE_PARAMS),
+                format!(
+                    "operation `{op}` cannot have type parameters: only built-in effects may declare them"
+                ),
+            ),
+            TypeDiagnosticKind::UseHostEffect { effect, external } => (
+                Severity::Error,
+                Some(code::USE_HOST_EFFECT),
+                if *external {
+                    format!("`{effect}` cannot be used with `use`")
+                } else {
+                    format!("`{effect}` is a host effect and cannot be used with `use`")
+                },
+            ),
+            TypeDiagnosticKind::ExternalUses { function, external } => {
+                if *external {
+                    help = Some(
+                        "`External` is added to every external function, except one declared with `uses {}` that is not a `suspend fn`"
+                            .to_owned(),
+                    );
+                }
+                (
+                    Severity::Error,
+                    Some(code::EXTERNAL_USES),
+                    format!(
+                        "the uses of external function `{function}` can contain only `ProcessHost` and `PageHost`"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::EffectWithoutOps { effect } => {
+                help = Some(
+                    "an effect needs at least one operation; only host effects have none"
+                        .to_owned(),
+                );
+                (
+                    Severity::Error,
+                    Some(code::EFFECT_WITHOUT_OPS),
+                    format!("effect `{effect}` has no operations"),
+                )
+            }
+            TypeDiagnosticKind::SuspendMismatch {
+                op,
+                effect,
+                suspend,
+            } => {
+                if *suspend {
+                    help = Some(format!("implement it with `suspend fn {op}(..., resume)`"));
+                    (
+                        Severity::Error,
+                        Some(code::SUSPEND_MISMATCH),
+                        format!("operation `{op}` is a `suspend fn` in effect `{effect}`"),
+                    )
+                } else {
+                    help = Some("remove `suspend`".to_owned());
+                    (
+                        Severity::Error,
+                        Some(code::SUSPEND_MISMATCH),
+                        format!("operation `{op}` is not a `suspend fn` in effect `{effect}`"),
+                    )
+                }
+            }
+            TypeDiagnosticKind::SuspendingFnOp { op, call } => {
+                let declare = format!("declare `{op}` as a `suspend fn` in the effect");
+                let cause = match call {
+                    SuspendingCall::Op { effect, op: called } => {
+                        help = Some(declare);
+                        format!(
+                            "operation `{called}` of `{effect}` is a `suspend fn` and may suspend"
+                        )
+                    }
+                    SuspendingCall::External { callee } => {
+                        help = Some(declare);
+                        format!("external function `{callee}` may suspend")
+                    }
+                    SuspendingCall::Member { .. } => {
+                        help = Some(declare);
+                        suspending_cause(call)
+                    }
+                    SuspendingCall::Fn { callee, effects } => {
+                        // Going through a function counts as possibly suspending even if it only
+                        // calls fn operations (spec 8.1). With only Async, calling the operation
+                        // directly changes nothing, so no hint is given.
+                        let ops: Vec<String> = effects
+                            .iter()
+                            .filter(|e| e.as_str() != "Async")
+                            .map(|e| format!("`{e}`"))
+                            .collect();
+                        help = Some(if ops.is_empty() {
+                            declare
+                        } else {
+                            format!(
+                                "{declare}, or call the `fn` operations of {} directly instead of through a function",
+                                ops.join(", ")
+                            )
+                        });
+                        let list = quoted_list("effect", "effects", effects);
+                        match callee {
+                            Some(f) => format!("calling `{f}` may suspend because it uses {list}"),
+                            None => format!("this call may suspend because it uses {list}"),
+                        }
+                    }
+                };
+                (
+                    Severity::Error,
+                    Some(code::SUSPENDING_FN_OP),
+                    format!("{cause}, but operation `{op}` is not a `suspend fn`"),
+                )
+            }
+            TypeDiagnosticKind::SuspendAfterResume {
+                call,
+                resume,
+                passed,
+            } => {
+                help = Some("start the rest with `Spawn` before calling `resume`".to_owned());
+                if let Some(&file) = files.get(resume.module) {
+                    let text = if *passed {
+                        "the caller may resume from here"
+                    } else {
+                        "the caller resumes here"
+                    };
+                    label = Some((Span::new(file, resume.range), text.to_owned()));
+                }
+                let what = match call {
+                    SuspendingCall::Op { op, .. } => format!("call to `{op}`"),
+                    SuspendingCall::External { callee } => format!("call to `{callee}`"),
+                    SuspendingCall::Fn {
+                        callee: Some(callee),
+                        ..
+                    } => format!("call to `{callee}`"),
+                    SuspendingCall::Fn { callee: None, .. } => "this call".to_owned(),
+                    SuspendingCall::Member { effect, member } => {
+                        format!("opening handler member `{member}` of `{effect}`")
+                    }
+                };
+                let after = if *passed {
+                    "after `resume` has been passed on"
+                } else {
+                    "after `resume` has been called"
+                };
+                (
+                    Severity::Error,
+                    Some(code::SUSPEND_AFTER_RESUME),
+                    format!("{what} may suspend {after}"),
+                )
+            }
+            TypeDiagnosticKind::NotImmediate {
+                effects,
+                sets,
+                required,
+            } => {
+                let mut parts = Vec::new();
+                if !effects.is_empty() {
+                    parts.push(quoted_list("effect", "effects", effects));
+                }
+                if !sets.is_empty() {
+                    parts.push(quoted_list("effect set", "effect sets", sets));
+                    help = Some("constrain the effect set with `: Immediate`".to_owned());
+                }
+                let list = parts.join(" and ");
+                let message = match required {
+                    ImmediateSource::Bound { param, callee } => format!(
+                        "{list} may suspend, but `{param}` of `{callee}` must be `Immediate`"
+                    ),
+                    ImmediateSource::ExternalCallback { callee } => format!(
+                        "{list} may suspend, but callbacks passed to external function `{callee}` must be `Immediate`"
+                    ),
+                };
+                (Severity::Error, Some(code::NOT_IMMEDIATE), message)
+            }
+            TypeDiagnosticKind::CallbackCapabilities { caps, callee } => {
+                help = Some(
+                    "finish the work on the host side, or hand it to a fiber through a `Queue`"
+                        .to_owned(),
+                );
+                let list = quoted_list("capability", "capabilities", caps);
+                let ended = match caps.as_slice() {
+                    [one] => format!("`{one}` has"),
+                    _ => "they have".to_owned(),
+                };
+                (
+                    Severity::Error,
+                    Some(code::CALLBACK_EFFECT),
+                    format!(
+                        "{list} cannot be used by a callback of external function `{callee}`: the host may call it after {ended} ended"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::BorrowedPosition => (
+                Severity::Error,
+                Some(code::BORROWED_POSITION),
+                "`@borrowed` can only be written on a parameter of function type of an external function"
+                    .to_owned(),
+            ),
+            TypeDiagnosticKind::CallbackEffects {
+                effects,
+                callee,
+                bound_item,
+                externals,
+            } => {
+                if *bound_item {
+                    help = Some(
+                        "capture the capability of a named item (`with g = H { ... }`) and call its operations".to_owned(),
+                    );
+                }
+                // The External of another module (`[effect.external]`): only a handler of that
+                // module can give the callback to the host.
+                let only_externals = !externals.is_empty() && externals.len() == effects.len();
+                if let Some(module) = externals.first() {
+                    help = Some(format!("only a handler of `{module}` can give it to the host"));
+                }
+                let list = quoted_list("effect", "effects", effects);
+                let message = match callee {
+                    Some(callee) if only_externals => format!(
+                        "{list} cannot be used by a callback of external function `{callee}`"
+                    ),
+                    Some(callee) => format!(
+                        "{list} cannot be used by a callback of external function `{callee}`: the host calls it without handlers"
+                    ),
+                    None => format!(
+                        "{list} cannot be in the `uses` of a callback: the host calls it without handlers"
+                    ),
+                };
+                (Severity::Error, Some(code::CALLBACK_EFFECT), message)
+            }
+            TypeDiagnosticKind::SetAsType => (
+                Severity::Error,
+                Some(code::SET_AS_TYPE),
+                "expected a type, found a set: sets can only be passed to set type parameters"
+                    .to_owned(),
+            ),
+            TypeDiagnosticKind::EffectAsType { name } => {
+                help = Some(format!(
+                    "a capability cannot be passed around; take `use {name}` where it is needed, or pass a closure that captures it"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::EFFECT_AS_TYPE),
+                    format!("effect `{name}` cannot be used as a type"),
+                )
+            }
+            TypeDiagnosticKind::SetArgMismatch {
+                param,
+                ty,
+                effects,
+                found,
+            } => {
+                let set = if *effects {
+                    "an effect set"
+                } else {
+                    "an error set"
+                };
+                help = Some(if *effects {
+                    "write an effect or an effect set type parameter".to_owned()
+                } else {
+                    "write an error or an error set type parameter".to_owned()
+                });
+                (
+                    Severity::Error,
+                    Some(code::SET_ARG_MISMATCH),
+                    format!("`{param}` of `{ty}` is {set}, found {found}"),
+                )
+            }
+            TypeDiagnosticKind::NotImplemented { ty, trait_name } => (
+                Severity::Error,
+                Some(code::NOT_IMPLEMENTED),
+                format!("type `{ty}` does not implement `{trait_name}`"),
+            ),
+            TypeDiagnosticKind::NotDerivable { trait_name } => (
+                Severity::Error,
+                Some(code::NOT_IMPLEMENTED),
+                format!(
+                    "cannot derive `{trait_name}`: only `Eq`, `Ord`, `Show`, `Encode`, `Decode`, \
+                     `ObjectKey` and `Shaped` can be derived"
+                ),
+            ),
+            TypeDiagnosticKind::OpaqueDerive { trait_name, ty } => {
+                help = Some(format!(
+                    "write `impl {ty}: {trait_name}` that builds the value with a function that checks it"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::OPAQUE_DERIVE),
+                    format!("cannot derive `{trait_name}` for opaque type `{ty}`"),
+                )
+            }
+            TypeDiagnosticKind::HostDerive { trait_name, ty } => (
+                Severity::Error,
+                Some(code::OPAQUE_DERIVE),
+                format!("cannot derive `{trait_name}` for host type `{ty}`"),
+            ),
+            TypeDiagnosticKind::ObjectKeyForm { ty, reason } => (
+                Severity::Error,
+                Some(code::OBJECT_KEY_FORM),
+                format!("cannot derive `ObjectKey` for `{ty}`: {reason}"),
+            ),
+            TypeDiagnosticKind::SupertraitCycle { cycle } => (
+                Severity::Error,
+                Some(code::SUPERTRAIT_CYCLE),
+                format!(
+                    "trait `{}` is its own supertrait: {}",
+                    cycle[0],
+                    cycle
+                        .iter()
+                        .map(|t| format!("`{t}`"))
+                        .collect::<Vec<_>>()
+                        .join(" -> ")
+                ),
+            ),
+            TypeDiagnosticKind::DuplicateImpl { ty, trait_name } => (
+                Severity::Error,
+                Some(code::DUPLICATE_IMPL),
+                format!("`{trait_name}` is already implemented for `{ty}`"),
+            ),
+            TypeDiagnosticKind::OrphanImpl { ty, trait_name } => {
+                help = Some(format!(
+                    "wrap `{ty}` in a type of this module and implement `{trait_name}` for it"
+                ));
+                (
+                    Severity::Error,
+                    Some(code::ORPHAN_IMPL),
+                    format!(
+                        "`{trait_name}` for `{ty}` can only be implemented in the module of \
+                         `{trait_name}` or of `{ty}`"
+                    ),
+                )
+            }
+            TypeDiagnosticKind::AmbiguousSelf { trait_name } => (
+                Severity::Error,
+                Some(code::AMBIGUOUS_SELF),
+                format!("cannot infer which impl of `{trait_name}` to use: add a type annotation"),
+            ),
+            TypeDiagnosticKind::ImplFnParamCount {
+                name,
+                trait_name,
+                expected,
+                found,
+            } => (
+                Severity::Error,
+                Some(code::WRONG_COUNT),
+                format!(
+                    "wrong number of parameters: `{name}` of `{trait_name}` takes {expected}, \
+                     found {found}"
+                ),
+            ),
+            TypeDiagnosticKind::ImmediateOnNonEffect { param } => (
+                Severity::Error,
+                Some(code::IMMEDIATE_ON_NON_EFFECT),
+                format!(
+                    "`Immediate` can only constrain effect sets, but `{param}` is not used in `uses`"
+                ),
+            ),
+            TypeDiagnosticKind::CapabilityOnSet { param, set } => (
+                Severity::Error,
+                Some(code::CAPABILITY_ON_SET),
+                format!(
+                    "`Capability` can only constrain ordinary type parameters, but `{param}` is \
+                     used in `{}`",
+                    match set {
+                        SetKind::Errors => "fails",
+                        // A set of capabilities is never written as a type parameter.
+                        SetKind::Effects | SetKind::Caps => "uses",
+                    }
+                ),
+            ),
+            TypeDiagnosticKind::AutoTraitImpl { trait_name } => (
+                Severity::Error,
+                Some(code::AUTO_TRAIT_IMPL),
+                format!("`{trait_name}` is determined automatically and cannot be implemented"),
+            ),
+        };
+        let mut out = Diagnostic::new(severity, message);
+        if let Some(code) = code {
+            out = out.with_code(code);
+        }
+        if let Some(span) = span {
+            out = out.with_span(span);
+        }
+        if let Some((at, message)) = label {
+            out = out.with_label(at, message);
+        }
+        if let Some(note) = note {
+            out = out.with_note(note);
+        }
+        if let Some(help) = help {
+            out = out.with_help(help);
+        }
+        out
+    }
+}
+
+/// The help of E3201 and E4301 in the arguments of a layer item (`[effect.layer]`).
+fn layer_arg_help(arg: &emela_types::LayerArg) -> String {
+    format!(
+        "the arguments in a layer must be pure; to pass this value, list `{}` after the layer: `with {}, {}(...) {{ ... }}`",
+        arg.handler, arg.layer, arg.handler
+    )
+}
+
+/// Lists names as `` `a` `` or `` fields `a`, `b` ``. Four or more show the first three and
+/// `and N more`.
+fn quoted_list(one: &str, many: &str, names: &[SmolStr]) -> String {
+    match names {
+        [only] => format!("{one} `{only}`"),
+        _ => {
+            let shown: Vec<String> = names.iter().take(3).map(|n| format!("`{n}`")).collect();
+            let mut list = shown.join(", ");
+            if names.len() > 3 {
+                list.push_str(&format!(" and {} more", names.len() - 3));
+            }
+            format!("{many} {list}")
+        }
+    }
+}
+
+/// `a`, `a and b`, `a, b and c`.
+fn and_list(items: &[String]) -> String {
+    joined(items, "and")
+}
+
+/// `a`, `a or b`, `a, b or c`.
+fn or_list(items: &[String]) -> String {
+    joined(items, "or")
+}
+
+fn joined(items: &[String], word: &str) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [init @ .., last] => format!("{} {word} {last}", init.join(", ")),
+    }
+}
+
+/// Why a call may suspend, for E4303 (spec 8.1).
+fn suspending_cause(call: &SuspendingCall) -> String {
+    match call {
+        SuspendingCall::Op { effect, op } => {
+            format!("operation `{op}` of `{effect}` is a `suspend fn` and may suspend")
+        }
+        SuspendingCall::External { callee } => format!("external function `{callee}` may suspend"),
+        SuspendingCall::Member { effect, member } => {
+            format!(
+                "handler member `{member}` of `{effect}` is a `suspend handler` and may suspend"
+            )
+        }
+        SuspendingCall::Fn { callee, effects } => {
+            let list = quoted_list("effect", "effects", effects);
+            match callee {
+                Some(f) => format!("calling `{f}` may suspend because it uses {list}"),
+                None => format!("this call may suspend because it uses {list}"),
+            }
+        }
+    }
+}
+
+/// The entry of a launch that `context` stands for, as named in the note of E4301 for a host
+/// effect (`[effect.host]`). `None` for a context that is not an entry.
+fn host_entry(context: &EffectContext) -> Option<String> {
+    match context {
+        EffectContext::Main => Some("`main`".to_owned()),
+        EffectContext::Test { .. } => Some("the test runner".to_owned()),
+        // An entry adapter. A fn made by `@entry` has these too, but an error in it is reported as
+        // E5105 instead (`emela_types::export`).
+        EffectContext::Export { name, hosts } if !hosts.is_empty() => Some(format!("`{name}`")),
+        EffectContext::Export { .. } => Some("the host of an exported function".to_owned()),
+        EffectContext::Declared | EffectContext::Const | EffectContext::LayerArg(_) => None,
+    }
+}
