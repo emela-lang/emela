@@ -324,9 +324,9 @@ impl BodyInfer<'_> {
             if !rigid.is_empty() {
                 self.quantified_lambdas.insert(body, rigid);
             }
-            self.ctx.scopes.enter(body);
+            self.ctx.enter_scope(body);
             self.check_expr(body, &ret);
-            self.ctx.scopes.exit();
+            self.ctx.exit_scope();
             let resume_later = suspend
                 && hop.params.len() == params.len()
                 && hop

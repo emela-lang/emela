@@ -93,8 +93,7 @@ impl BodyInfer<'_> {
             .map(|i| match self.ty_table.set_kind(def, i) {
                 Some(kind) => {
                     // A capability that a task cannot use is reported at the item.
-                    let v = self.ctx.new_row_var();
-                    self.ctx.scopes.set_row_span(v, span);
+                    let v = self.ctx.new_row_var_at(span);
                     Ty::Set(kind, Row::var(v))
                 }
                 None => self.ctx.new_var(),

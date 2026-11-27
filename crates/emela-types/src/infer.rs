@@ -17,8 +17,8 @@ use smol_str::SmolStr;
 
 pub use crate::ty::SetKind;
 use crate::ty::{
-    ParamKind, Prim, Row, RowElem, RowVar, Scheme, Tag, Ty, TyConId, TyParam, TyVar, TyVarValue,
-    param_name, set_param_name, substitute,
+    CapElem, ParamKind, Prim, Row, RowElem, RowVar, Scheme, Tag, Ty, TyConId, TyParam, TyVar,
+    TyVarValue, param_name, set_param_name, substitute,
 };
 
 /// An inclusion constraint `sub ⊆ sup`.
@@ -112,19 +112,20 @@ pub struct InferCtx {
     error_tags: FxHashMap<TyConId, DefId>,
     /// The set variables that receive effect sets (R). The name of an effect in R is the effect,
     /// so a capability of a name there does not leave anything (`[effect.escape]`).
-    pub(crate) effect_vars: rustc_hash::FxHashSet<RowVar>,
+    effect_vars: rustc_hash::FxHashSet<RowVar>,
     /// Solutions of set variables. Present only after solving ([`Self::set_row_solution`]).
     row_solution: Option<FxHashMap<RowVar, Row>>,
-    /// Whether the inclusion constraints are being solved ([`Self::set_solving`]).
+    /// Whether the inclusion constraints are being solved ([`Self::start_solving`]).
     solving: bool,
     /// Where each variable was made (`[effect.escape]`).
-    pub(crate) scopes: crate::scopes::Scopes,
+    scopes: crate::scopes::Scopes,
     /// Bindings and unions of type variables made by a unification not yet committed; their
     /// scopes are adjusted once it succeeds.
     pending_binds: Vec<(TyVar, Ty)>,
     pending_unions: Vec<(TyVar, TyVar)>,
-    /// The span of the expression being inferred, recorded on new set variables.
-    hint: Option<Span>,
+    /// The spans of the expressions being inferred, innermost last. The innermost is recorded on
+    /// new set variables ([`Self::push_hint`]).
+    hints: Vec<Span>,
 }
 
 impl InferCtx {
@@ -141,13 +142,60 @@ impl InferCtx {
         v
     }
 
-    /// The span of the expression being inferred, for set variables made from now on.
-    pub(crate) fn set_hint(&mut self, span: Option<Span>) {
-        self.hint = span;
+    /// With the error type → tag table that turns `RowElem::Of` into tags.
+    pub(crate) fn with_error_tags(error_tags: FxHashMap<TyConId, DefId>) -> Self {
+        InferCtx {
+            error_tags,
+            ..Self::new()
+        }
     }
 
-    pub(crate) fn hint(&self) -> Option<Span> {
-        self.hint
+    /// Starts inferring the expression at `span`: set variables made until [`Self::pop_hint`]
+    /// record it.
+    pub(crate) fn push_hint(&mut self, span: Span) {
+        self.hints.push(span);
+    }
+
+    /// Ends the expression of the last [`Self::push_hint`].
+    pub(crate) fn pop_hint(&mut self) {
+        self.hints.pop();
+    }
+
+    /// The span of the innermost expression being inferred.
+    fn hint(&self) -> Option<Span> {
+        self.hints.last().copied()
+    }
+
+    /// Opens the scope of `owner` (a `with`, a lambda or an operation body) for the variables
+    /// made until [`Self::exit_scope`] (`[effect.escape]`).
+    pub(crate) fn enter_scope(&mut self, owner: ExprId) {
+        self.scopes.enter(owner);
+    }
+
+    pub(crate) fn exit_scope(&mut self) {
+        self.scopes.exit();
+    }
+
+    /// Back to the outermost scope, for the next definition.
+    pub(crate) fn reset_scopes(&mut self) {
+        self.scopes.reset();
+    }
+
+    /// The capabilities that a binding put into a type variable made outside their scope, each
+    /// with where it happened. Empties the list.
+    pub(crate) fn take_escapes(&mut self) -> Vec<(CapElem, Option<Span>)> {
+        self.scopes.take_escapes()
+    }
+
+    /// Whether the set variable `v` may hold the capability `cap`: it was made inside the scope
+    /// of `cap` (`[effect.escape]`).
+    pub(crate) fn may_hold(&self, v: RowVar, cap: &CapElem) -> bool {
+        self.scopes.fits(cap, self.scopes.row_var(v))
+    }
+
+    /// Where the set variable `v` was made.
+    pub(crate) fn row_var_span(&self, v: RowVar) -> Option<Span> {
+        self.scopes.row_span(v)
     }
 
     /// Applies the scopes of the bindings and unions of a unification that succeeded
@@ -179,8 +227,8 @@ impl InferCtx {
                 match e {
                     RowElem::Var(v) => this.scopes.lower_row_var(*v, scope),
                     RowElem::Cap(c) if !this.scopes.fits(c, scope) => {
-                        let span = this.origin.0.or(this.hint);
-                        this.scopes.escapes.push((c.clone(), span));
+                        let span = this.origin.0.or(this.hint());
+                        this.scopes.escape(c.clone(), span);
                     }
                     _ => {}
                 }
@@ -214,12 +262,28 @@ impl InferCtx {
     pub fn new_row_var(&mut self) -> RowVar {
         let v = RowVar(self.next_row_var);
         self.next_row_var += 1;
-        self.scopes.new_row_var(v, self.origin.0.or(self.hint));
+        self.scopes.new_row_var(v, self.origin.0.or(self.hint()));
         v
     }
 
-    pub(crate) fn set_error_tags(&mut self, tags: FxHashMap<TyConId, DefId>) {
-        self.error_tags = tags;
+    /// A new set variable that records `span`, where a capability it cannot have is reported.
+    pub(crate) fn new_row_var_at(&mut self, span: Span) -> RowVar {
+        let v = self.new_row_var();
+        self.scopes.set_row_span(v, span);
+        v
+    }
+
+    /// A new set variable that receives an effect set (R). The name of an effect in R is the
+    /// effect, so a capability of a name there does not leave anything (`[effect.escape]`).
+    pub(crate) fn new_effect_row_var(&mut self) -> RowVar {
+        let v = self.new_row_var();
+        self.effect_vars.insert(v);
+        v
+    }
+
+    /// Whether the set variable `v` receives an effect set ([`Self::new_effect_row_var`]).
+    pub(crate) fn is_effect_var(&self, v: RowVar) -> bool {
+        self.effect_vars.contains(&v)
     }
 
     pub(crate) fn error_tag(&self, con: TyConId) -> Option<DefId> {
@@ -274,16 +338,31 @@ impl InferCtx {
             .unwrap_or_default()
     }
 
-    /// Forgets the solution of a previous round of solving.
-    pub(crate) fn clear_row_solution(&mut self) {
+    /// Starts solving the inclusion constraints: until [`Self::finish_solving`], constraints that
+    /// are already recorded are not added again.
+    pub(crate) fn start_solving(&mut self) {
+        self.solving = true;
+    }
+
+    /// Ends solving, and returns the constraints to check against the solution.
+    pub(crate) fn finish_solving(&mut self) -> Vec<Subset> {
+        self.solving = false;
+        self.subsets.clone()
+    }
+
+    /// Starts a round of solving: forgets the solution of the previous round, and returns the
+    /// constraints collected so far.
+    pub(crate) fn start_round(&mut self) -> Vec<Subset> {
         self.row_solution = None;
+        self.subsets.clone()
     }
 
-    /// While set, constraints that are already recorded are not added again.
-    pub(crate) fn set_solving(&mut self, solving: bool) {
-        self.solving = solving;
+    /// How many inclusion constraints there are. Solving repeats until a round adds none.
+    pub(crate) fn subset_count(&self) -> usize {
+        self.subsets.len()
     }
 
+    #[cfg(test)]
     pub(crate) fn subsets(&self) -> &[Subset] {
         &self.subsets
     }
