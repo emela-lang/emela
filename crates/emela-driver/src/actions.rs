@@ -2,6 +2,7 @@
 //!
 //! Inserts inferred annotations (spec 4.5), generates impl stubs, and offers quick fixes.
 
+mod edit;
 mod impls;
 mod quickfix;
 
@@ -285,6 +286,18 @@ impl<'a> Names<'a> {
                         .any(|(target, n)| target == m && *n == data.name)
             }
         }
+    }
+
+    /// The name of `module` when `tree` can qualify a name with its last segment: a
+    /// single-segment core module, or a module `tree` imports.
+    fn qualifier(&self, module: ModuleId, tree: &ast::SourceFile) -> Option<&ModuleName> {
+        let path = &self.analysis.modules[module].name;
+        let available = (self.analysis.modules.is_core(module) && path.segments().len() == 1)
+            || tree.imports().filter_map(|i| i.path()).any(|p| {
+                let imported = ModuleName::new(p.segments().map(|t| t.text().to_owned()));
+                self.analysis.modules.lookup_from(self.module, &imported) == Some(module)
+            });
+        available.then_some(path)
     }
 
     fn writable_ty(&self, ty: &Ty) -> bool {

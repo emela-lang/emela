@@ -6,7 +6,7 @@ use emela_syntax::ast::{self, AstNode};
 use emela_syntax::{Parse, SyntaxKind};
 use line_index::TextRange;
 
-use super::quickfix::{Fix, append};
+use super::edit::{Fix, append};
 use crate::code;
 use crate::diagnostic::{Diagnostic, Span};
 use crate::pipeline::Analysis;
