@@ -1,7 +1,0 @@
----
-source: crates/emela-types/tests/resume.rs
-assertion_line: 69
-expression: "render(r#\"\nhandler Before: Op {\n  suspend fn op(flag, resume) {\n    clock <- Clock\n    clock.sleep(1)\n    wait()\n    if flag { resume(1) } else {\n      clock.sleep(2)\n      resume(2)\n    }\n  }\n}\n\"#)"
----
-set_timeout: ∀ E(f). fn(fn() -> () fails E(f) uses {}, Int) -> () fails E(f)
-wait: fn() -> () uses { Async, Main.External }

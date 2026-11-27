@@ -1,0 +1,9 @@
+---
+source: crates/emela-types/tests/handlers/builtin.rs
+expression: "render(r#\"\nimport Std.Deferred.{Deferred}\n\nfn unknown() -> () {\n  with d = Deferred { () }\n}\n\"#)"
+---
+unknown: fn() -> ()
+  d: use Deferred[?0]
+item Deferred: [?0]
+`Deferred` HandlerArgsUnknown { handler: "Deferred[A]", reason: Unknown }
+--- R

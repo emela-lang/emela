@@ -1,0 +1,28 @@
+---
+source: crates/emela-types/tests/effects/handlers.rs
+assertion_line: 1815
+expression: "render_handlers(r#\"\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\ntrait Make {\n  fn make() -> Self\n}\n\ntype Box(n: Int)\n\nimpl Box: Make {\n  fn make() { Self(n: 1) }\n}\n\nhandler Counter(n: Int): Logger {\n  init(start: Int) {\n    value: Int = Self(n: start)\n    Self(n: start)\n  }\n  release { Self(n: 0) }\n  fn info(msg) {\n    next = Self(n: self.n + 1)\n    ()\n  }\n}\n\nhandler Plain: Logger {\n  init { Self }\n  fn info(msg) { () }\n}\n\nhandler Empty(): Logger {\n  init { Self() }\n  fn info(msg) { () }\n}\n\nhandler Lazy(n: Int): Logger {\n  init {\n    make = || Self(n: 1)\n    make()\n  }\n  fn info(msg) { () }\n}\n\nhandler Wrong(n: Int): Logger {\n  init { Self(m: 1) }\n  fn info(msg) { () }\n}\n\nhandler Typed(n: Int): Logger {\n  init { Self(n: \"a\") }\n  fn info(msg) { () }\n}\n\nhandler Updated(n: Int): Logger {\n  init { Self(n: 1, ..Self(n: 2)) }\n  fn info(msg) { () }\n}\n\nfn outside() { Self(n: 1) }\n\nfn main() {\n  with Counter(start: 1) { (use Logger).info(\"a\") }\n}\n\"#)"
+---
+outside: fn() -> {unknown}
+main: fn() -> ()
+handler Counter: use {}
+handler Plain: use {}
+handler Empty: use {}
+handler Lazy: use {}
+handler Wrong: use {}
+handler Typed: use {}
+handler Updated: use {}
+with Counter(start: 1): init [Counter]
+resolve: `Self` can only be used as a value in the `init` of a handler
+resolve: cannot update `Self` with `..`
+resolve: `Self` can only be used as a value in the `init` of a handler
+`Self(n: start)` mismatch: expected `Int`, found `Counter`
+`Self` HandlerCtorOutsideInit { handler: "Counter" }
+`Self` HandlerCtorOutsideInit { handler: "Counter" }
+`m` UnknownLabel { callee: "Wrong", label: "m" }
+`"a"` mismatch: expected `Int`, found `String`
+--- R
+{ (use Logger).info("a") }: Logger
+(use Logger).info("a"): Logger
+(use Logger).info: Logger
+use Logger: Logger

@@ -1,0 +1,22 @@
+---
+source: crates/emela-types/tests/effects/sets.rs
+expression: "render_effects(r#\"\neffect Greeter {\n  fn greet(s: String) -> String\n}\n\nhandler Plain: Greeter {\n  fn greet(s) { \"plain #{s}\" }\n}\n\nfn made_inside() -> fn(String) -> String uses { Greeter } {\n  with Plain {\n    g <- Greeter\n    |s| g.greet(s)\n  }\n}\n\nfn in_place() -> fn(String) -> String uses { Greeter } {\n  with Plain { |s| (use Greeter).greet(s) }\n}\n\nfn op_value() -> fn(String) -> String uses { Greeter } {\n  with Plain {\n    g <- Greeter\n    g.greet\n  }\n}\n\nfn local() -> String {\n  with Plain {\n    fn go(s: String) -> String {\n      g <- Greeter\n      g.greet(s)\n    }\n    go(\"x\")\n  }\n}\n\"#)"
+---
+made_inside: fn() -> fn(String) -> String uses { Greeter }
+in_place: fn() -> fn(String) -> String uses { Greeter }
+op_value: fn() -> fn(String) -> String uses { Greeter }
+local: fn() -> String
+handler Plain: use {}
+--- R
+g.greet(s): Greeter
+g.greet: Greeter
+g: Greeter
+(use Greeter).greet(s): Greeter
+(use Greeter).greet: Greeter
+use Greeter: Greeter
+{     fn go(s: String) -> String {       g <- Greeter       g.greet(s)     }     go("x")   }: Greeter
+{       g <- Greeter       g.greet(s)     }: Greeter
+g.greet(s): Greeter
+g.greet: Greeter
+g: Greeter
+go("x"): Greeter

@@ -1,0 +1,24 @@
+---
+source: crates/emela-types/tests/handlers/generic.rs
+expression: "render(r#\"\nimport Std.State.{State}\n\nhandler Pass[S]: State[S] {\n  fn get() {\n    _ = helper()\n    st <- State[S]\n    st.get()\n  }\n\n  fn set(value) {\n    st <- State[S]\n    st.set(value)\n  }\n\n  fn update(f) {\n    st <- State[S]\n    st.update(f)\n  }\n}\n\nfn helper() -> Int {\n  (n, _) = State.run(1, || with x = Pass { 0 })\n  n\n}\n\nfn outside() -> Int { helper() }\n\"#)"
+---
+helper: fn() -> Int
+  x: use State[Int]
+  n: Int
+outside: fn() -> Int
+handler Pass: use State['0]
+item Pass: [Int]
+--- R
+{     _ = helper()     st <- State[S]     st.get()   }: State['0]
+st.get(): State['0]
+st.get: State['0]
+st: State['0]
+{     st <- State[S]     st.set(value)   }: State['0]
+st.set(value): State['0]
+st.set: State['0]
+st: State['0]
+{     st <- State[S]     st.update(f)   }: State['0]
+st.update(f): State['0]
+st.update: State['0]
+st: State['0]
+with x = Pass { 0 }: State[Int]

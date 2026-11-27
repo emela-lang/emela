@@ -6,31 +6,38 @@
 mod common;
 
 mod body;
-mod builtin_handlers;
 mod capabilities;
-mod effect_type_params;
 mod effects;
 mod errors;
 mod export;
-mod generic_handler;
-mod handler_member;
+mod handlers;
 mod lower;
 mod methods;
-mod multi_effect_handler;
-mod resume;
 mod signature;
 mod spec_examples;
 mod tables;
 mod task;
 
 /// Every `.rs` file in this directory that is not a test binary of its own is declared
-/// above. Without the declaration Cargo would not build it, and its tests would not run.
+/// above, and every `.rs` file in a directory of modules (one with a `mod.rs`) is declared in its
+/// `mod.rs`. Without the declaration Cargo would not build it, and its tests would not run.
 #[test]
 fn every_file_is_a_module() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-    let main = std::fs::read_to_string(dir.join("main.rs")).unwrap();
     let own: &[&str] = &[];
+    assert_declared(&dir, "main.rs", own);
     for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.join("mod.rs").is_file() {
+            assert_declared(&path, "mod.rs", &[]);
+        }
+    }
+}
+
+/// Each `.rs` file in `dir` other than `root` and `own` is declared in `root`.
+fn assert_declared(dir: &std::path::Path, root: &str, own: &[&str]) {
+    let text = std::fs::read_to_string(dir.join(root)).unwrap();
+    for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
@@ -38,12 +45,13 @@ fn every_file_is_a_module() {
         let Some(module) = name.strip_suffix(".rs") else {
             continue;
         };
-        if module == "main" || own.contains(&module) {
+        if name == root || own.contains(&module) {
             continue;
         }
         assert!(
-            main.lines().any(|line| line == format!("mod {module};")),
-            "tests/{name} is not declared in tests/main.rs"
+            text.lines().any(|line| line == format!("mod {module};")),
+            "{} is not declared in {root}",
+            path.display()
         );
     }
 }
