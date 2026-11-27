@@ -8,8 +8,8 @@ use emela_resolve::hir::{DefId, ExprKind, Item, LocalKind, RefTarget, Res};
 use emela_types::{CapId, Row, RowElem, SetKind, Supplier, Ty, TyParam};
 use line_index::{TextRange, TextSize};
 
-use crate::frontend::TypedProgram;
-use crate::pipeline::Analysis;
+use crate::analysis::Analysis;
+use crate::program::TypedProgram;
 use crate::source::FileId;
 
 /// `contents` is Markdown. `range` is the position of the hovered name or expression.

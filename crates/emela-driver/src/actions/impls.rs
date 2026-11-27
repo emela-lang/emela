@@ -7,9 +7,9 @@ use emela_syntax::{Parse, SyntaxKind};
 use line_index::TextRange;
 
 use super::edit::{Fix, append};
+use crate::analysis::Analysis;
 use crate::code;
 use crate::diagnostic::{Diagnostic, Span};
-use crate::pipeline::Analysis;
 
 pub(super) fn insert_stubs(
     hir: &Program,

@@ -8,17 +8,19 @@ use emela_types::{CheckOptions, ProgramTypes, check_program_with};
 use la_arena::ArenaMap;
 
 use crate::actions::CodeAction;
+use crate::analysis::Analysis;
 use crate::complete::Completion;
 use crate::diagnostic::{Diagnostic, Location, error_count};
 use crate::hints::InlayHint;
 use crate::hover::HoverInfo;
 use crate::internal::{check_external_in_dependencies, check_internal};
 use crate::nav::{NavTarget, RenameError};
-use crate::pipeline::{Analysis, Checked, CoreSource, Frontend, Parsed};
+use crate::pipeline::{Checked, CoreSource, Frontend, Parsed};
+use crate::program::TypedProgram;
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, SourceFile};
 use crate::target::Target;
-use crate::testing::{TestDef, collect_tests, resolve_tests};
+use crate::test_fns::{collect_tests, resolve_tests};
 use crate::tokens::SemanticToken;
 
 /// A frontend up to parsing. Keeps a syntax tree per module and returns the import list.
@@ -188,14 +190,6 @@ pub struct Typecheck<B = NoBuiltins> {
     /// Whether the last `check` found `@entry(Http.serve)` in the entry module
     /// (`[lib.http-service]`).
     http_service: bool,
-}
-
-/// Name resolution and type checking results, which lowering reads (see [`ProgramTypes`]).
-pub struct TypedProgram {
-    pub hir: Program,
-    pub types: ProgramTypes,
-    /// `@test` functions in source, in module order and then declaration order.
-    pub tests: Vec<TestDef>,
 }
 
 impl Default for Typecheck<NoBuiltins> {

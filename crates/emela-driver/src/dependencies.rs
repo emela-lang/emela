@@ -9,7 +9,7 @@ use smol_str::SmolStr;
 
 use crate::code;
 use crate::diagnostic::{Diagnostic, HELP_PREFIX, Location};
-use crate::pipeline::{Dependencies, DependencyPome, DependencyRef, PROJECT_FILE, SOURCE_DIR};
+use crate::project::{Dependencies, DependencyPome, DependencyRef, PROJECT_FILE, SOURCE_DIR};
 use crate::target::Target;
 
 /// The compiler version `[pome].emela` is compared with.

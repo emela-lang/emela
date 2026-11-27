@@ -11,11 +11,12 @@ use emela_codegen_c::{
     RUNTIME_C_FILE, RUNTIME_H, RUNTIME_H_FILE, TestEntry, compile_with_lir,
 };
 
+use crate::analysis::Analysis;
 use crate::code;
 use crate::diagnostic::Diagnostic;
 use crate::output::{BuildOutput, OutputFile};
-use crate::pipeline::{Analysis, Backend, Runner};
-use crate::run::{Output, ProgramCommand, RunOutput};
+use crate::pipeline::{Backend, Runner};
+use crate::run::{Output, RunOutput, native_command};
 use crate::testing::{TestBackend, TestModule};
 
 /// The emitted C program in the output directory. Its name is implementation-defined
@@ -293,16 +294,6 @@ fn cc_spawn_error(cc: &Path, err: &io::Error) -> Diagnostic {
 
 fn has_whitespace(program: &Path) -> bool {
     program.to_string_lossy().contains(char::is_whitespace)
-}
-
-/// The command that runs the executable `program` with `args`.
-pub(crate) fn native_command(program: &Path, args: &[OsString]) -> ProgramCommand {
-    let mut command = Command::new(program);
-    command.args(args).stdin(Stdio::inherit());
-    let program = program.to_path_buf();
-    ProgramCommand::new(command, move |err| {
-        Diagnostic::error(format!("cannot start `{}`: {err}", program.display()))
-    })
 }
 
 /// Runs the executable `program` with `args`.

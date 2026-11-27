@@ -14,8 +14,8 @@ use emela_syntax::ast::AstNode;
 use emela_types::{Ty, TyParam};
 use line_index::{TextRange, TextSize};
 
-use crate::frontend::TypedProgram;
-use crate::pipeline::Analysis;
+use crate::analysis::Analysis;
+use crate::program::TypedProgram;
 use crate::source::FileId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

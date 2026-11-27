@@ -17,9 +17,9 @@ use emela_syntax::ast::{self, HasAttrs};
 use emela_types::Ty;
 use smol_str::SmolStr;
 
+use crate::analysis::Analysis;
 use crate::documentation::{def_at, doc_text, module_docs};
-use crate::frontend::TypedProgram;
-use crate::pipeline::Analysis;
+use crate::program::TypedProgram;
 
 /// The documentation of one module.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -9,7 +9,7 @@ use emela_pome::lock::LOCK_FILE;
 use emela_pome::project::PomeError;
 use emela_pome::{Lock, Manifest, SourcePath};
 
-use crate::pipeline::{Dependencies, DependencyPome, DependencyRef, PROJECT_FILE};
+use crate::project::{Dependencies, DependencyPome, DependencyRef, PROJECT_FILE};
 use crate::source::FileSystem;
 
 /// The dependencies of the project at `base` for the build: every Pome of the lock (and of

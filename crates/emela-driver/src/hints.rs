@@ -12,8 +12,8 @@ use emela_syntax::{SyntaxKind, SyntaxNode};
 use emela_types::{FnTy, Row, Ty, TyParam};
 use line_index::{TextRange, TextSize};
 
-use crate::frontend::TypedProgram;
-use crate::pipeline::Analysis;
+use crate::analysis::Analysis;
+use crate::program::TypedProgram;
 use crate::source::FileId;
 
 /// Shows `label` after `offset`.
