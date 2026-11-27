@@ -3431,7 +3431,7 @@ impl<'m> Builder<'m> {
         args: &[Operand],
     ) {
         match op {
-            // The Semaphore and Queue operations (`runtime::line`): the operands in order, and
+            // The Semaphore and Queue operations (`runtime::fiber::line`): the operands in order, and
             // the result, if any, in the destination.
             FiberOp::Semaphore
             | FiberOp::Queue
@@ -3605,9 +3605,9 @@ impl<'m> Builder<'m> {
                     }
                 }
                 ins.local_set(word);
-                let success = runtime::attempt::success_desc(self, ret);
+                let success = runtime::fiber::attempt::success_desc(self, ret);
                 if suspends {
-                    let frame = runtime::attempt::frame_desc(self);
+                    let frame = runtime::fiber::attempt::frame_desc(self);
                     let table = self.sus.as_ref().map_or(0, |p| p.attempt_table);
                     ins.global_get(G_SUSPENDING);
                     ins.if_(BlockType::Result(ValType::I32));

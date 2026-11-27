@@ -25,7 +25,7 @@ use super::*;
 
 use super::sched::F_STATE;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("cause_new", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("attempt_caught", &[], &[ValType::I32]),
     (
@@ -38,7 +38,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ("cause_raise", &[ValType::I32], &[]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "cause_new" => i32s(1),       // cause
         "attempt_caught" => i32s(2),  // cause, exit
@@ -49,7 +49,11 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     }
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "cause_new" => cause_new(b, ins),
         "attempt_caught" => attempt_caught(b, ins),

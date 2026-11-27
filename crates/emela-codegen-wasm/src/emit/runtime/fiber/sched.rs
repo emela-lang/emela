@@ -1,6 +1,6 @@
 //! Frames, `suspend fn` operation calls and in-place unwinding.
 //!
-//! The continuation scheduler, the fibers and the waits live in [`super::fiber`]; this module
+//! The continuation scheduler, the fibers and the waits live in [`super`]; this module
 //! holds what an operation call and a captured frame need (spec 8.4, 8.7, 14.5):
 //!
 //! - A frame is a heap object: the resume trampoline's table index, the resume point, the next
@@ -19,7 +19,7 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     (
         "frame_new",
         &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
@@ -50,7 +50,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ("unwind_sync", &[ValType::I32], &[]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "frame_new" => i32s(1),
         "frame_push" => i32s(1),
@@ -99,7 +99,11 @@ const F_RESUME: u32 = HDR;
 pub(super) const F_STATE: u32 = HDR + 8;
 pub(super) const F_NEXT: u32 = HDR + 16;
 
-pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder<'_>,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "frame_new" => frame_new(b, ins),
         "frame_push" => frame_push(b, ins),
@@ -122,16 +126,16 @@ pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -
     true
 }
 
-pub(super) fn cell(b: &Builder<'_>, f: impl Fn(&super::super::suspend::Plan) -> u32) -> u32 {
+pub(super) fn cell(b: &Builder<'_>, f: impl Fn(&super::super::super::suspend::Plan) -> u32) -> u32 {
     f(b.sus.as_ref().expect("the suspend runtime"))
 }
 
 fn cur_main_cell(b: &Builder<'_>) -> u32 {
-    super::fiber::plan(b).cur_main
+    super::plan(b).cur_main
 }
 
 fn susp_wait_cell(b: &Builder<'_>) -> u32 {
-    super::fiber::plan(b).susp_wait
+    super::plan(b).susp_wait
 }
 
 // ---- frames ----
@@ -330,13 +334,13 @@ fn perform_new(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(0);
     ins.i32_store(mem(P_NEXT, 4));
     // Remember the caller's `cur_main` and mark the implementation as not the main continuation.
-    ins.i32_const(super::fiber::plan(b).cur_main as i32);
+    ins.i32_const(super::plan(b).cur_main as i32);
     ins.i32_load(mem(0, 4));
     ins.local_set(0);
     ins.local_get(P);
     ins.local_get(0);
     ins.i32_store(mem(P_PREVMAIN, 4));
-    ins.i32_const(super::fiber::plan(b).cur_main as i32);
+    ins.i32_const(super::plan(b).cur_main as i32);
     ins.i32_const(0);
     ins.i32_store(mem(0, 4));
     ins.local_get(P);
@@ -369,7 +373,7 @@ fn resume_with(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const P: u32 = 4;
     const W: u32 = 5;
     const WHERE: u32 = 6;
-    let run_over = super::fiber::plan(b).run_over;
+    let run_over = super::plan(b).run_over;
     ins.local_get(0);
     ins.i32_load(mem(HDR + 8, 4));
     ins.local_set(P);
@@ -574,7 +578,7 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.if_(BlockType::Empty);
     ins.local_get(W);
     ins.local_get(CHAIN);
-    ins.i32_const(super::fiber::WE_IMPL);
+    ins.i32_const(super::WE_IMPL);
     ins.local_get(P);
     let suspended = b.rt("fb_suspended");
     ins.call(suspended);
@@ -626,7 +630,7 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     push_where(b, ins, P);
     ins.local_set(WHERE);
     ins.local_get(WHERE);
-    ins.i32_const(super::fiber::plan(b).failed_after as i32);
+    ins.i32_const(super::plan(b).failed_after as i32);
     let append = b.rt("str_append");
     ins.call(append);
     ins.local_set(W);
@@ -667,7 +671,7 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     let drop = b.rt("drop");
     ins.local_get(0);
     ins.call(drop);
-    ins.i32_const(super::fiber::plan(b).run_over as i32);
+    ins.i32_const(super::plan(b).run_over as i32);
     ins.i32_load(mem(0, 4));
     ins.if_(BlockType::Empty);
     // The run is over: keep the suspension going with no request, so the caller's captured
@@ -724,7 +728,7 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.else_();
     // No resume: the caller parks on a wait it owns, and the implementation goes on as its own
     // strand (the C runtime's per-operation caller wait).
-    ins.i32_const(super::fiber::WK_CALLER);
+    ins.i32_const(super::WK_CALLER);
     ins.local_get(P);
     ins.i32_load(mem(P_REPR, 4));
     let new = b.rt("fb_wait_new");
@@ -734,7 +738,7 @@ fn perform_end(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.call(dup);
     ins.local_get(C);
     ins.local_get(P);
-    ins.i32_store(mem(super::fiber::W_ONDROP, 4));
+    ins.i32_store(mem(super::W_ONDROP, 4));
     ins.local_get(C);
     ins.call(dup);
     ins.local_get(P);
@@ -833,7 +837,7 @@ fn sync_leave(b: &mut Builder<'_>, ins: &mut InstructionSink) {
 /// (spec 8.7, 14.5). Their releases run; the input they end with is the call's defect.
 fn unwind_sync(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const F: u32 = 4;
-    let cur = super::fiber::plan(b).cur_fiber;
+    let cur = super::plan(b).cur_fiber;
     let dup = b.rt("dup");
     let push = b.rt("fb_queue_push");
     // The captured frames of this region are never resumed: unwind them in place as interrupted.
@@ -842,12 +846,12 @@ fn unwind_sync(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     ins.i32_const(cur as i32);
     ins.i32_load(mem(0, 4));
     ins.local_set(F);
-    ins.i32_const(super::fiber::JK_INTERRUPT);
+    ins.i32_const(super::JK_INTERRUPT);
     ins.local_get(F);
     ins.call(dup);
     ins.local_get(F);
     ins.local_get(0);
-    ins.i32_const(super::fiber::WE_SYNC);
+    ins.i32_const(super::WE_SYNC);
     ins.i32_const(0);
     ins.i64_const(0);
     ins.i32_const(0);
