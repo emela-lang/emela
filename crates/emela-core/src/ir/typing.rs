@@ -21,7 +21,7 @@
 //! for every node of the chain, so asking at each node of a chain of length n costs O(n) in total,
 //! not O(n²). A single call costs O(the nodes it visits), which apart from `let` chains is the
 //! nesting depth of branches in tail position. A backend that needs the type of every node can also
-//! compute types bottom-up as it walks, as [`crate::verify`] does.
+//! compute types bottom-up as it walks, as [`crate::ir::verify`] does.
 
 use std::borrow::Cow;
 
@@ -84,7 +84,7 @@ impl<'a> Typer<'a> {
     }
 
     /// Replaces `Type::Param(i)` with `args[i]`. A parameter without an argument is left as is (only
-    /// in malformed IR, which [`crate::verify`] reports).
+    /// in malformed IR, which [`crate::ir::verify`] reports).
     pub fn subst(&mut self, ty: TypeId, args: &[TypeId]) -> TypeId {
         if args.is_empty() {
             return ty;

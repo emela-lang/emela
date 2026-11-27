@@ -291,7 +291,7 @@ pub fn lower_with(
     // Ill-typed IR is a lowering bug, not an error in the program. Checked before
     // monomorphization, which assumes well-typed IR.
     #[cfg(debug_assertions)]
-    if let Err(errors) = crate::verify(&cx.module) {
+    if let Err(errors) = crate::ir::verify(&cx.module) {
         let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
         panic!(
             "lowering produced ill-typed IR (a compiler bug):\n{}",
