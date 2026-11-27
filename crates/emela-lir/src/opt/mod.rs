@@ -55,7 +55,7 @@
 //! set is fixed before reference counting, `rc` never removes a pair whose variable a frame
 //! saves, and [`dce`] removes no statement on the corpus, so no saved entry loses its last use
 //! after the value. No flag turns a frame-pruning pass on because there is none; the analysis
-//! documents the obstacle and `tests/frame_prune.rs` asserts the zero.
+//! documents the obstacle and `tests/opt/frame_prune.rs` asserts the zero.
 //!
 //! # Feature flags
 //!
@@ -80,7 +80,7 @@
 //! now a default change, not a rule change: closure devirtualisation and closure SRA run by default
 //! because the `effects` benchmark measured 0.892–0.906x on WASM and 0.849–0.852x on C with both
 //! on, the WASM output of the other 16 benchmark cases was byte-identical, and the passes are
-//! covered end to end by `tests/closure_sra.rs`. Frame pruning has no pass and no flag:
+//! covered end to end by `tests/opt/closure_sra.rs`. Frame pruning has no pass and no flag:
 //! [`frame_prune`] reports no stale saved slot on the corpus.
 //!
 //! [`LirRules::sra_records`] is off by default so that a default build's output, the WASM byte pins
@@ -314,7 +314,7 @@ impl Default for LirRules {
     /// whose arms all run one body, and closure devirtualisation (E5) with closure SRA (C5). The
     /// last two are a default change, not a rule change: the `effects` benchmark runs 0.892–0.906x
     /// on WASM and 0.849–0.852x on C with both on, the WASM output of the other 16 benchmark cases
-    /// is byte-identical, and the passes are covered by `tests/closure_sra.rs` end to end. Drop
+    /// is byte-identical, and the passes are covered by `tests/opt/closure_sra.rs` end to end. Drop
     /// specialisation stays opt-in because its default-build size cost has no measured runtime
     /// gain; reuse stays opt-in so that the default build's output is unchanged; record SRA stays
     /// off because it rewrites nothing on the corpus; frame pruning has no pass, because

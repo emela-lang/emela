@@ -1,9 +1,8 @@
 //! B7 analysis properties of the LIR analyses: monotonicity, the soundness fixtures, the
 //! `Unknown` contract and the consistency between escape, borrow, ownership and liveness.
 //!
-//! The per-analysis edge cases are in `analysis_escape.rs`, `analysis_borrow.rs`,
-//! `analysis_liveness.rs` and `analysis_ownership.rs`. This file tests the parts a consumer relies
-//! on when it combines them:
+//! The per-analysis edge cases are in `escape.rs`, `borrow.rs`, `liveness.rs` and `ownership.rs`
+//! beside this file. This file tests the parts a consumer relies on when it combines them:
 //!
 //! - adding a source only adds facts (an escape, a use, a live variable), and a "unique" or
 //!   "borrowed" fact only shrinks when a new use appears;
@@ -1171,15 +1170,15 @@ fn the_lir_analyses_follow_arena_order_not_hash_order() {
 const CORPUS: &[(&str, &str)] = &[
     (
         "array",
-        include_str!("../../emela-codegen-c/tests/programs/array.emel"),
+        include_str!("../../../emela-codegen-c/tests/programs/array.emel"),
     ),
     (
         "closures",
-        include_str!("../../emela-codegen-c/tests/programs/closures.emel"),
+        include_str!("../../../emela-codegen-c/tests/programs/closures.emel"),
     ),
     (
         "data",
-        include_str!("../../emela-codegen-c/tests/programs/data.emel"),
+        include_str!("../../../emela-codegen-c/tests/programs/data.emel"),
     ),
 ];
 
