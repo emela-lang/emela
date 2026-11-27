@@ -51,20 +51,7 @@ use crate::ir::{Module, Stmt};
 use crate::opt::Stats;
 use crate::repr::{Repr, repr_of, repr_of_subst};
 
-/// How a [`Stmt::Drop`](crate::ir::Stmt::Drop) releases its value.
-///
-/// The classification is written per drop in
-/// [`Function::drop_kinds`](crate::ir::Function::drop_kinds); a drop without an entry is
-/// [`Generic`](Self::Generic).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DropKind {
-    /// The runtime reads the object's descriptor, releases the slots it marks as references,
-    /// runs its finalizer, and frees the block (the drop every module had before C3/PR-027).
-    Generic,
-    /// The value's type proves that its payload holds no reference and has no finalizer: check
-    /// the count, give the block back, and walk nothing.
-    Block,
-}
+pub use crate::ir::DropKind;
 
 /// Classifies every `drop` of the module and records the block drops on its functions.
 ///

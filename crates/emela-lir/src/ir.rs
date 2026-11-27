@@ -10,7 +10,6 @@ use emela_core::{Builtin, CtorRef, EffectId, EnumId, External, FiberOp, TypeId};
 use la_arena::{Arena, Idx};
 use rustc_hash::FxHashMap;
 
-use crate::opt::drop_spec::DropKind;
 use crate::repr::Repr;
 
 pub type FnId = Idx<Function>;
@@ -122,7 +121,7 @@ pub struct Function {
     /// `dup` the argument.
     ///
     /// This is a calling-convention fact, not a use: it is written by
-    /// [`crate::heap::insert_borrow_signature`] from the borrow facts (B6) after the state machines
+    /// [`crate::insert_borrow_signature`] from the borrow facts (B6) after the state machines
     /// are made, and read by reference counting and its balance check. A function that is exported,
     /// whose value is taken (an indirect caller passes owned arguments), or that the runtime calls
     /// itself (an error `show` function of [`Module::error_shows`]) keeps the owned convention, and
@@ -173,6 +172,22 @@ pub struct Function {
     pub stmts: Arena<Stmt>,
     pub seqs: Arena<Seq>,
     pub labels: Arena<LabelData>,
+}
+
+/// How a [`Stmt::Drop`] releases its value.
+///
+/// The classification is written per drop in
+/// [`Function::drop_kinds`]; a drop without an entry is
+/// [`Generic`](Self::Generic). The classification is made by
+/// [`drop_spec`](crate::opt::drop_spec).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DropKind {
+    /// The runtime reads the object's descriptor, releases the slots it marks as references,
+    /// runs its finalizer, and frees the block (the drop every module had before C3/PR-027).
+    Generic,
+    /// The value's type proves that its payload holds no reference and has no finalizer: check
+    /// the count, give the block back, and walk nothing.
+    Block,
 }
 
 impl Function {

@@ -89,6 +89,7 @@
 //! it removes the record E5 left as the environment of its own calls.
 
 pub mod analysis;
+pub(crate) mod borrow_signature;
 pub mod closure_sra;
 pub mod dce;
 pub mod devirt;
