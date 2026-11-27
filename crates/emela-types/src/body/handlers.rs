@@ -4,7 +4,7 @@
 use emela_resolve::hir::{DefId, HandlerItem, Item, Param, Res};
 use smol_str::SmolStr;
 
-use super::{BodyInfer, HandlerBody, HandlerPart, suspend};
+use super::{BodyInfer, HandlerBody, HandlerPart};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{SetKind, substitute, substitute_bound};
 use crate::lower::is_intrinsic_effect;
@@ -333,7 +333,7 @@ impl BodyInfer<'_> {
                 && hop
                     .params
                     .last()
-                    .is_some_and(|resume| suspend::resume_escapes(self, body, resume.local));
+                    .is_some_and(|resume| self.resume_escapes(body, resume.local));
             self.handler_bodies.push(HandlerBody {
                 handler: def,
                 index,
