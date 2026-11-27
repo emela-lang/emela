@@ -21,10 +21,6 @@
 //! reference have no inline form (there is no per-field drop map).
 
 use super::*;
-use emela_core::Builtin;
-
-/// The descriptor kind of an array.
-pub(crate) const KIND: u32 = 2;
 
 pub(super) const FUNCS: &[Sig] = &[
     (
@@ -143,28 +139,6 @@ pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bo
         _ => return false,
     }
     true
-}
-
-/// Whether reachable code uses an Array builtin. A program without arrays keeps the same bytes:
-/// the functions here are left out, and so is the branch of `drop` for arrays.
-pub(crate) fn used(b: &Builder) -> bool {
-    b.reaches_builtin(is_array)
-}
-
-fn is_array(op: Builtin) -> bool {
-    matches!(
-        op,
-        Builtin::ArrayFromList
-            | Builtin::ArrayToList
-            | Builtin::ArraySize
-            | Builtin::ArrayGet
-            | Builtin::ArrayGetOr
-            | Builtin::ArrayLoadUnchecked
-            | Builtin::ArraySet
-            | Builtin::ArraySlice
-            | Builtin::ArrayConcat
-            | Builtin::ArrayMapRange
-    )
 }
 
 /// Pushes the address of element `i` (a local, 0-based) of the array in local `a`.

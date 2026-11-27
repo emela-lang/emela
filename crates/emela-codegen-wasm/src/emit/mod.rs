@@ -110,10 +110,7 @@ pub(crate) fn emit(
         "the WASM emitter reads the Heap IR"
     );
     let mut b = Builder::new(m, options, &entry.roots());
-    b.build(entry);
-    if !b.errors.is_empty() {
-        return Err(b.errors);
-    }
+    b.build(entry)?;
     let (core, layout) = b.finish();
     let optional = crate::component::OptionalImports {
         environment: b.uses_env() || b.args_from_host(),
@@ -195,6 +192,9 @@ const G_STDOUT_FUTURE: u32 = 7;
 const G_STDERR: u32 = 8;
 const G_STDERR_FUTURE: u32 = 9;
 const G_WAITSET: u32 = 10;
+/// The value of `G_STDOUT` once a write found standard output closed by its reader (`DROPPED`);
+/// -1 is a stream the program closed itself, at its end.
+const STDOUT_LOST: i32 = -2;
 /// The name of the handler retired last (spec 14.4: the release note names it).
 pub(crate) const G_LAST_RETIRED: u32 = 11;
 /// Whether `Std.Env` has fetched the environment list, and the list's pointer and length. The
@@ -235,6 +235,8 @@ const DESC_SIZE: u32 = 32;
 /// The element stride of an array in 8-byte slots, after [`DESC_SIZE`]. Only an array descriptor
 /// has it (E2); a descriptor of any other kind keeps [`DESC_SIZE`] bytes, so no other output moves.
 const DESC_STRIDE: u32 = 32;
+/// The descriptor kind of an array.
+const DESC_KIND_ARRAY: u32 = 2;
 
 pub(crate) struct Builder<'m> {
     pub(crate) m: &'m Module,
@@ -465,6 +467,89 @@ impl<'m> Builder<'m> {
 
     pub(crate) fn uses_sleep(&self) -> bool {
         self.uses_std_host(StdHost::is_sleep)
+    }
+
+    /// Whether reachable code uses an Array builtin. A program without arrays keeps the same bytes:
+    /// the functions of `runtime::array` are left out, and so is the branch of `drop` for arrays.
+    pub(crate) fn uses_arrays(&self) -> bool {
+        self.reaches_builtin(|op| {
+            matches!(
+                op,
+                Builtin::ArrayFromList
+                    | Builtin::ArrayToList
+                    | Builtin::ArraySize
+                    | Builtin::ArrayGet
+                    | Builtin::ArrayGetOr
+                    | Builtin::ArrayLoadUnchecked
+                    | Builtin::ArraySet
+                    | Builtin::ArraySlice
+                    | Builtin::ArrayConcat
+                    | Builtin::ArrayMapRange
+            )
+        })
+    }
+
+    /// Whether the program uses `Exit.attempt` or an operation of `Std.Cause`, the only concurrency
+    /// operations the target supports (`check::value`).
+    pub(crate) fn uses_attempt(&self) -> bool {
+        self.m.functions.iter().any(|(_, f)| {
+            f.stmts.iter().any(|(_, s)| {
+                matches!(
+                    s,
+                    Stmt::Let {
+                        value: Value::Fiber { .. },
+                        ..
+                    }
+                )
+            })
+        })
+    }
+
+    /// Whether some `Exit.attempt` runs a function that may suspend, so the scheduler needs the
+    /// resume function of its frame.
+    pub(crate) fn attempt_suspends(&self) -> bool {
+        self.m.functions.iter().any(|(_, f)| {
+            f.stmts.iter().any(|(_, s)| {
+                matches!(
+                    s,
+                    Stmt::Let {
+                        value: Value::Fiber {
+                            op: FiberOp::Attempt { suspends: true, .. },
+                            ..
+                        },
+                        ..
+                    }
+                )
+            })
+        })
+    }
+
+    /// Whether the program forks, scopes or shares a Deferred: the operations that need the
+    /// scheduler. `Exit.attempt` and the operations of `Std.Cause` run on the current fiber and need
+    /// none of this.
+    pub(crate) fn uses_fibers(&self) -> bool {
+        self.m.functions.iter().any(|(_, f)| {
+            f.stmts.iter().any(|(_, s)| {
+                matches!(
+                    s,
+                    Stmt::Let {
+                        value: Value::Fiber { op, .. },
+                        ..
+                    } if !matches!(
+                        op,
+                        FiberOp::Attempt { .. }
+                            | FiberOp::CauseKind { .. }
+                            | FiberOp::CauseToString
+                            | FiberOp::CauseRaise { .. }
+                    )
+                )
+            })
+        })
+    }
+
+    /// The cell that says the run already ended, when the program has the fiber runtime.
+    pub(crate) fn run_over_cell(&self) -> Option<u32> {
+        self.fiber_plan.as_ref().map(|p| p.run_over)
     }
 
     // ---- WASI 0.3 imports ----
@@ -702,7 +787,8 @@ impl<'m> Builder<'m> {
             || self.m.error_shows.iter().any(|&(_, show)| show == id)
     }
 
-    fn build(&mut self, entry: &Run) {
+    /// Emits the whole module into the builder, or returns every error met on the way.
+    fn build(&mut self, entry: &Run) -> Result<(), Vec<WasmError>> {
         // The runtime gates read which functions the entry reaches. The analysis is the LIR's
         // (emela-lir), walked here on the Heap IR: a closure body is its own function at this
         // stage and a handler operation's body is deferred until it is performed. The same set
@@ -858,6 +944,11 @@ impl<'m> Builder<'m> {
         runtime::emit(self);
         self.emit_entry(entry);
         self.emit_callback();
+        if self.errors.is_empty() {
+            Ok(())
+        } else {
+            Err(std::mem::take(&mut self.errors))
+        }
     }
 
     // ---- statics ----
@@ -967,7 +1058,7 @@ impl<'m> Builder<'m> {
         if let Some(&o) = self.descs.get(&key) {
             return o;
         }
-        let o = self.alloc_static(if key.kind == runtime::array::KIND {
+        let o = self.alloc_static(if key.kind == DESC_KIND_ARRAY {
             DESC_SIZE + 4
         } else {
             DESC_SIZE
@@ -997,7 +1088,7 @@ impl<'m> Builder<'m> {
         self.write_u32(o + DESC_SHOW, key.show.unwrap_or(u32::MAX));
         self.write_u32(o + DESC_NAME, name_ptr);
         self.write_u32(o + DESC_NAMELEN, name_len);
-        if key.kind == runtime::array::KIND {
+        if key.kind == DESC_KIND_ARRAY {
             self.write_u32(o + DESC_STRIDE, key.stride);
         }
         self.descs.insert(key, o);
@@ -1095,7 +1186,7 @@ impl<'m> Builder<'m> {
         let stride = inline.as_ref().map_or(1, |layout| layout.slots() as u32);
         let elem_ref = inline.is_none() && self.array_elem_repr(ty) == Repr::Ref;
         self.desc(DescKey {
-            kind: runtime::array::KIND,
+            kind: DESC_KIND_ARRAY,
             tag: 0,
             enum_id: -1,
             name: "Array".to_owned(),

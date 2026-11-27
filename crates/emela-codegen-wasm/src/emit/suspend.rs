@@ -249,12 +249,12 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         b.table_funcs.push(index);
         resume_table[i] = table;
     }
-    let unwinding = if runtime::attempt::used(b) {
+    let unwinding = if b.uses_attempt() {
         b.alloc_static(4)
     } else {
         0
     };
-    let attempt_table = if runtime::attempt::suspends(b) {
+    let attempt_table = if b.attempt_suspends() {
         let index = b.rt("attempt_resume");
         b.table_funcs.push(index);
         b.table_funcs.len() as u32 - 1
@@ -697,8 +697,8 @@ fn emit_trampoline(b: &mut Builder<'_>, f: &Function, mp: MachinePlan) -> WasmFu
         ins.end();
         // The run already ended: its result lives in `run_word` now, so a strand that finishes
         // afterwards must not take it out of the pending-defect globals.
-        if let Some(fp) = &b.fiber_plan {
-            ins.i32_const(fp.run_over as i32);
+        if let Some(run_over) = b.run_over_cell() {
+            ins.i32_const(run_over as i32);
             ins.i32_load(mem(0, 4));
             ins.if_(BlockType::Empty);
             for global in [G_DEFECT, G_FAILURE] {
@@ -910,14 +910,14 @@ fn compile_stmt(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, id: StmtId) {
         } => {
             // A fairness yield is a suspension point only when the program uses fibers: without
             // them there is nobody to hand a turn to, and the state machine would double its
-            // states for nothing (`runtime::fiber::used`).
+            // states for nothing (`Builder::uses_fibers`).
             if matches!(
                 &value,
                 Value::Runtime {
                     op: RuntimeOp::Yield | RuntimeOp::YieldPerform,
                     ..
                 }
-            ) && !super::runtime::fiber::used(mcx.b)
+            ) && !mcx.b.uses_fibers()
             {
                 debug_assert!(dst.is_none(), "a fairness yield has no destination");
                 return;
