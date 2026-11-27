@@ -331,12 +331,13 @@ mod tests {
 #[cfg(all(test, unix))]
 mod process_tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
+    /// Writes `script` to `dir/name`. The child of a `fork` in another test must never inherit
+    /// the file open for writing, or starting it fails with `ETXTBSY`; [`crate::test_program::write`]
+    /// writes it from a child process for that.
     fn fake(dir: &Path, name: &str, script: &str) -> PathBuf {
         let path = dir.join(name);
-        std::fs::write(&path, script).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_program::write(&path, script, 0o755);
         path
     }
 
