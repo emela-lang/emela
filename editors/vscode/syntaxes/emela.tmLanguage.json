@@ -325,6 +325,7 @@
     "operators": {
       "patterns": [
         { "match": "->", "name": "keyword.operator.arrow.emela" },
+        { "match": "<-", "name": "keyword.operator.binding.emela" },
         { "match": "\\|>", "name": "keyword.operator.pipe.emela" },
         { "match": "\\.\\.", "name": "keyword.operator.spread.emela" },
         { "match": "&&|\\|\\||!(?!=)", "name": "keyword.operator.logical.emela" },
