@@ -55,7 +55,7 @@
 //! that law; the next law is the first one the cap stops.
 
 use crate::ir::Module;
-use crate::opt::{CoreFns, Stats};
+use crate::opt::{CoreFns, PassStats, Stats};
 
 mod array;
 mod law;
@@ -64,6 +64,18 @@ mod option;
 mod string;
 
 pub use law::{Law, LawId};
+
+/// What one law changed in one sweep: the sites it rewrote and the counters it filled.
+///
+/// It is here, not in [`law`], because the bodies of the laws return it and the registry in
+/// [`law`] names the bodies.
+struct LawRun {
+    /// Sites the law rewrote. A law that only declines sites reports zero.
+    applied: u32,
+    /// The counters of the pass, of which the law fills its own (and, once a law deopts, its
+    /// `deopt`).
+    stats: PassStats,
+}
 
 /// The most fusion applications one sweep may make, across all laws.
 ///

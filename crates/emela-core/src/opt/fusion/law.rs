@@ -20,16 +20,9 @@
 //! recorded. Their bodies are in [`super::array`].
 
 use crate::ir::Module;
-use crate::opt::{CoreFns, PassStats};
+use crate::opt::CoreFns;
 
-/// What one law changed in one sweep: the sites it rewrote and the counters it filled.
-pub(super) struct LawRun {
-    /// Sites the law rewrote. A law that only declines sites reports zero.
-    pub applied: u32,
-    /// The counters of the pass, of which the law fills its own (and, once a law deopts, its
-    /// `deopt`).
-    pub stats: PassStats,
-}
+use super::LawRun;
 
 /// The body of a law: the pass it runs, with the number of rewrites made explicit.
 ///
