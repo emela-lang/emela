@@ -416,7 +416,7 @@ fn array_to_list_still_boxes_each_element() {
     );
 }
 
-/// The linear memory the program may grow to: nine 64 KiB pages, as in `tests/memory.rs`.
+/// The linear memory the program may grow to: nine 64 KiB pages, as in `tests/programs/memory.rs`.
 const LIMIT: u32 = 9 * 65536;
 
 /// Builds a 16 384-element `Array[Point]` by doubling a one-element array (no per-element box

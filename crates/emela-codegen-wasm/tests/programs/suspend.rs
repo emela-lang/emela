@@ -2,7 +2,7 @@
 //! and a second resume (spec 8.4, 8.7, 14.5). Skipped without `wasmtime`.
 //!
 //! Fibers are not implemented yet; the only host that resumes a continuation later is
-//! `Std.Clock.sleep` (see `tests/clock.rs`). A continuation that nothing can resume is unwound as
+//! `Std.Clock.sleep` (see `tests/wasi/clock.rs`). A continuation that nothing can resume is unwound as
 //! interrupted, which runs its `with` releases.
 
 use crate::common;

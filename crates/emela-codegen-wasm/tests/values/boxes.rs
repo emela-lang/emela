@@ -182,7 +182,7 @@ fn escape_boundaries_agree_without_the_lir_passes() {
     agree("boxes-noopt-agg", false, true);
 }
 
-/// The linear memory the loop may grow to: six 64 KiB pages, as in `tests/memory.rs`.
+/// The linear memory the loop may grow to: six 64 KiB pages, as in `tests/programs/memory.rs`.
 const LIMIT: u32 = 6 * 65536;
 
 /// Reads and writes element 0 of a two-leaf record array 20 000 times with the option on. A read

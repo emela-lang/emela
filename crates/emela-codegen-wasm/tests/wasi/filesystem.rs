@@ -310,7 +310,7 @@ fn file_system_is_only_imported_when_used() {
     );
 }
 
-/// The interface names a component imports (the same probe as `tests/hosts.rs`).
+/// The interface names a component imports (the same probe as `tests/wasi/hosts.rs`).
 fn component_imports(bytes: &[u8]) -> Vec<String> {
     use wasmparser::{Parser, Payload};
     let mut imports = Vec::new();

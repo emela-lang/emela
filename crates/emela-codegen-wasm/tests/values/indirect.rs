@@ -316,7 +316,7 @@ fn a_non_suspending_operation_flattens_its_parameters_and_result() {
     same_output("indirect-operation", &off, &on, "", OPERATION_OUT);
 }
 
-/// The memory each program may grow to: six 64 KiB pages, as in `tests/memory.rs`.
+/// The memory each program may grow to: six 64 KiB pages, as in `tests/programs/memory.rs`.
 const LIMIT: u32 = 2 * 65536;
 
 /// An indirect call that keeps the returned record live across each recursive frame: the boxed

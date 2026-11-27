@@ -669,7 +669,7 @@ fn str_grapheme_chars(b: &mut Builder, ins: &mut InstructionSink) {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/grapheme_break_test/mod.rs"]
+#[path = "../../../tests/common/grapheme_break_test.rs"]
 mod grapheme_break_test;
 
 #[cfg(test)]
@@ -678,7 +678,7 @@ mod tests {
     //! of the official `GraphemeBreakTest.txt`.
     //!
     //! It checks the tables and the reading of the rules without wasmtime. The emitted
-    //! `grapheme_end` is checked against the same cases by `tests/unicode.rs`, which CI always
+    //! `grapheme_end` is checked against the same cases by `tests/programs/unicode.rs`, which CI always
     //! runs (see `wasmtime()` in `tests/common`).
 
     use super::*;

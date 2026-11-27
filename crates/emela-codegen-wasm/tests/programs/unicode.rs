@@ -6,7 +6,7 @@
 //! `String.split(s, "")`. Wasmtime and node are optional, like in the other run tests.
 
 use crate::common;
-use crate::grapheme_break_test;
+use crate::common::grapheme_break_test;
 
 use std::process::{Command, Stdio};
 

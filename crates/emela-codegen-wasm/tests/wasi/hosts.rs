@@ -1,5 +1,5 @@
 //! The WASI 0.3 hosts the bundled `Std` handlers use: Console, Env, Random and Clock.now. The
-//! Clock sleeps have their own tests in `tests/clock.rs`; the file system and HTTP are not part of
+//! Clock sleeps have their own tests in `tests/wasi/clock.rs`; the file system and HTTP are not part of
 //! this target yet.
 
 use crate::common;
@@ -19,7 +19,7 @@ const ALWAYS_IMPORTED: &[&str] = &[
 
 /// Asserts that `src` imports exactly [`ALWAYS_IMPORTED`] plus `extra`, and returns its bytes.
 ///
-/// The set, not the order, is compared: the order is pinned by `tests/component.rs`.
+/// The set, not the order, is compared: the order is pinned by `tests/wasi/component.rs`.
 fn assert_imports(src: &str, extra: &[&str]) -> Vec<u8> {
     let bytes = compile_checked(src);
     let mut expected: Vec<String> = ALWAYS_IMPORTED
@@ -387,7 +387,7 @@ fn main() {
 // `[target.wasm.external]` lists them as not available and the proposal that makes them available
 // is still a draft. The implementation carries their hosts when a program reaches them, but this
 // file does not pin their imports as part of the contract until the specification says so. Their
-// behaviour is tested in `tests/clock.rs` and `tests/filesystem.rs`, next to the rest of those
+// behaviour is tested in `tests/wasi/clock.rs` and `tests/wasi/filesystem.rs`, next to the rest of those
 // suites.
 
 #[test]
