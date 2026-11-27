@@ -106,10 +106,8 @@ const PRELUDE_TRAITS: &[(&str, &[&str])] = &[
 ];
 /// The functions of spec 15.1.
 const PRELUDE_FNS: &[&str] = &["panic", "todo", "dbg", "inspect"];
-/// The host effects (`[effect.host]`): effects without operations whose only handler is the host.
-pub(crate) const HOST_EFFECTS: &[&str] = &["Async", "ProcessHost", "PageHost"];
 /// Built-in effects: the host effects.
-const PRELUDE_EFFECTS: &[&str] = HOST_EFFECTS;
+const PRELUDE_EFFECTS: &[&str] = crate::hir::HOST_EFFECTS;
 
 /// Called once, while `Program` is empty.
 pub(crate) fn build_prelude(program: &mut Program) {
