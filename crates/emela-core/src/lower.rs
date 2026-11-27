@@ -4646,6 +4646,21 @@ fn unannotated_reachable(m: &Module, entries: &[FnId], target: &str) -> Vec<FnId
         ready: Vec<&'m Expr>,
     }
     impl<'m> Walk<'m> {
+        fn new(entries: &[FnId]) -> Self {
+            Walk {
+                fns: entries.to_vec(),
+                ..Walk::default()
+            }
+        }
+
+        /// The next function to visit, once every implementation that became used is walked.
+        fn next_fn(&mut self) -> Option<FnId> {
+            while let Some(body) = self.ready.pop() {
+                self.expr(body);
+            }
+            self.fns.pop()
+        }
+
         fn expr(&mut self, e: &'m Expr) {
             match e {
                 Expr::Fn { f, .. }
@@ -4682,17 +4697,9 @@ fn unannotated_reachable(m: &Module, entries: &[FnId], target: &str) -> Vec<FnId
     }
 
     let mut seen = vec![false; m.functions.len()];
-    let mut walk = Walk {
-        fns: entries.to_vec(),
-        ..Walk::default()
-    };
+    let mut walk = Walk::new(entries);
     let mut missing = Vec::new();
-    loop {
-        if let Some(body) = walk.ready.pop() {
-            walk.expr(body);
-            continue;
-        }
-        let Some(f) = walk.fns.pop() else { break };
+    while let Some(f) = walk.next_fn() {
         let i = f.into_raw().into_u32() as usize;
         if std::mem::replace(&mut seen[i], true) {
             continue;

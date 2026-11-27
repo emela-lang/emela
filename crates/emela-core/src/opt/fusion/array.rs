@@ -37,7 +37,7 @@
 use crate::ir::Module;
 use crate::opt::{CoreFn, CoreFns, PassStats};
 
-use super::law::LawRun;
+use super::LawRun;
 use super::list::{compose_all, compose_fold_over, compose_map_over};
 
 /// Rewrites `Array.map(Array.map(a, f), g)` to `Array.map(a, λx. g(f x))`.
