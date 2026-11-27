@@ -2,7 +2,7 @@
 
 WASM の runtime が使う書記素クラスタの表（UAX #29）の出所．**Unicode 17.0.0**（2025 年）の
 公式データをそのまま置き，`python3 scripts/gen-unicode-tables.py` が
-`src/emit/runtime/unicode_tables.rs` を生成する．生成はネットワークを使わない（下のファイルだけを
+`src/emit/runtime/text/unicode_tables.rs` を生成する．生成はネットワークを使わない（下のファイルだけを
 読む）．CI は `python3 scripts/gen-unicode-tables.py --check` で生成をやり直し，commit 済みの表と
 一致することを確かめる（テストは commit 済みの表を使う）．
 
@@ -22,17 +22,17 @@ WASM の runtime が使う書記素クラスタの表（UAX #29）の出所．**
 python3 scripts/gen-unicode-tables.py
 ```
 
-このスクリプトは上のファイルだけを読み，`crates/emela-codegen-wasm/src/emit/runtime/unicode_tables.rs`
+このスクリプトは上のファイルだけを読み，`crates/emela-codegen-wasm/src/emit/runtime/text/unicode_tables.rs`
 を書き換える．出力は決定的（同じ入力なら同じバイト列）．データを更新するときは，新しい版の
 ディレクトリを `data/unicode/<version>/` に足し，`scripts/gen-unicode-tables.py` の
 `VERSION` を変える．
 
-`GraphemeBreakTest.txt` の全件は `src/emit/runtime/unicode.rs` の unit test（Rust の参照実装）と
+`GraphemeBreakTest.txt` の全件は `src/emit/runtime/text/unicode.rs` の unit test（Rust の参照実装）と
 `tests/unicode.rs`（生成した Emela プログラムを wasm で実行）が読む．
 
 ## ライセンス
 
 Unicode のデータファイルは Unicode License V3（<https://www.unicode.org/license.txt>）．
-`LICENSE.txt` に全文を置く．生成した `src/emit/runtime/unicode_tables.rs` の先頭にも，この
+`LICENSE.txt` に全文を置く．生成した `src/emit/runtime/text/unicode_tables.rs` の先頭にも，この
 ライセンスへの参照を置く．© 2025 Unicode, Inc.「Unicode and the Unicode Logo are registered
 trademarks of Unicode, Inc. in the U.S. and other countries.」

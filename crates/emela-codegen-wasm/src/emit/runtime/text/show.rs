@@ -2,13 +2,13 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("show_string", &[ValType::I32], &[ValType::I32]),
     ("int_to_string", &[ValType::I32], &[ValType::I32]),
     ("int64_to_string", &[ValType::I64], &[ValType::I32]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "show_string" => i32s(7),   // n, i, j, p, b, esc, dig
         "int_to_string" => i32s(6), // neg, u, i, p, len, j
@@ -17,7 +17,11 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     }
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "show_string" => show_string(b, ins),
         "int_to_string" => int_to_string(b, ins),

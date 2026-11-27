@@ -2,7 +2,7 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("str_new", &[ValType::I32], &[ValType::I32]),
     ("str_eq", &[ValType::I32, ValType::I32], &[ValType::I32]),
     ("str_cmp", &[ValType::I32, ValType::I32], &[ValType::I32]),
@@ -58,7 +58,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ("is_white_space", &[ValType::I32], &[ValType::I32]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "str_new" => i32s(1),                           // p
         "str_eq" => i32s(3),                            // la, lb, i
@@ -78,7 +78,11 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     }
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "str_new" => str_new(b, ins),
         "str_eq" => str_eq(ins),
@@ -721,7 +725,12 @@ fn str_split(b: &mut Builder, ins: &mut InstructionSink) {
 }
 
 /// Appends the cell in `cell` to the list whose head and last cells are `head` and `last`.
-pub(super) fn append_cell(ins: &mut InstructionSink, head: u32, last: u32, cell: u32) {
+pub(in crate::emit::runtime) fn append_cell(
+    ins: &mut InstructionSink,
+    head: u32,
+    last: u32,
+    cell: u32,
+) {
     ins.local_get(last);
     ins.i32_eqz();
     ins.if_(BlockType::Empty);

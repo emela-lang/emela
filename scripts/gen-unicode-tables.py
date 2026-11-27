@@ -48,7 +48,7 @@ HANGUL_SYLLABLES = (0xAC00, 0xD7A3)
 ROOT = Path(__file__).resolve().parent.parent
 CRATE_DIR = ROOT / "crates" / "emela-codegen-wasm"
 DATA_DIR = CRATE_DIR / "data" / "unicode" / VERSION
-OUTPUT = CRATE_DIR / "src" / "emit" / "runtime" / "unicode_tables.rs"
+OUTPUT = CRATE_DIR / "src" / "emit" / "runtime" / "text" / "unicode_tables.rs"
 
 
 def data_lines(path, handler):

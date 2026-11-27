@@ -5,7 +5,7 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     (
         "str_from_raw",
         &[ValType::I32, ValType::I32],
@@ -18,7 +18,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         // the new string
         "str_from_raw" => i32s(1),
@@ -28,14 +28,18 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     }
 }
 
-pub(super) fn used(b: &Builder) -> bool {
+pub(in crate::emit::runtime) fn used(b: &Builder) -> bool {
     b.uses_env()
         || b.uses_std_host(StdHost::is_args)
         || b.uses_std_host(StdHost::is_fs)
         || b.uses_std_host(StdHost::is_http)
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "str_from_raw" => str_from_raw(b, ins),
         "cabi_realloc" => cabi_realloc(b, ins),
@@ -88,7 +92,7 @@ fn cabi_realloc(b: &mut Builder, ins: &mut InstructionSink) {
     ins.return_();
     ins.end();
     // While the HTTP runtime reads a request, the host's strings go to its arena
-    // (`runtime/http.rs`), as long as they fit.
+    // (`runtime/wasi/http.rs`), as long as they fit.
     if let Some(http) = b.http_plan {
         ins.i32_const(http.arena_cur as i32);
         ins.i32_load(mem(0, 4));

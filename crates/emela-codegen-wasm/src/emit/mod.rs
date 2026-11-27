@@ -56,7 +56,7 @@ pub(crate) enum Run {
     Tests(Vec<(String, FnId)>),
     /// The fn of an HTTP service that `@entry(Http.serve)` made (its monomorphized copy), called
     /// by the exported `handle` of `wasi:http/handler@0.3.0` with the request
-    /// (`runtime/http.rs`).
+    /// (`runtime/wasi/http.rs`).
     Service(Option<FnId>),
 }
 
@@ -186,7 +186,7 @@ const G_FAILURE: u32 = 3;
 #[allow(dead_code)]
 const G_SUSPENDING: u32 = 4;
 const G_STRDESC: u32 = 5;
-/// The output streams and the waitable set of the WASI 0.3 host calls (`runtime/host.rs`).
+/// The output streams and the waitable set of the WASI 0.3 host calls (`runtime/wasi/host.rs`).
 const G_STDOUT: u32 = 6;
 const G_STDOUT_FUTURE: u32 = 7;
 const G_STDERR: u32 = 8;
@@ -294,8 +294,8 @@ pub(crate) struct Builder<'m> {
     /// The suspend runtime's cells and per-function entries, when the program suspends.
     pub(crate) sus: Option<suspend::Plan>,
     /// The file system runtime's cells, when the program uses `Std.FileSystem`.
-    pub(crate) fs_plan: Option<runtime::fs::Plan>,
-    pub(crate) http_plan: Option<runtime::http::Plan>,
+    pub(crate) fs_plan: Option<runtime::wasi::fs::Plan>,
+    pub(crate) http_plan: Option<runtime::wasi::http::Plan>,
     /// Whether the output is an HTTP service ([`Run::Service`]): it exports `handle` of
     /// `wasi:http/handler@0.3.0` instead of `run` of `wasi:cli/run@0.3.0`.
     pub(crate) service: bool,
@@ -849,7 +849,7 @@ impl<'m> Builder<'m> {
         if self.uses_std_host(StdHost::is_fs) {
             // The file system runtime waits on its own subtasks and stream operations.
             self.subtask_drop();
-            runtime::fs::imports(self);
+            runtime::wasi::fs::imports(self);
         }
         self.exit_with_code();
         self.output_imports("wasi:cli/stdout@0.3.0");
@@ -859,7 +859,7 @@ impl<'m> Builder<'m> {
         self.waitable_set_drop();
         self.waitable_join();
         if self.service {
-            runtime::http::imports(self);
+            runtime::wasi::http::imports(self);
         } else {
             self.task_return();
         }
@@ -1648,7 +1648,7 @@ impl<'m> Builder<'m> {
                 }
                 Run::Main(None) => {}
                 Run::Service(service) => {
-                    // One request: the launch, then the response (`runtime/http.rs`). A
+                    // One request: the launch, then the response (`runtime/wasi/http.rs`). A
                     // launch that ended interrupted leaves no response; its unwinding is not
                     // carried to the next request.
                     if let Some(id) = service {

@@ -1,7 +1,7 @@
 //! The arguments of `Std.Process` on WASI 0.3: `wasi:cli/environment.get-arguments`.
 //!
 //! The host returns a `list<string>` through a return pointer (`HOSTBUF`), allocated in linear
-//! memory with `cabi_realloc` (in `canon`), like `get-environment` (`runtime/env.rs`). The list is
+//! memory with `cabi_realloc` (in `canon`), like `get-environment` (`runtime/wasi/env.rs`). The list is
 //! fetched once and cached in the `G_ARGS_*` globals, so every call sees the same arguments
 //! (`[api.std.process]`). Its first element is the name of the program, which `Args` leaves out.
 //!
@@ -10,13 +10,13 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("args_load", &[], &[]),
     ("args_count", &[], &[ValType::I32]),
     ("args_at", &[ValType::I32], &[ValType::I32]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         // the element
         "args_at" => i32s(1),
@@ -24,11 +24,15 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     }
 }
 
-pub(super) fn used(b: &Builder) -> bool {
+pub(in crate::emit::runtime) fn used(b: &Builder) -> bool {
     b.uses_std_host(StdHost::is_args)
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "args_load" => args_load(b, ins),
         "args_count" => args_count(b, ins),

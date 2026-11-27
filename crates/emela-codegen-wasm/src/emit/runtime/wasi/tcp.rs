@@ -9,20 +9,24 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("tcp_open_registry", &[], &[ValType::I32]),
     ("tcp_release_registry", &[ValType::I32], &[]),
 ];
 
-pub(super) fn locals(_name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(_name: &str) -> Vec<(u32, ValType)> {
     Vec::new()
 }
 
-pub(super) fn used(b: &Builder) -> bool {
+pub(in crate::emit::runtime) fn used(b: &Builder) -> bool {
     b.uses_std_host(StdHost::is_tcp)
 }
 
-pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder<'_>,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "tcp_open_registry" => {
             let desc = b.desc(DescKey {

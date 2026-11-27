@@ -6,17 +6,21 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[("clock_now", &[], &[ValType::I64])];
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[("clock_now", &[], &[ValType::I64])];
 
-pub(super) fn locals(_name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(_name: &str) -> Vec<(u32, ValType)> {
     Vec::new()
 }
 
-pub(super) fn used(b: &Builder) -> bool {
+pub(in crate::emit::runtime) fn used(b: &Builder) -> bool {
     b.uses_clock()
 }
 
-pub(super) fn emit(b: &mut Builder, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     if name != "clock_now" {
         return false;
     }

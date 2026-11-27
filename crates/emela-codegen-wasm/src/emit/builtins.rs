@@ -97,7 +97,7 @@ impl<'m> Builder<'m> {
                 ins.call(f);
                 self.assign(cx, ins, dst, Repr::Ref);
             }
-            // `runtime/ascii.rs`, a trimmable module: the body is only emitted for a program that
+            // `runtime/text/ascii.rs`, a trimmable module: the body is only emitted for a program that
             // changes ASCII case.
             StringAsciiLower | StringAsciiUpper => {
                 self.operand(cx, ins, &args[0]);
@@ -114,7 +114,7 @@ impl<'m> Builder<'m> {
             IntParse => self.option_call(cx, ins, dst, args, "int_parse"),
             IntCheckedAdd => self.option_call(cx, ins, dst, args, "int_checked_add"),
             StringFromCodePoint => self.option_call(cx, ins, dst, args, "from_code_point"),
-            // A Bytes is a string object whose bytes need not be UTF-8 (`runtime/bytes.rs`).
+            // A Bytes is a string object whose bytes need not be UTF-8 (`runtime/text/bytes.rs`).
             BytesSize => {
                 self.operand(cx, ins, &args[0]);
                 let f = self.rt("str_byte_size");
