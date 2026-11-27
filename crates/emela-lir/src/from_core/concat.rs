@@ -72,30 +72,32 @@ pub(super) fn chain(
     acc
 }
 
-/// The string of `pieces`: one `concat` for three or more pieces, otherwise `String.append` in a
-/// right-associated chain ([`chain`]).
-pub(super) fn build(lower: &mut Lower<'_>, pieces: Vec<Piece>) -> Operand {
-    let ops = normalize(pieces);
-    if ops.len() > 2 {
-        return Operand::Var(lower.assign(
-            "s",
-            TypeId::STRING,
-            Value::Runtime {
-                op: RuntimeOp::Concat,
-                args: ops,
-            },
-        ));
+impl Lower<'_> {
+    /// The string of `pieces`: one `concat` for three or more pieces, otherwise `String.append` in
+    /// a right-associated chain ([`chain`]).
+    pub(super) fn concat(&mut self, pieces: Vec<Piece>) -> Operand {
+        let ops = normalize(pieces);
+        if ops.len() > 2 {
+            return Operand::Var(self.assign(
+                "s",
+                TypeId::STRING,
+                Value::Runtime {
+                    op: RuntimeOp::Concat,
+                    args: ops,
+                },
+            ));
+        }
+        chain(ops, |left, right| {
+            Operand::Var(self.assign(
+                "s",
+                TypeId::STRING,
+                Value::Builtin {
+                    op: Builtin::StringAppend,
+                    args: vec![left, right],
+                },
+            ))
+        })
     }
-    chain(ops, |left, right| {
-        Operand::Var(lower.assign(
-            "s",
-            TypeId::STRING,
-            Value::Builtin {
-                op: Builtin::StringAppend,
-                args: vec![left, right],
-            },
-        ))
-    })
 }
 
 #[cfg(test)]
@@ -104,7 +106,7 @@ mod tests {
     use la_arena::Arena;
     use rustc_hash::{FxHashMap, FxHashSet};
 
-    use super::{Piece, build, chain, normalize};
+    use super::{Piece, chain, normalize};
     use crate::from_core::{Lower, Shared};
     use crate::ir::{Const, Operand, RuntimeOp, Stmt, Value};
 
@@ -261,15 +263,12 @@ mod tests {
         let left = var(&mut lower, "left");
         let right = var(&mut lower, "right");
         let head = "assertion failed: left == right\n  left: ";
-        let msg = build(
-            &mut lower,
-            vec![
-                text(head),
-                Piece::Op(left.clone()),
-                text("\n right: "),
-                Piece::Op(right.clone()),
-            ],
-        );
+        let msg = lower.concat(vec![
+            text(head),
+            Piece::Op(left.clone()),
+            text("\n right: "),
+            Piece::Op(right.clone()),
+        ]);
         assert_eq!(
             concats(&lower),
             vec![vec![const_str(head), left, const_str("\n right: "), right]]
@@ -285,14 +284,11 @@ mod tests {
         let a = var(&mut lower, "a");
         let b = var(&mut lower, "b");
         let c = var(&mut lower, "c");
-        let s = build(
-            &mut lower,
-            vec![
-                Piece::Op(a.clone()),
-                Piece::Op(b.clone()),
-                Piece::Op(c.clone()),
-            ],
-        );
+        let s = lower.concat(vec![
+            Piece::Op(a.clone()),
+            Piece::Op(b.clone()),
+            Piece::Op(c.clone()),
+        ]);
         assert_eq!(concats(&lower), vec![vec![a, b, c]]);
         assert_eq!(s, concat_dsts(&lower)[0]);
     }
@@ -304,7 +300,7 @@ mod tests {
         let mut lower = Lower::new(&mut sh, "test");
         let a = var(&mut lower, "a");
         let b = var(&mut lower, "b");
-        let s = build(&mut lower, vec![Piece::Op(a.clone()), Piece::Op(b.clone())]);
+        let s = lower.concat(vec![Piece::Op(a.clone()), Piece::Op(b.clone())]);
         assert!(concats(&lower).is_empty());
         let appends: Vec<_> = lower
             .f

@@ -12,7 +12,7 @@ use emela_core::{
 use super::{Div, Lower, R, TMP, Val, ix};
 use crate::ir::{
     Callee, Closure, Const, LabelData, LabelId, Operand, PrimOp, PrimTy, RuntimeOp, Stmt, Term,
-    Value, VarData, VarId,
+    Value, VarId,
 };
 use crate::repr::{Repr, repr_of};
 
@@ -25,37 +25,9 @@ impl<'s> Lower<'s> {
         self.sh.core.intern(ty)
     }
 
-    pub(super) fn ty(&self, ty: TypeId) -> &Type {
-        self.sh.core.ty(ty)
-    }
-
-    pub(super) fn subst(&mut self, ty: TypeId, args: &[TypeId]) -> TypeId {
-        if args.is_empty() {
-            return ty;
-        }
-        self.sh.core.types.subst(ty, args)
-    }
-
-    /// A new variable; the type must have a representation.
-    pub(super) fn var(&mut self, hint: &str, ty: TypeId) -> VarId {
-        let repr = self.repr(ty);
-        debug_assert!(repr != Repr::Void, "a variable without representation");
-        self.f.vars.alloc(VarData {
-            hint: if hint.is_empty() { "v" } else { hint }.to_owned(),
-            repr,
-            ty,
-        })
-    }
-
     /// A new variable if the type has a representation.
     pub(super) fn new_var(&mut self, hint: &str, ty: TypeId) -> Option<VarId> {
         (self.repr(ty) != Repr::Void).then(|| self.var(hint, ty))
-    }
-
-    pub(super) fn param(&mut self, hint: &str, ty: TypeId) -> VarId {
-        let v = self.var(hint, ty);
-        self.f.params.push(v);
-        v
     }
 
     /// A variable for a Core local (a parameter or loop variable), mapped for its uses.
@@ -106,24 +78,6 @@ impl<'s> Lower<'s> {
         }
         let types = &mut self.sh.core.types;
         types.erase_sets(from) != types.erase_sets(to)
-    }
-
-    /// A read (a field, an element, a list head) that has no effect: nothing for a type without
-    /// representation.
-    pub(super) fn get(&mut self, hint: &str, ty: TypeId, value: Value) -> Option<VarId> {
-        (self.repr(ty) != Repr::Void).then(|| self.assign(hint, ty, value))
-    }
-
-    /// `let_` for a type with a representation.
-    pub(super) fn assign(&mut self, hint: &str, ty: TypeId, value: Value) -> VarId {
-        let v = self.var(hint, ty);
-        self.push(Stmt::Let {
-            dst: Some(v),
-            value,
-            on_defect: None,
-            on_suspend: None,
-        });
-        v
     }
 
     /// A temporary bound to `value`, as the expression's value.
