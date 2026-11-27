@@ -2,7 +2,7 @@
 //! reference, written as a calling-convention fact on the function.
 //!
 //! [`insert_borrow_signature`] runs at [`Stage::StateMachines`], after the state machines have made
-//! every suspension edge explicit and before [`super::insert_rc`] inserts `dup` and `drop`. It
+//! every suspension edge explicit and before [`crate::heap::insert_rc`] inserts `dup` and `drop`. It
 //! reads the B6 borrow facts ([`crate::opt::analysis::borrow`]) and writes
 //! [`Function::borrowed`](crate::ir::Function::borrowed); reference counting and its balance check
 //! then treat those parameters as borrowed instead of owned.
@@ -68,7 +68,7 @@
 //! - **The callee never drops a borrowed parameter.** Reference counting leaves it out of the
 //!   function's owned set (the counting pass), so it only gets a `dup` when something inside the
 //!   callee consumes it. B6 proves that no use of the parameter consumes it.
-//! - **The caller never `dup`s a borrowed argument.** [`super::rc::value_uses`] reports the matching
+//! - **The caller never `dup`s a borrowed argument.** [`crate::heap::rc::value_uses`] reports the matching
 //!   position of a direct call as a borrow. The caller still releases its own reference when it is
 //!   done with the value, as for any other value it owns.
 //! - **An address-taken or exported function keeps the owned convention.** A function whose value
@@ -82,8 +82,8 @@
 //!   value after the call returned suspended, and the caller may release its reference then. When
 //!   a frame saves a borrowed parameter, reference counting inserts a `dup` at the start of the
 //!   function and drops the parameter like any other owned variable, and
-//!   [`super::rc::Bases`] no longer treats views of it as borrowed. The environment parameter of a
-//!   lifted function has always had this treatment ([`super::rc::owned_borrowed`]).
+//!   [`crate::heap::rc::Bases`] no longer treats views of it as borrowed. The environment parameter of a
+//!   lifted function has always had this treatment ([`crate::heap::rc::owned_borrowed`]).
 //! - **A counted argument of a suspending call is not borrowed.** The caller's frame is made before
 //!   borrow inference and saves what the owned convention leaves owned. A borrowed argument stays
 //!   owned in the caller, so the frame would have to save it; it does not. Such a position keeps
@@ -101,14 +101,14 @@
 //! # End-to-end contract (C2b)
 //!
 //! With [`LirRules::borrow`](crate::opt::LirRules::borrow) on, [`crate::to_heap_with_options`] runs
-//! this pass between the state machines and [`super::insert_rc`]. The resulting program is
+//! this pass between the state machines and [`crate::heap::insert_rc`]. The resulting program is
 //! balanced:
 //!
 //! - the caller does not `dup` a borrowed argument; it still owns and drops its own reference when
 //!   it no longer needs the value;
 //! - the callee does not drop a borrowed parameter; if something inside the callee consumes it
 //!   (a view is consumed, or a forced-owned callee takes it), the counting pass `dup`s first;
-//! - the verifier's balance check ([`super::rc_check`]) counts a borrowed parameter as starting
+//! - the verifier's balance check ([`crate::heap::rc_check`]) counts a borrowed parameter as starting
 //!   with zero references, accepts a reference-less read of it, and still checks each use;
 //! - the guards above keep the convention sound: an address-taken or exported function, a runtime
 //!   `show` function, and a frame-saved parameter are owned; `Array.set` keeps its array owned.
@@ -237,7 +237,7 @@ pub fn insert_borrow_signature(m: &mut Module) -> BorrowReport {
                     let Operand::Var(v) = arg else {
                         continue;
                     };
-                    if !super::rc::counted(caller, *v)
+                    if !crate::heap::rc::counted(caller, *v)
                         || !caller_owns(&signatures, caller_id, caller, *v)
                     {
                         continue;
@@ -352,8 +352,8 @@ fn view_bases(f: &Function) -> FxHashMap<VarId, VarId> {
         else {
             continue;
         };
-        if super::rc::counted(f, *d)
-            && let Some(base) = super::rc::view_base(f, value)
+        if crate::heap::rc::counted(f, *d)
+            && let Some(base) = crate::heap::rc::view_base(f, value)
         {
             bases.insert(*d, base);
         }
@@ -366,15 +366,15 @@ fn consumed_and_views(m: &Module, f: &Function) -> (FxHashSet<VarId>, FxHashMap<
     let mut consumed = FxHashSet::default();
     for (_, stmt) in f.stmts.iter() {
         if let Stmt::Let { value, .. } = stmt {
-            super::rc::value_uses(m, f, value, &mut |v, mode| {
-                if mode == super::rc::Mode::Consume {
+            crate::heap::rc::value_uses(m, f, value, &mut |v, mode| {
+                if mode == crate::heap::rc::Mode::Consume {
                     consumed.insert(v);
                 }
             });
         }
     }
     for (_, seq) in f.seqs.iter() {
-        consumed.extend(super::rc::term_consumes(f, &seq.term));
+        consumed.extend(crate::heap::rc::term_consumes(f, &seq.term));
     }
     (consumed, view_bases(f))
 }
@@ -396,7 +396,7 @@ fn reaches_base(bases: &FxHashMap<VarId, VarId>, mut view: VarId, param: VarId) 
     false
 }
 
-/// Writes the tentative signatures into the module, so that [`super::rc::value_uses`] reads the
+/// Writes the tentative signatures into the module, so that [`crate::heap::rc::value_uses`] reads the
 /// call-site modes of the current round.
 fn write_signatures(m: &mut Module, ids: &[FnId], signatures: &FxHashMap<FnId, Vec<bool>>) {
     for &id in ids {
@@ -427,7 +427,7 @@ fn caller_owns(
         .and_then(|s| s.get(i))
         .copied()
         .unwrap_or(false);
-    !borrowed || super::rc::saved_by_a_frame(caller, v)
+    !borrowed || crate::heap::rc::saved_by_a_frame(caller, v)
 }
 
 /// The counted direct-call argument positions that a signature marks borrowed.
@@ -461,7 +461,7 @@ fn borrowed_args(m: &Module) -> u32 {
                     continue;
                 }
                 if let Operand::Var(v) = o
-                    && super::rc::counted(f, *v)
+                    && crate::heap::rc::counted(f, *v)
                 {
                     n += 1;
                 }
