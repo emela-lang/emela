@@ -964,6 +964,40 @@ fn watched_file_changes_recheck_single_file_imports() {
     client.shutdown();
 }
 
+/// A request reuses the check of the same contents, but a file that changed on disk is read again
+/// even without a notification from the editor (`[lsp.project]`).
+#[test]
+fn requests_see_changes_on_disk_without_notifications() {
+    let disk = Disk::new(&[
+        ("/app/Pome.toml", ""),
+        (
+            "/app/src/main.emel",
+            "import Util\n\nfn main() {\n  Util.u()\n}\n",
+        ),
+        ("/app/src/util.emel", "pub fn u() -> Int {\n  1\n}\n"),
+    ]);
+    let mut client =
+        Client::initialize_on(disk.clone(), Some("/app"), json!({}), Typecheck::default);
+    let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
+        Some(lsp::HoverContents::Markup(m)) => m.value,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 2, 4)),
+        "```emela\nmain: fn() -> Int\n```"
+    );
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 2, 4)),
+        "```emela\nmain: fn() -> Int\n```"
+    );
+    disk.write("/app/src/util.emel", "pub fn u() -> String {\n  \"\"\n}\n");
+    assert_eq!(
+        text(client.hover("/app/src/main.emel", 2, 4)),
+        "```emela\nmain: fn() -> String\n```"
+    );
+    client.shutdown();
+}
+
 /// A client that can register `workspace/didChangeWatchedFiles` dynamically is asked to watch the
 /// files that affect a check, and its answer does not disturb the server.
 #[test]

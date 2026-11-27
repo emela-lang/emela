@@ -2,7 +2,7 @@
 
 use super::*;
 
-impl<Fs, M, F> Server<Fs, M>
+impl<Fs, M, F> Server<Fs, M, F>
 where
     Fs: FileSystem,
     M: FnMut() -> F,

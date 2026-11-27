@@ -131,7 +131,7 @@ fn analyze(source: &str) -> (Analysis, Option<emela_driver::CoreModule>) {
 /// The language server, as `emela lsp` runs it, on an empty in-memory file system.
 #[wasm_bindgen]
 pub struct LspSession {
-    session: emela_lsp::Session<MemoryFiles, fn() -> Typecheck>,
+    session: emela_lsp::Session<MemoryFiles, fn() -> Typecheck, Typecheck>,
 }
 
 #[wasm_bindgen]
