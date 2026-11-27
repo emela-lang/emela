@@ -7,11 +7,13 @@
 //!    constructors, values)
 //! 2. Imports: once every module's declarations are in, bring the listed names and modules into
 //!    scope
-//! 3. Lower: turn declaration contents (types, expressions, patterns) into HIR ([`crate::lower`])
+//! 3. Lower: turn declaration contents (types, expressions, patterns) into HIR ([`lower`])
 //!
 //! Namespaces are chosen by position: left of `.` only modules and traits are looked up, in type
 //! positions only types, and for type names in expressions and patterns only constructors. So a
 //! module `Email` and a type `Email` inside it (spec 4.4) do not collide.
+
+mod lower;
 
 use emela_syntax::ast::{self, AstNode, HasAttrs};
 use emela_syntax::{SyntaxNode, SyntaxToken};
@@ -30,6 +32,8 @@ use crate::hir::{
 use crate::source::{ModuleId, ModuleMap};
 use crate::suggest::best_match;
 use crate::{Import, ModuleName};
+
+pub use lower::{string_attr, string_attr_value};
 
 /// Module names live separately, in [`ModuleScope::modules`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -158,7 +162,7 @@ pub fn resolve(
         .into_iter()
         .partition(|p| matches!(&p.item, ast::Item::Effect(e) if e.label().is_some()));
     for pending in labels.into_iter().chain(others) {
-        crate::lower::lower_item(&mut resolver, pending);
+        lower::lower_item(&mut resolver, pending);
     }
     resolver.check_fn_field_names();
     let Resolver {
