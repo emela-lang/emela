@@ -7,7 +7,7 @@ use emela_resolve::{DiagnosticKind, NameError};
 use line_index::TextRange;
 
 use super::{Diagnostic, Location, NAMED_ITEM_SUGGESTION, Severity, Span};
-use crate::code;
+use crate::diagnostic::code;
 use crate::source::SourceDb;
 
 impl Diagnostic {

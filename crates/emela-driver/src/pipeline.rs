@@ -9,23 +9,23 @@ use std::path::{Component, Path, PathBuf};
 use emela_resolve::{DiagnosticKind, DirEntry, Import, ModuleId, SourceFs};
 use la_arena::ArenaMap;
 
-use crate::actions::CodeAction;
-use crate::analysis::Analysis;
-use crate::code;
-use crate::complete::Completion;
+use crate::check::analysis::Analysis;
+use crate::diagnostic::code;
 use crate::diagnostic::{Diagnostic, Location};
-use crate::hints::InlayHint;
-use crate::hover::HoverInfo;
-use crate::nav::{NavTarget, RenameError};
+use crate::ide::actions::CodeAction;
+use crate::ide::complete::Completion;
+use crate::ide::hints::InlayHint;
+use crate::ide::hover::HoverInfo;
+use crate::ide::nav::{NavTarget, RenameError};
+use crate::ide::signature::SignatureInfo;
+use crate::ide::tokens::SemanticToken;
 use crate::output::{BuildOutput, write_output};
 use crate::project::{ENTRY_FILE, Input, PROJECT_FILE, TEST_DIR};
 use crate::run::{
     Output, ProgramCommand, RunOutput, native_command, node_command, wasmtime_command,
     wasmtime_serve_command,
 };
-use crate::signature::SignatureInfo;
 use crate::source::{FileId, FileSystem, SourceFile};
-use crate::tokens::SemanticToken;
 
 /// A virtual directory holding the bundled core sources. Diagnostics show paths like
 /// `<core>/list.emel`.
@@ -361,7 +361,7 @@ pub fn check<F: Frontend>(
     let mut analysis = Analysis::default();
     analysis.library_only = input.library_only;
     analysis.sources.set_base(&input.base);
-    analysis.host_roots = crate::host_files::roots(input);
+    analysis.host_roots = crate::output::host_files::roots(input);
     let (modules, mut resolve_diagnostics) = if input.single_file {
         emela_resolve::collect_modules(&Shallow(fs), &input.root)
     } else {
@@ -387,7 +387,7 @@ pub fn check<F: Frontend>(
     } else {
         fs.read_to_string(&manifest).map_err(|_| ())
     };
-    let (features, diagnostics) = crate::experimental::project_features(
+    let (features, diagnostics) = crate::project::experimental::project_features(
         manifest_text
             .as_deref()
             .ok()
@@ -399,7 +399,7 @@ pub fn check<F: Frontend>(
     analysis.diagnostics.extend(diagnostics);
     if !input.single_file {
         let (dependency_diagnostics, more) =
-            crate::dependencies::add(fs, &mut analysis.modules, &input.dependencies);
+            crate::project::dependencies::add(fs, &mut analysis.modules, &input.dependencies);
         resolve_diagnostics.extend(more);
         analysis.diagnostics.extend(dependency_diagnostics);
         analysis.set_dependency_experimental(
@@ -411,7 +411,7 @@ pub fn check<F: Frontend>(
                 .collect(),
         );
         if let Ok(text) = &manifest_text {
-            analysis.diagnostics.extend(crate::license::check(
+            analysis.diagnostics.extend(crate::project::license::check(
                 text,
                 &manifest,
                 &mut analysis.sources,

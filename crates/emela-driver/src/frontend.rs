@@ -10,21 +10,21 @@ use emela_syntax::{Parse, SyntaxKind};
 use emela_types::{CheckOptions, ProgramTypes, check_program_with};
 use la_arena::ArenaMap;
 
-use crate::actions::CodeAction;
-use crate::analysis::Analysis;
-use crate::complete::Completion;
+use crate::check::analysis::Analysis;
+use crate::check::internal::{check_external_in_dependencies, check_internal};
+use crate::check::program::TypedProgram;
+use crate::check::test_fns::{collect_tests, resolve_tests};
 use crate::diagnostic::{Diagnostic, Location, error_count};
-use crate::hints::InlayHint;
-use crate::hover::HoverInfo;
-use crate::internal::{check_external_in_dependencies, check_internal};
-use crate::nav::{NavTarget, RenameError};
+use crate::ide::actions::CodeAction;
+use crate::ide::complete::Completion;
+use crate::ide::hints::InlayHint;
+use crate::ide::hover::HoverInfo;
+use crate::ide::nav::{NavTarget, RenameError};
+use crate::ide::signature::SignatureInfo;
+use crate::ide::tokens::SemanticToken;
 use crate::pipeline::{CORE_DIR, Checked, CoreSource, Frontend, Parsed};
-use crate::program::TypedProgram;
-use crate::signature::SignatureInfo;
 use crate::source::{FileId, SourceFile};
 use crate::target::Target;
-use crate::test_fns::{collect_tests, resolve_tests};
-use crate::tokens::SemanticToken;
 
 /// A frontend up to parsing. Keeps a syntax tree per module and returns the import list.
 /// [`Frontend::check`] returns `()` without diagnostics.
@@ -259,7 +259,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Option<HoverInfo> {
-        crate::hover::hover(program, analysis, file, offset)
+        crate::ide::hover::hover(program, analysis, file, offset)
     }
 
     fn has_entry_main(&self) -> Option<bool> {
@@ -276,7 +276,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Vec<line_index::TextRange> {
-        crate::nav::document_highlights(program, analysis, file, offset)
+        crate::ide::nav::document_highlights(program, analysis, file, offset)
     }
 
     fn type_definition(
@@ -285,7 +285,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Option<NavTarget> {
-        crate::nav::type_definition(program, analysis, file, offset)
+        crate::ide::nav::type_definition(program, analysis, file, offset)
     }
 
     fn implementations(
@@ -294,7 +294,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Vec<NavTarget> {
-        crate::nav::implementations(program, analysis, file, offset)
+        crate::ide::nav::implementations(program, analysis, file, offset)
     }
 
     fn definition(
@@ -303,7 +303,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Option<NavTarget> {
-        crate::nav::definition(program, analysis, file, offset)
+        crate::ide::nav::definition(program, analysis, file, offset)
     }
 
     fn inlay_hints(
@@ -312,7 +312,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         range: line_index::TextRange,
     ) -> Vec<InlayHint> {
-        crate::hints::inlay_hints(program, analysis, file, range)
+        crate::ide::hints::inlay_hints(program, analysis, file, range)
     }
 
     fn semantic_tokens(
@@ -321,7 +321,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         range: line_index::TextRange,
     ) -> Vec<SemanticToken> {
-        crate::tokens::semantic_tokens(program, analysis, file, range)
+        crate::ide::tokens::semantic_tokens(program, analysis, file, range)
     }
 
     fn code_actions(
@@ -330,7 +330,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         range: line_index::TextRange,
     ) -> Vec<CodeAction> {
-        crate::actions::code_actions(program, analysis, file, range)
+        crate::ide::actions::code_actions(program, analysis, file, range)
     }
 
     fn signature_help(
@@ -339,7 +339,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Option<SignatureInfo> {
-        crate::signature::signature_help(program, analysis, file, offset)
+        crate::ide::signature::signature_help(program, analysis, file, offset)
     }
 
     fn prepare_rename(
@@ -348,7 +348,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Option<line_index::TextRange> {
-        crate::nav::prepare_rename(program, analysis, file, offset)
+        crate::ide::nav::prepare_rename(program, analysis, file, offset)
     }
 
     fn rename(
@@ -358,7 +358,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         offset: line_index::TextSize,
         new_name: &str,
     ) -> Result<Vec<(NavTarget, String)>, RenameError> {
-        crate::nav::rename(program, analysis, file, offset, new_name)
+        crate::ide::nav::rename(program, analysis, file, offset, new_name)
     }
 
     fn complete(
@@ -367,7 +367,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Vec<Completion> {
-        crate::complete::complete(program, analysis, file, offset)
+        crate::ide::complete::complete(program, analysis, file, offset)
     }
 
     fn references(
@@ -377,7 +377,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         offset: line_index::TextSize,
         declaration: bool,
     ) -> Vec<NavTarget> {
-        crate::nav::references(program, analysis, file, offset, declaration)
+        crate::ide::nav::references(program, analysis, file, offset, declaration)
     }
 
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<TypedProgram> {
@@ -399,7 +399,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         // Placement of `@internal` (E2206) and references from outside core (E2205).
         test_diagnostics.extend(check_internal(analysis, &hir, |m| self.parse_of(m)));
         // Placement and arguments of `@key` and `@tag` (E3310), and repeated keys and tags (E3309).
-        test_diagnostics.extend(crate::attributes::check_key_tag(analysis, |m| {
+        test_diagnostics.extend(crate::check::attributes::check_key_tag(analysis, |m| {
             self.parse_of(m)
         }));
         test_diagnostics.extend(check_external_in_dependencies(analysis, |m| {
@@ -437,7 +437,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
                     self.parse_of(s.module)
                         .is_some_and(|parse| last_lambda_after_or_line(parse, s.range))
                 });
-                if at_or_line && out.code == Some(crate::code::TYPE_MISMATCH) {
+                if at_or_line && out.code == Some(crate::diagnostic::code::TYPE_MISMATCH) {
                     return out.with_help(emela_syntax::rewrite::OR_AT_LINE_START_HELP);
                 }
                 if let (emela_types::DiagnosticKind::MatchOnLogical(m), Some(rhs)) =
@@ -451,7 +451,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
                 out
             })
             .chain(test_diagnostics)
-            .chain(crate::actions::incomplete_impl_diagnostics(
+            .chain(crate::ide::actions::incomplete_impl_diagnostics(
                 &hir,
                 analysis,
                 |m| self.parse_of(m),
@@ -725,7 +725,10 @@ fn drop_bound_item_helps(
     for d in diagnostics {
         let suggests = matches!(
             d.code,
-            Some(crate::code::DEPRECATED_USE | crate::code::EFFECT_ALIAS_MISUSE)
+            Some(
+                crate::diagnostic::code::DEPRECATED_USE
+                    | crate::diagnostic::code::EFFECT_ALIAS_MISUSE
+            )
         );
         if suggests && matches!(&d.location, Some(Location::Span(s)) if redirects.contains(s)) {
             d.notes.retain(|n| {

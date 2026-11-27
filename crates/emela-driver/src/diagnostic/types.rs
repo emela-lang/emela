@@ -9,7 +9,7 @@ use la_arena::ArenaMap;
 use smol_str::SmolStr;
 
 use super::{Diagnostic, Severity, Span};
-use crate::code;
+use crate::diagnostic::code;
 use crate::source::FileId;
 use crate::target::Target;
 
