@@ -1,6 +1,0 @@
----
-source: crates/emela-types/tests/effects.rs
-expression: "render_effects(r#\"\neffect Marker {}\n\neffect Console {\n  fn print(text: String) -> ()\n}\n\neffect Audit of Console\n\"#)"
----
-`Marker` EffectWithoutOps { effect: "Marker" }
---- R

@@ -1,0 +1,54 @@
+---
+source: crates/emela-types/tests/handlers/generic.rs
+expression: "repo(r#\"\neffect Hits of State[Int]\n\neffect Names of State[List[String]]\n\nfn hits() -> Int uses { Hits } { (use Hits).get() }\n\nfn names() -> List[String] uses { Names } { (use Names).get() }\n\nfn from_label() { State.run(0, || with Hits by Pass { hits() }) }\n\nfn written() { with Hits by Constant[Int](value: 0) { hits() } }\n\nfn from_init() { with Names by Constant(value: [\"a\"]) { names() } }\n\"#)"
+---
+hits: fn() -> Int uses { Hits }
+names: fn() -> List[String] uses { Names }
+from_label: fn() -> (Int, Int)
+written: fn() -> Int
+from_init: fn() -> List[String]
+handler InMemoryRepo: use State[List[('0, '1)]]
+handler Constant: use {}
+handler Pass: use State['0]
+item Hits by Pass: [Int]
+item Hits by Constant[Int](value: 0): [Int]
+item Names by Constant(value: ["a"]): [List[String]]
+`Eq` UnusedDerive { trait_name: "Eq", ty: "UserId" }
+--- R
+{     st <- State[List[(K, V)]]     List.find(st.get(), |(k, _)| k == key) |> Option.map(|(_, v)| v)   }: State[List[('0, '1)]]
+List.find(st.get(), |(k, _)| k == key) |> Option.map(|(_, v)| v): State[List[('0, '1)]]
+List.find(st.get(), |(k, _)| k == key): State[List[('0, '1)]]
+st.get(): State[List[('0, '1)]]
+st.get: State[List[('0, '1)]]
+st: State[List[('0, '1)]]
+{     st <- State[List[(K, V)]]     st.update(|xs| [(key, value), ..xs])   }: State[List[('0, '1)]]
+st.update(|xs| [(key, value), ..xs]): State[List[('0, '1)]]
+st.update: State[List[('0, '1)]]
+st: State[List[('0, '1)]]
+{ (use State[S]).get() }: State['0]
+(use State[S]).get(): State['0]
+(use State[S]).get: State['0]
+use State[S]: State['0]
+{ (use State[S]).set(value) }: State['0]
+(use State[S]).set(value): State['0]
+(use State[S]).set: State['0]
+use State[S]: State['0]
+{ (use State[S]).update(f) }: State['0]
+(use State[S]).update(f): State['0]
+(use State[S]).update: State['0]
+use State[S]: State['0]
+{ (use Hits).get() }: Hits
+(use Hits).get(): Hits
+(use Hits).get: Hits
+use Hits: Hits
+{ (use Names).get() }: Names
+(use Names).get(): Names
+(use Names).get: Names
+use Names: Names
+with Hits by Pass { hits() }: State[Int]
+{ hits() }: Hits
+hits(): Hits
+{ hits() }: Hits
+hits(): Hits
+{ names() }: Names
+names(): Names

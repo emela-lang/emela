@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/handlers/member.rs
+expression: "run(r#\"\nhandler TracedFiles: Files {\n  handler Open(inner: use ReadFile): ReadFile {\n    init(path: String) { Self(inner: Files.Open(path)) }\n    fn read(max) {\n      (use Console).print_line(\"read\")\n      self.inner.read(max)\n    }\n  }\n}\n\nhandler Opener(f: use ReadFile): Console {\n  init {\n    fs = use Files\n    Self(f: fs.Open(\"a\"))\n  }\n  fn print_line(s) { () }\n}\n\nfn traced() -> Int fails Missing uses { Files, Console } {\n  with TracedFiles {\n    with f = Files.Open(\"a\") { f.read(1) }\n  }\n}\n\nfn opener() -> () fails Missing uses { Files } {\n  with Opener { (use Console).print_line(\"x\") }\n}\n\"#)"
+---
+traced: fn() -> Int fails Missing uses { Files, Console }
+  f: use ReadFile
+opener: fn() -> () fails Missing uses { Files }

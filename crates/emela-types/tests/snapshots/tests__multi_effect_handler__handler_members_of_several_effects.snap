@@ -1,9 +1,0 @@
----
-source: crates/emela-types/tests/multi_effect_handler.rs
-expression: "run(r#\"\neffect Files {\n  handler Lock(path: String): Query + Execute\n}\n\nhandler MemFiles: Files {\n  handler Lock(path: String): Execute + Query {\n    init(path: String) { Self(path:) }\n    fn query(sql) { 0 }\n    fn execute(sql) { () }\n  }\n}\n\nhandler BadFiles: Files {\n  handler Lock(path: String): Query {\n    init(path: String) { Self(path:) }\n    fn query(sql) { 0 }\n  }\n}\n\nfn read_only(q: use Query) -> Int { q.query(\"a\") }\n\nfn locked() -> Int {\n  with MemFiles, l = Files.Lock(\"a\") {\n    l.execute(\"b\")\n    read_only(l)\n  }\n}\n\"#)"
----
-read_only: fn(use Query) -> Int uses { q }
-  q: use Query
-locked: fn() -> Int
-  l: use Query + Execute
-`Lock` InnerHandlerMismatch { handler: "Lock", member: "Lock", effect: "Files", reason: Effect { expected: "Query + Execute", found: "Query" } }

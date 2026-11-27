@@ -1,0 +1,11 @@
+---
+source: crates/emela-types/tests/handlers/builtin.rs
+expression: "render(r#\"\neffect Counter {\n  fn next() -> Int\n}\n\nhandler Counter: Counter {\n  fn next() { 1 }\n}\n\neffect Gauge {\n  fn read() -> Int\n}\n\n@intrinsic\nhandler Gauge: Gauge\n\"#)"
+---
+handler Counter: use {}
+handler Gauge: use {}
+resolve: duplicate `Counter`
+resolve: `@intrinsic` can only be used in the bundled core sources
+resolve: duplicate `Gauge`
+`Gauge` MissingHandlerOps { handler: "Gauge", ops: ["read"], members: [] }
+--- R
