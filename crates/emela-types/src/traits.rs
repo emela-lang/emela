@@ -13,12 +13,11 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::infer::substitute;
-use crate::lower::TyTable;
+use crate::lower::{TyTable, with_traits};
 use crate::row::{Row, RowElem};
-use crate::scheme::Scheme;
-use crate::signature::{Signature, Signatures, param_labels, with_traits};
-use crate::ty::{ParamKind, Prim, Ty, TyParam};
+use crate::scheme::{Scheme, substitute};
+use crate::signature::{Signature, Signatures, param_labels};
+use crate::ty::{CAPABILITY, ParamKind, Prim, Ty, TyParam};
 
 /// The traits of the Prelude (spec 10.6) whose implementations for the primitive types and tuples
 /// the compiler provides (see [`Traits::satisfies`]).
@@ -28,9 +27,6 @@ const BUILTIN_TRAITS: &[&str] = &["Eq", "Ord", "Show"];
 /// (`[trait.builtin]`, E3312). Immediate is a constraint on effect sets (spec 9.5); Capability is
 /// satisfied by capability types ([`is_capability_type`]).
 const AUTO_TRAITS: &[&str] = &["Immediate", "Capability"];
-
-/// The name of the built-in trait Capability (`[trait.builtin]`).
-pub(crate) const CAPABILITY: &str = "Capability";
 
 /// Whether `trait_def` is one of the Prelude's [`AUTO_TRAITS`].
 fn is_auto_trait(program: &Program, trait_def: DefId) -> bool {

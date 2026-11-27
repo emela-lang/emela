@@ -19,7 +19,9 @@ mod infer;
 mod layer;
 mod lower;
 mod methods;
+mod program_types;
 mod row;
+mod scc;
 mod scheme;
 mod scopes;
 mod signature;
@@ -31,7 +33,7 @@ mod unused_type_params;
 #[cfg(test)]
 mod tests;
 
-pub use check::{CheckOptions, ProgramTypes, body_refs, check_program, check_program_with};
+pub use check::{CheckOptions, body_refs, check_program, check_program_with};
 pub use diagnostic::{
     BoundItem, Diagnostic, DiagnosticKind, EffectContext, HandlerArgsReason, ImmediateSource,
     InnerHandlerMismatch, LabelBaseReason, LayerArg, LeakFrom, SuspendingCall,
@@ -46,11 +48,12 @@ pub use exhaustiveness::{
 pub use export::{
     HostExports, add_entry_exports, host_exports, is_entry_adapter, is_http_serve, is_http_service,
 };
-pub use infer::{InferCtx, substitute_bound};
+pub use infer::InferCtx;
 pub use layer::{ArgsSource, LayerInfo, MemberProvider, Supplier, WithBind, WithInfo};
 pub use lower::{TyTable, is_immediate_effect};
 pub use methods::methods_of;
-pub use scheme::Scheme;
+pub use program_types::ProgramTypes;
+pub use scheme::{Scheme, substitute_bound};
 pub use signature::{InitParams, Signature, Signatures};
 pub use traits::{ImplHead, Traits, Unsatisfied, derivable, head_def, is_capability_type};
 pub use ty::{

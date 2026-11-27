@@ -7,22 +7,21 @@
 
 use emela_resolve::hir::{
     DefId, DefKind, DefModule, EffectItem, Fields, FnItem, FnSig, HandlerItem, Item, LabelOf,
-    LocalKind, MemberItem, Param, Program, Res, Span, TypeId, TypeKind, TypeParam,
+    LocalKind, MemberItem, Param, Program, Res, Span, TypeId, TypeKind,
 };
 use la_arena::ArenaMap;
 use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, LabelBaseReason};
 use crate::lower::{
-    FieldCaps, Hidden, IMMEDIATE, Omitted, Scope, TyTable, classify_fn_sets, classify_params,
-    classify_sets, effect_op_types, effect_params, has_omitted_fails, has_omitted_uses,
-    immediate_bounds, is_immediate_effect, is_intrinsic_effect, prelude_bounds, ty_params,
-    type_param_defs,
+    FieldCaps, Hidden, Omitted, Scope, TyTable, classify_fn_sets, classify_params, classify_sets,
+    effect_op_types, effect_params, has_omitted_fails, has_omitted_uses, immediate_bounds,
+    is_immediate_effect, is_intrinsic_effect, prelude_bounds, ty_params, type_param_defs,
+    with_traits,
 };
 use crate::row::{Row, RowElem, SetKind, Tag};
 use crate::scheme::Scheme;
-use crate::traits::CAPABILITY;
-use crate::ty::{ParamKind, Ty, TyParam};
+use crate::ty::{CAPABILITY, IMMEDIATE, ParamKind, Ty, TyParam};
 
 pub struct Signature {
     pub scheme: Scheme,
@@ -1541,21 +1540,6 @@ pub(crate) fn param_ty(
                 },
             });
             Ty::Error
-        }
-    }
-}
-
-/// Adds the trait constraints written on an ordinary type parameter (`A: Ord + Show`). Immediate
-/// is not a trait here; on an ordinary type parameter it is E4304 ([`check_bounds`]).
-pub(crate) fn with_traits(program: &Program, param: &mut TyParam, tp: &TypeParam) {
-    for &(res, _) in &tp.bounds {
-        if let Res::Def(t) = res
-            && program.defs[t].kind == DefKind::Trait
-            && program.prelude_def(IMMEDIATE) != Some(t)
-            && !param.traits.contains(&t)
-        {
-            param.traits.push(t);
-            param.bounds.push(program.defs[t].name.clone());
         }
     }
 }

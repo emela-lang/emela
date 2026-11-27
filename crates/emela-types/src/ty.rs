@@ -114,6 +114,12 @@ pub enum ParamKind {
     Set,
 }
 
+/// The name of the built-in Immediate bound (spec 9.5).
+pub(crate) const IMMEDIATE: &str = "Immediate";
+
+/// The name of the built-in trait Capability (`[trait.builtin]`).
+pub(crate) const CAPABILITY: &str = "Capability";
+
 /// A type parameter and its constraints (`A: Ord + Show`).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TyParam {
