@@ -10,9 +10,9 @@ use crate::ir::{
 /// Copies sequences of `src` into another function. A variable or label is given a new ID the
 /// first time it is seen; pre-seed [`Copier::vars`] to substitute variables.
 pub(crate) struct Copier<'a> {
-    pub src: &'a Function,
-    pub vars: FxHashMap<VarId, VarId>,
-    pub labels: FxHashMap<LabelId, LabelId>,
+    src: &'a Function,
+    vars: FxHashMap<VarId, VarId>,
+    labels: FxHashMap<LabelId, LabelId>,
 }
 
 impl<'a> Copier<'a> {
@@ -35,6 +35,19 @@ impl<'a> Copier<'a> {
     pub fn fresh(&mut self, out: &mut Function, v: VarId) -> VarId {
         let n = out.vars.alloc(self.src.vars[v].clone());
         self.vars.insert(v, n);
+        n
+    }
+
+    /// Records `to`, a variable of the output, as the copy of `from`.
+    pub fn rename(&mut self, from: VarId, to: VarId) {
+        self.vars.insert(from, to);
+    }
+
+    /// A new label in `out` like `l`, recorded as its copy (for a block), even if `l` was copied
+    /// before.
+    pub fn fresh_label(&mut self, out: &mut Function, l: LabelId) -> LabelId {
+        let n = out.labels.alloc(self.src.labels[l].clone());
+        self.labels.insert(l, n);
         n
     }
 
@@ -168,11 +181,7 @@ impl<'a> Copier<'a> {
             }
             Stmt::Block { dst, label, body } => {
                 // A new label, so that a sequence can be copied twice into one function.
-                let label = {
-                    let n = out.labels.alloc(src.labels[*label].clone());
-                    self.labels.insert(*label, n);
-                    n
-                };
+                let label = self.fresh_label(out, *label);
                 let body = self.seq(out, *body);
                 Stmt::Block {
                     dst: dst.map(|d| self.fresh(out, d)),

@@ -25,30 +25,7 @@ use crate::repr::Repr;
 /// Builds a generated function declared by `Shared::derived`.
 pub(super) fn build(sh: &mut Shared, kind: Derive, ty: TypeId, name: &str) -> Function {
     let mut l = Lower::new(sh, name);
-    match kind {
-        Derive::Show => {
-            l.f.ret = TypeId::STRING;
-            let x = l.param("x", ty);
-            l.show_body(ty, x);
-        }
-        Derive::Eq => {
-            l.f.ret = TypeId::BOOL;
-            let a = l.param("a", ty);
-            let b = l.param("b", ty);
-            l.eq_body(ty, a, b);
-        }
-        Derive::ErrorName => {
-            l.f.ret = TypeId::STRING;
-            l.param("x", ty);
-            let Type::Enum(id, _) = l.ty(ty) else {
-                unreachable!("name functions are made for error enums")
-            };
-            // The constructor's name, unqualified like the one `show$E` writes. An error has one
-            // constructor.
-            let name = l.sh.core.enums[*id].variants[0].name.clone();
-            l.term(Term::Return(Some(string(&name))));
-        }
-    }
+    l.derived_body(kind, ty);
     l.finish()
 }
 
@@ -61,6 +38,34 @@ fn bool_(b: bool) -> Operand {
 }
 
 impl Lower<'_> {
+    /// The parameters, the return type and the body of the generated function `kind` for `ty`.
+    fn derived_body(&mut self, kind: Derive, ty: TypeId) {
+        match kind {
+            Derive::Show => {
+                self.f.ret = TypeId::STRING;
+                let x = self.param("x", ty);
+                self.show_body(ty, x);
+            }
+            Derive::Eq => {
+                self.f.ret = TypeId::BOOL;
+                let a = self.param("a", ty);
+                let b = self.param("b", ty);
+                self.eq_body(ty, a, b);
+            }
+            Derive::ErrorName => {
+                self.f.ret = TypeId::STRING;
+                self.param("x", ty);
+                let Type::Enum(id, _) = self.ty(ty) else {
+                    unreachable!("name functions are made for error enums")
+                };
+                // The constructor's name, unqualified like the one `show$E` writes. An error has
+                // one constructor.
+                let name = self.sh.core.enums[*id].variants[0].name.clone();
+                self.term(Term::Return(Some(string(&name))));
+            }
+        }
+    }
+
     /// The string showing `op` (of type `ty`; `None` without representation).
     pub(super) fn show(&mut self, ty: TypeId, op: Option<Operand>) -> Operand {
         let Some(x) = op else {

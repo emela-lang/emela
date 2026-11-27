@@ -548,7 +548,7 @@ fn clone(m: &mut Module, candidate: &Candidate) -> FnId {
             ty,
         });
         params.push(param);
-        copier.vars.insert(read, param);
+        copier.rename(read, param);
     }
     for &param in &src.params[1..] {
         params.push(copier.fresh(&mut out, param));

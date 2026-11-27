@@ -47,6 +47,16 @@ impl Uses {
             self.use_(*v);
         }
     }
+
+    fn define(&mut self, vs: impl IntoIterator<Item = VarId>) {
+        self.defined.extend(vs);
+    }
+
+    /// The variables used but not defined, in first-use order: the captures of a closure body.
+    fn free(self) -> Vec<VarId> {
+        let Uses { defined, used, .. } = self;
+        used.into_iter().filter(|v| !defined.contains(v)).collect()
+    }
 }
 
 fn seq(f: &Function, id: SeqId, uses: &mut Uses, found: &mut Vec<(StmtId, Vec<VarId>)>) {
@@ -56,13 +66,9 @@ fn seq(f: &Function, id: SeqId, uses: &mut Uses, found: &mut Vec<(StmtId, Vec<Va
             Stmt::Let { dst, value, .. } => {
                 if let Value::Closure(c) = value {
                     let mut inner = Uses::default();
-                    inner.defined.extend(c.params.iter().copied());
+                    inner.define(c.params.iter().copied());
                     seq(f, c.body, &mut inner, found);
-                    let captures: Vec<VarId> = inner
-                        .used
-                        .into_iter()
-                        .filter(|v| !inner.defined.contains(v))
-                        .collect();
+                    let captures = inner.free();
                     for &v in &captures {
                         uses.use_(v);
                     }
@@ -70,7 +76,7 @@ fn seq(f: &Function, id: SeqId, uses: &mut Uses, found: &mut Vec<(StmtId, Vec<Va
                 } else {
                     value.for_each_var(|v| uses.use_(v));
                 }
-                uses.defined.extend(*dst);
+                uses.define(*dst);
             }
             Stmt::If {
                 dst,
@@ -81,7 +87,7 @@ fn seq(f: &Function, id: SeqId, uses: &mut Uses, found: &mut Vec<(StmtId, Vec<Va
                 uses.operand(cond);
                 seq(f, *then, uses, found);
                 seq(f, *else_, uses, found);
-                uses.defined.extend(*dst);
+                uses.define(*dst);
             }
             Stmt::Switch {
                 dst,
@@ -97,7 +103,7 @@ fn seq(f: &Function, id: SeqId, uses: &mut Uses, found: &mut Vec<(StmtId, Vec<Va
                 if let Some(d) = default {
                     seq(f, *d, uses, found);
                 }
-                uses.defined.extend(*dst);
+                uses.define(*dst);
             }
             Stmt::Loop {
                 dst,
@@ -106,19 +112,19 @@ fn seq(f: &Function, id: SeqId, uses: &mut Uses, found: &mut Vec<(StmtId, Vec<Va
                 body,
             } => {
                 inits.iter().for_each(|o| uses.operand(o));
-                uses.defined.extend(vars.iter().copied());
+                uses.define(vars.iter().copied());
                 seq(f, *body, uses, found);
-                uses.defined.extend(*dst);
+                uses.define(*dst);
             }
             Stmt::Block { dst, body, .. } => {
                 seq(f, *body, uses, found);
-                uses.defined.extend(*dst);
+                uses.define(*dst);
             }
             Stmt::Dup(v) | Stmt::Drop(v) => uses.use_(*v),
             Stmt::Protect { dst, body, cleanup } => {
                 seq(f, *body, uses, found);
                 seq(f, *cleanup, uses, found);
-                uses.defined.extend(*dst);
+                uses.define(*dst);
             }
         }
     }
