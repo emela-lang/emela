@@ -2,10 +2,9 @@
 //! `Std.Process` (`[api.std.process]`), whose value chooses the exit code of the program. Any other
 //! type, other than Never, is W3001: the value is discarded.
 
-use emela_resolve::hir::{DefModule, Item, Program};
+use emela_resolve::hir::{DefId, DefModule, Item, Program};
 use smol_str::SmolStr;
 
-use crate::check::CheckOptions;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::lower::TyTable;
 use crate::signature::Signatures;
@@ -24,17 +23,17 @@ pub fn is_exit_code(program: &Program, table: &TyTable, ty: &Ty) -> bool {
             if program.modules.get(m).is_some_and(|items| items.name.segments() == ["Std", "Process"]))
 }
 
-/// Reports W3001 for the entry's `main` ([`CheckOptions::main`]) when it returns a type other than
-/// `()`, `ExitCode` and Never. Decided from the return type fixed by inference, whether written or
-/// inferred.
+/// Reports W3001 for `main`, the entry's `main` (`CheckOptions::main`), when it returns a type
+/// other than `()`, `ExitCode` and Never. Decided from the return type fixed by inference, whether
+/// written or inferred.
 pub(crate) fn check(
     program: &Program,
     table: &TyTable,
     sigs: &Signatures,
-    options: &CheckOptions,
+    main: Option<DefId>,
     diags: &mut Vec<Diagnostic>,
 ) {
-    let Some(main) = options.main else {
+    let Some(main) = main else {
         return;
     };
     let Some(Ty::Fn(f)) = sigs.get(main).map(|sig| &sig.scheme.ty) else {

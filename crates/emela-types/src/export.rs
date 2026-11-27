@@ -17,7 +17,6 @@ use emela_resolve::hir::{
 use rowan::TextRange;
 use smol_str::SmolStr;
 
-use crate::check::CheckOptions;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::lower::TyTable;
 use crate::row::RowElem;
@@ -354,7 +353,8 @@ pub(crate) fn check(
     program: &Program,
     ty_table: &TyTable,
     sigs: &Signatures,
-    options: &CheckOptions,
+    entry: Option<ModuleId>,
+    main: Option<DefId>,
     diags: &mut Vec<Diagnostic>,
 ) {
     for (def, item) in program.items.iter() {
@@ -421,35 +421,36 @@ pub(crate) fn check(
             });
         }
     }
-    reserved_js_names(program, sigs, options, diags);
+    reserved_js_names(program, sigs, entry, main, diags);
 }
 
 /// The names `main.mjs` already exports (`[target.js.module]`) and a two-argument
-/// `@export(js, "name")` may not take: `main` when the entry has a `main` ([`CheckOptions::main`],
-/// which excludes tests), and `$start` when the entry's `main` or a fn with an `@export(js, ...)`
-/// may suspend. The `$start` of a fn with several exports is emitted only for a `js` export, and
-/// tests are not in the output of a build. An export with one of these names is a duplicate of the
-/// launcher's export (E5103).
+/// `@export(js, "name")` may not take: `main` when the entry has a `main` (`main`, which excludes
+/// tests), and `$start` when the entry's `main` or a fn with an `@export(js, ...)` may suspend.
+/// The `$start` of a fn with several exports is emitted only for a `js` export, and tests are not
+/// in the output of a build. An export with one of these names is a duplicate of the launcher's
+/// export (E5103).
 ///
 /// Reported once per name, at the first such export in source order (at the `@entry` for an export
 /// it makes). Later exports of the same name are [`duplicates`]' diagnostics.
 fn reserved_js_names(
     program: &Program,
     sigs: &Signatures,
-    options: &CheckOptions,
+    entry: Option<ModuleId>,
+    main: Option<DefId>,
     diags: &mut Vec<Diagnostic>,
 ) {
-    let Some(entry) = options.entry else {
+    let Some(entry) = entry else {
         return;
     };
     let suspended = |def: DefId| sigs.get(def).is_some_and(|sig| may_suspend(program, sig));
     let exposed = host_exports(program, Some(entry));
-    let start = options.main.is_some_and(suspended)
+    let start = main.is_some_and(suspended)
         || exposed
             .iter()
             .any(|e| e.exports.iter().any(|x| x.target == "js") && suspended(e.def));
     for name in ["main", "$start"] {
-        if (name == "main" && options.main.is_none()) || (name == "$start" && !start) {
+        if (name == "main" && main.is_none()) || (name == "$start" && !start) {
             continue;
         }
         let spans: Vec<Span> = exposed
