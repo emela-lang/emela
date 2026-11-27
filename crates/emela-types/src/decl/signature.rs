@@ -13,10 +13,9 @@ use la_arena::ArenaMap;
 use smol_str::SmolStr;
 
 use crate::decl::lower::{
-    FieldCaps, Hidden, Omitted, Scope, TyTable, classify_fn_sets, classify_params, classify_sets,
-    effect_op_types, effect_params, has_omitted_fails, has_omitted_uses, immediate_bounds,
-    is_immediate_effect, is_intrinsic_effect, prelude_bounds, ty_params, type_param_defs,
-    with_traits,
+    FieldCaps, Hidden, Omitted, Scope, TyTable, effect_op_types, effect_params, has_omitted_fails,
+    has_omitted_uses, immediate_bounds, is_immediate_effect, is_intrinsic_effect, prelude_bounds,
+    ty_params, type_param_defs, with_traits,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, LabelBaseReason};
 use crate::ty::{
@@ -574,13 +573,7 @@ fn check_bounds(
     let capability = program.prelude_def(CAPABILITY);
     let mut constrained = Vec::new();
     let defs: Vec<DefId> = sig.type_params.iter().map(|tp| tp.def).collect();
-    let sets = classify_fn_sets(
-        program,
-        ty_table.decl_sets(),
-        &defs,
-        types.iter().copied(),
-        sig.uses.as_ref(),
-    );
+    let sets = ty_table.classify_fn_sets(program, &defs, types.iter().copied(), sig.uses.as_ref());
     for (i, tp) in sig.type_params.iter().enumerate() {
         let in_uses = sets[i] == Some(SetKind::Effects)
             || sig
@@ -757,7 +750,7 @@ fn op_signature(
     // as a set here so errors do not cascade. The set type parameters of a built-in effect
     // (`TaskGroup[E, R]`) are decided with the whole declaration (`decl_sets`).
     let types = sig.params.iter().filter_map(|p| p.ty).chain(sig.ret);
-    let mut kinds = classify_params(program, ty_table.decl_sets(), &defs, types);
+    let mut kinds = ty_table.classify_params(program, &defs, types);
     if let Some(e) = effect {
         for (i, kind) in kinds.iter_mut().enumerate().take(effect_defs.len()) {
             if ty_table.set_kind(e, i).is_some() {
@@ -1128,7 +1121,7 @@ fn check_effect_params(
     }
     let defs: Vec<DefId> = params.iter().map(|tp| tp.def).collect();
     let types = effect_op_types(program, effect);
-    let sets = classify_sets(program, ty_table.decl_sets(), &defs, types);
+    let sets = ty_table.classify_sets(program, &defs, types);
     for (tp, set) in params.iter().zip(sets) {
         if set.is_some() {
             diags.push(Diagnostic {
@@ -1181,7 +1174,7 @@ fn check_handler_params(
         .chain(item.fields.iter().map(|f| f.ty))
         .chain(item.init_params.iter().filter_map(|p| p.ty))
         .collect();
-    let marks = crate::decl::lower::mark_all(program, ty_table.decl_sets(), &defs, types);
+    let marks = ty_table.mark_all(program, &defs, types);
     for (tp, (in_type, in_set)) in item.type_params.iter().zip(marks) {
         let param = program.defs[tp.def].name.clone();
         let kind = if in_type {
@@ -1241,19 +1234,14 @@ impl FnParams {
         let own: Vec<DefId> = sig.type_params.iter().map(|tp| tp.def).collect();
         let defs: Vec<DefId> = trait_def.into_iter().chain(own.iter().copied()).collect();
         let types = sig.params.iter().filter_map(|p| p.ty).chain(sig.ret);
-        let kinds = classify_fn_sets(
-            program,
-            ty_table.decl_sets(),
-            &defs,
-            types,
-            sig.uses.as_ref(),
-        )
-        .into_iter()
-        .map(|set| match set {
-            Some(_) => ParamKind::Set,
-            None => ParamKind::Type,
-        })
-        .collect::<Vec<_>>();
+        let kinds = ty_table
+            .classify_fn_sets(program, &defs, types, sig.uses.as_ref())
+            .into_iter()
+            .map(|set| match set {
+                Some(_) => ParamKind::Set,
+                None => ParamKind::Type,
+            })
+            .collect::<Vec<_>>();
         // `classify_fn_sets` sees `Self` as an ordinary type parameter.
         let kinds: Vec<ParamKind> = match trait_def {
             Some(_) => std::iter::once(ParamKind::Type)
@@ -1285,8 +1273,7 @@ impl FnParams {
             .into_iter()
             .chain(own_params)
             .collect();
-        let mut hidden = Hidden::new(defs.len());
-        hidden.immediate = item.is_external;
+        let hidden = Hidden::new(defs.len(), item.is_external);
         FnParams {
             defs,
             kinds,
@@ -1311,10 +1298,7 @@ impl FnParams {
     /// The scope of the result type: a capability type there takes its set from the parameters
     /// (`[type.rules]`).
     pub(crate) fn result_scope<'a>(&'a self, omitted: Omitted<'a>) -> Scope<'a> {
-        Scope {
-            result_caps: Some(&self.hidden.caps),
-            ..self.scope(omitted)
-        }
+        self.hidden.result_scope(self.scope(omitted))
     }
 
     /// Function types with `fails` omitted get an invisible set type parameter. Parameters
@@ -1368,7 +1352,7 @@ impl FnParams {
             Some(set) => ty_table.lower_error_set(program, &self.scope(Omitted::Empty), set, diags),
             None => Row::empty(),
         };
-        written.union(&self.hidden.positive)
+        self.hidden.declared_fails(written)
     }
 
     /// The declared R: the written `uses` clause united with the invisible effect sets in positive
@@ -1389,16 +1373,12 @@ impl FnParams {
             }
             None => Row::empty(),
         };
-        written.union(&self.hidden.positive_uses)
+        self.hidden.declared_uses(written)
     }
 
     /// The written type parameters followed by the invisible set type parameters.
     pub(crate) fn all_params(&self) -> Vec<TyParam> {
-        self.declared
-            .iter()
-            .chain(&self.hidden.params)
-            .cloned()
-            .collect()
+        self.hidden.all_params(&self.declared)
     }
 }
 
