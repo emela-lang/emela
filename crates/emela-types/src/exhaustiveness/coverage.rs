@@ -11,13 +11,12 @@ use emela_resolve::hir::{
 };
 use smol_str::SmolStr;
 
+use crate::decl::lower::TyTable;
+use crate::decl::signature::Signatures;
 use crate::exhaustiveness::{
     self, CtorTable, Lit, MatchCheck, Pat, TyShape, VariantShape, check_match,
 };
-use crate::lower::TyTable;
-use crate::scheme::substitute_bound;
-use crate::signature::Signatures;
-use crate::ty::{Prim, Ty};
+use crate::ty::{Prim, Ty, substitute_bound};
 
 /// Types are passed with unification bindings followed.
 pub(crate) struct Shapes<'a> {

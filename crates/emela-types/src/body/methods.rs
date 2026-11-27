@@ -17,10 +17,10 @@ use smol_str::SmolStr;
 
 use super::{BodyInfer, FieldTy, fn_parts};
 use crate::FnTy;
+use crate::decl::methods::{candidate_traits, defining_module, erase_args, takes_self, trait_fns};
+use crate::decl::signature::param_labels;
+use crate::decl::traits::head_def;
 use crate::diagnostic::DiagnosticKind;
-use crate::methods::{candidate_traits, defining_module, erase_args, takes_self, trait_fns};
-use crate::signature::param_labels;
-use crate::traits::head_def;
 use crate::ty::Ty;
 
 /// What `x.f` stands for.

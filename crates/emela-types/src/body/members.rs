@@ -6,9 +6,7 @@ use smol_str::SmolStr;
 use super::{BodyInfer, FieldTy, cap_effects_name};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{Origin, SetKind};
-use crate::row::{CapElem, CapId, Row, RowElem, Tag};
-use crate::scheme::{substitute, substitute_bound};
-use crate::ty::Ty;
+use crate::ty::{CapElem, CapId, Row, RowElem, Tag, Ty, substitute, substitute_bound};
 
 impl BodyInfer<'_> {
     /// The type of a capability operation `log.info` (spec 8.2): the declared operation type with
@@ -266,7 +264,7 @@ impl BodyInfer<'_> {
                 Row::from_elems([RowElem::Cap(CapElem {
                     id: CapId::Item {
                         with,
-                        item: crate::row::OPENED_IN_INIT,
+                        item: crate::ty::OPENED_IN_INIT,
                     },
                     name,
                     tag,

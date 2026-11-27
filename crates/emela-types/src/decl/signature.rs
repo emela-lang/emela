@@ -12,16 +12,16 @@ use emela_resolve::hir::{
 use la_arena::ArenaMap;
 use smol_str::SmolStr;
 
-use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, LabelBaseReason};
-use crate::lower::{
+use crate::decl::lower::{
     FieldCaps, Hidden, Omitted, Scope, TyTable, classify_fn_sets, classify_params, classify_sets,
     effect_op_types, effect_params, has_omitted_fails, has_omitted_uses, immediate_bounds,
     is_immediate_effect, is_intrinsic_effect, prelude_bounds, ty_params, type_param_defs,
     with_traits,
 };
-use crate::row::{Row, RowElem, SetKind, Tag};
-use crate::scheme::Scheme;
-use crate::ty::{CAPABILITY, IMMEDIATE, ParamKind, Ty, TyParam};
+use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, LabelBaseReason};
+use crate::ty::{
+    CAPABILITY, IMMEDIATE, ParamKind, Row, RowElem, Scheme, SetKind, Tag, Ty, TyParam,
+};
 
 pub struct Signature {
     pub scheme: Scheme,
@@ -1181,7 +1181,7 @@ fn check_handler_params(
         .chain(item.fields.iter().map(|f| f.ty))
         .chain(item.init_params.iter().filter_map(|p| p.ty))
         .collect();
-    let marks = crate::lower::mark_all(program, ty_table.decl_sets(), &defs, types);
+    let marks = crate::decl::lower::mark_all(program, ty_table.decl_sets(), &defs, types);
     for (tp, (in_type, in_set)) in item.type_params.iter().zip(marks) {
         let param = program.defs[tp.def].name.clone();
         let kind = if in_type {

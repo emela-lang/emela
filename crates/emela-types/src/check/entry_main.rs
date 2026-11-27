@@ -5,9 +5,9 @@
 use emela_resolve::hir::{DefId, DefModule, Item, Program};
 use smol_str::SmolStr;
 
+use crate::decl::lower::TyTable;
+use crate::decl::signature::Signatures;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::lower::TyTable;
-use crate::signature::Signatures;
 use crate::ty::{Prim, Ty};
 
 /// Whether `ty` is `ExitCode` of the bundled `Std.Process`. `Std` cannot be the root name of a

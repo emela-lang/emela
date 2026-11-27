@@ -5,12 +5,10 @@ use emela_resolve::hir::{DefId, HandlerItem, Item, Param, Res};
 use smol_str::SmolStr;
 
 use super::{BodyInfer, HandlerBody, HandlerPart};
+use crate::decl::lower::is_intrinsic_effect;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::SetKind;
-use crate::lower::is_intrinsic_effect;
-use crate::row::{CapElem, CapId, Row, RowElem, Tag};
-use crate::scheme::{substitute, substitute_bound};
-use crate::ty::Ty;
+use crate::ty::{CapElem, CapId, Row, RowElem, Tag, Ty, substitute, substitute_bound};
 
 impl BodyInfer<'_> {
     /// Infers a handler's init, release and operation bodies (spec 8.4).
@@ -65,7 +63,7 @@ impl BodyInfer<'_> {
                 return;
             }
             // A handler of a label is E4003 (signatures); its operations are not looked up.
-            if crate::signature::is_label(program, effect) {
+            if crate::decl::signature::is_label(program, effect) {
                 return;
             }
             if !effects.contains(&effect) {

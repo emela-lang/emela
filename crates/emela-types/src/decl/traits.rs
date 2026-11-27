@@ -12,12 +12,10 @@ use la_arena::ArenaMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
+use crate::decl::lower::{TyTable, with_traits};
+use crate::decl::signature::{Signature, Signatures, param_labels};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::lower::{TyTable, with_traits};
-use crate::row::{Row, RowElem};
-use crate::scheme::{Scheme, substitute};
-use crate::signature::{Signature, Signatures, param_labels};
-use crate::ty::{CAPABILITY, ParamKind, Prim, Ty, TyParam};
+use crate::ty::{CAPABILITY, ParamKind, Prim, Row, RowElem, Scheme, Ty, TyParam, substitute};
 
 /// The traits of the Prelude (spec 10.6) whose implementations for the primitive types and tuples
 /// the compiler provides (see [`Traits::satisfies`]).

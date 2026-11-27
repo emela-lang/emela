@@ -7,9 +7,7 @@ use smol_str::SmolStr;
 use super::{BodyInfer, cap_effects_name, items, through_label};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{Origin, SetKind};
-use crate::row::{CapElem, CapId, Row, RowElem, Tag};
-use crate::scheme::{substitute, substitute_bound};
-use crate::ty::Ty;
+use crate::ty::{CapElem, CapId, Row, RowElem, Tag, Ty, substitute, substitute_bound};
 
 impl BodyInfer<'_> {
     /// The arguments of init written on the items of a `with` (`[effect.with]`). Every item's
@@ -28,7 +26,7 @@ impl BodyInfer<'_> {
         let insts: Vec<items::ItemInst> = items
             .iter()
             .map(|item| {
-                if crate::layer::is_member_item(program, item) {
+                if crate::decl::layer::is_member_item(program, item) {
                     return items::ItemInst::default();
                 }
                 // A label left of `by` takes no type arguments (E3101).
@@ -62,7 +60,7 @@ impl BodyInfer<'_> {
         }
         let insts_now = self.item_insts(expr, items);
         let entries =
-            crate::layer::with_entries(program, self.sigs, self.ty_table, items, &insts_now);
+            crate::decl::layer::with_entries(program, self.sigs, self.ty_table, items, &insts_now);
         let mut opened = Vec::new();
         let args = items
             .iter()
@@ -185,7 +183,7 @@ impl BodyInfer<'_> {
         }
         let insts_now = self.item_insts(expr, items);
         let entries =
-            crate::layer::with_entries(program, self.sigs, self.ty_table, items, &insts_now);
+            crate::decl::layer::with_entries(program, self.sigs, self.ty_table, items, &insts_now);
         self.check_item_overrides(expr, &entries);
         if !opened.is_empty() {
             self.with_members.insert(expr, opened);
@@ -314,7 +312,9 @@ impl BodyInfer<'_> {
             (None, Some(args)) => {
                 if let Res::Def(def) = target {
                     let kind = match program.defs[def].kind {
-                        DefKind::Effect if crate::signature::is_label(program, def) => "label",
+                        DefKind::Effect if crate::decl::signature::is_label(program, def) => {
+                            "label"
+                        }
                         kind => kind.describe(),
                     };
                     self.diags.push(Diagnostic {

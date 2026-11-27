@@ -4,12 +4,11 @@ use emela_resolve::hir::{ExprId, LocalFn, Param, Span};
 use smol_str::SmolStr;
 
 use super::{BodyInfer, LocalFnInfo};
+use crate::decl::lower::{Omitted, Scope};
+use crate::decl::signature::param_labels;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{Origin, SetKind};
-use crate::lower::{Omitted, Scope};
-use crate::row::{CapElem, CapId, Row, RowElem};
-use crate::signature::param_labels;
-use crate::ty::Ty;
+use crate::ty::{CapElem, CapId, Row, RowElem, Ty};
 
 impl BodyInfer<'_> {
     /// A local fn (`[fn.local]`), checked at its position in the block. Its name is bound to its

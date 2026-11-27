@@ -15,8 +15,10 @@ use smol_str::SmolStr;
 
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::InferCtx;
-use crate::row::{Row, RowElem, SetKind, Tag};
-use crate::ty::{IMMEDIATE, ParamKind, Ty, TyConData, TyConId, TyConKind, TyCons, TyParam};
+use crate::ty::{
+    IMMEDIATE, ParamKind, Row, RowElem, SetKind, Tag, Ty, TyConData, TyConId, TyConKind, TyCons,
+    TyParam,
+};
 
 /// What omitted `fails` and `uses` clauses on a function type mean, decided by where they are
 /// written (spec 9.2).
@@ -1859,8 +1861,8 @@ pub(crate) fn has_omitted_uses(program: &Program, ty: TypeId) -> bool {
 /// The element of the `i`-th capability set quantified at a function type, for a capability
 /// type of `effects` (`[type.rules]`).
 pub(crate) fn quant_elem(i: u32, effects: &[Tag]) -> RowElem {
-    RowElem::Cap(crate::row::CapElem {
-        id: crate::row::CapId::Quant(i),
+    RowElem::Cap(crate::ty::CapElem {
+        id: crate::ty::CapId::Quant(i),
         name: SmolStr::new("any"),
         tag: effects[0].clone(),
     })
@@ -1872,7 +1874,7 @@ fn collect_quant(ty: &Ty, out: &mut Vec<RowElem>) {
         Ty::Fn(_) => {}
         Ty::Cap(_, caps) | Ty::Set(SetKind::Caps, caps) => {
             for e in caps.elems() {
-                if matches!(e, RowElem::Cap(c) if matches!(c.id, crate::row::CapId::Quant(_)))
+                if matches!(e, RowElem::Cap(c) if matches!(c.id, crate::ty::CapId::Quant(_)))
                     && !out.contains(e)
                 {
                     out.push(e.clone());

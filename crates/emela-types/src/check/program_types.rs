@@ -1,15 +1,16 @@
-//! The result of type checking a program ([`crate::check_program`]).
+//! The result of type checking a program ([`crate::check_program`]), and the queries on it.
 
-use emela_resolve::hir::{DefId, ExprId, LocalId, PatId, Span};
+use emela_resolve::ModuleId;
+use emela_resolve::hir::{DefId, DefKind, ExprId, LocalId, PatId, Program, Span};
 use la_arena::ArenaMap;
 
+use crate::decl::layer::LayerInfo;
+use crate::decl::lower::TyTable;
+use crate::decl::methods::{candidate_traits, defining_module, erase_args, takes_self, trait_fns};
+use crate::decl::signature::Signatures;
+use crate::decl::traits::{Traits, head_def};
 use crate::diagnostic::Diagnostic;
-use crate::layer::LayerInfo;
-use crate::lower::TyTable;
-use crate::row::{Row, RowVar, Tag};
-use crate::signature::Signatures;
-use crate::traits::Traits;
-use crate::ty::{Ty, TyVar};
+use crate::ty::{Row, RowVar, Tag, Ty, TyParam, TyVar};
 
 /// Tables keyed by HIR ids.
 ///
@@ -98,7 +99,7 @@ pub struct ProgramTypes {
     /// `with` expressions → handlers in initialization order (spec 14.2). Layers are expanded, and
     /// for handlers of the same effect only the last one is kept (spec 8.3, 8.5). Release runs in
     /// reverse order.
-    pub with_handlers: ArenaMap<ExprId, crate::layer::WithInfo>,
+    pub with_handlers: ArenaMap<ExprId, crate::decl::layer::WithInfo>,
     /// Layer → its expansion (handlers in initialization order and the dependencies the layer
     /// leaves unmet).
     pub layers: ArenaMap<DefId, LayerInfo>,
@@ -125,4 +126,50 @@ pub struct ProgramTypes {
     /// Supertraits and impls (spec 10.1–10.2).
     pub traits: Traits,
     pub diags: Vec<Diagnostic>,
+}
+
+/// The functions that can be called as methods on a value of type `ty` from `module`, with any
+/// name, once the program is checked: the fns of the module of its head first, in declaration
+/// order, then the functions of the traits. Empty unless the head of `ty` is a named type
+/// (`[lsp.completion]`). `env` are the type parameters `Ty::Bound(i)` stands for.
+pub fn methods_of(
+    program: &Program,
+    types: &ProgramTypes,
+    module: ModuleId,
+    ty: &Ty,
+    env: &[TyParam],
+) -> Vec<DefId> {
+    let Some(head) = head_def(program, &types.ty_table, ty) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    if let Some(owner) = defining_module(program, head) {
+        for &def in &program.modules[owner].items {
+            let data = &program.defs[def];
+            let first = match types.sigs.get(def).map(|sig| &sig.scheme.ty) {
+                Some(Ty::Fn(f)) => f.params.first(),
+                _ => None,
+            };
+            if data.kind == DefKind::Fn
+                && (data.is_pub || owner == module)
+                && first.and_then(|t| head_def(program, &types.ty_table, t)) == Some(head)
+            {
+                found.push(def);
+            }
+        }
+    }
+    for t in candidate_traits(program, &types.traits, module, ty, env) {
+        if types
+            .traits
+            .satisfies(program, &types.ty_table, &erase_args(ty), t, env)
+            .is_ok()
+        {
+            found.extend(
+                trait_fns(program, t)
+                    .into_iter()
+                    .filter(|&f| takes_self(&types.sigs, f)),
+            );
+        }
+    }
+    found
 }

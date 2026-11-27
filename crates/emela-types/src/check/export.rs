@@ -17,11 +17,10 @@ use emela_resolve::hir::{
 use rowan::TextRange;
 use smol_str::SmolStr;
 
+use crate::decl::lower::TyTable;
+use crate::decl::signature::{Signature, Signatures};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::lower::TyTable;
-use crate::row::RowElem;
-use crate::signature::{Signature, Signatures};
-use crate::ty::{Prim, Ty};
+use crate::ty::{Prim, RowElem, Ty};
 
 /// Whether `def` is an entry adapter: an `@export` fn whose first parameter has a function type
 /// (`[ext.entry]`).

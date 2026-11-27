@@ -10,7 +10,7 @@
 use emela_resolve::hir::{DefId, DefModule, Item, Program, Res};
 use smol_str::SmolStr;
 
-use crate::lower::is_intrinsic_effect;
+use crate::decl::lower::is_intrinsic_effect;
 
 /// Facts about the built-in effects of a program.
 #[derive(Clone, Debug, Default)]

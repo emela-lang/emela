@@ -29,11 +29,10 @@ use emela_resolve::hir::{
 use smol_str::SmolStr;
 
 use super::{BodyInfer, ImmediateObligation};
+use crate::decl::lower::{TyTable, is_immediate_effect};
+use crate::decl::signature::Signatures;
 use crate::diagnostic::{Diagnostic, DiagnosticKind, ImmediateSource, SuspendingCall};
-use crate::lower::{TyTable, is_immediate_effect};
-use crate::row::{CapElem, Row, RowElem};
-use crate::signature::Signatures;
-use crate::ty::{IMMEDIATE, Ty, TyParam};
+use crate::ty::{CapElem, IMMEDIATE, Row, RowElem, Ty, TyParam};
 
 impl BodyInfer<'_> {
     /// A reference to `def` instantiated type parameters `params` with the sets `rows`. Records
@@ -145,7 +144,7 @@ impl BodyInfer<'_> {
             {
                 let mut caps: Vec<SmolStr> = Vec::new();
                 for c in row.caps() {
-                    if matches!(c.id, crate::row::CapId::Named { .. }) {
+                    if matches!(c.id, crate::ty::CapId::Named { .. }) {
                         continue;
                     }
                     if !caps.contains(&c.name) {
@@ -593,7 +592,7 @@ impl Walker<'_> {
             }
             ExprKind::With { handlers, body } => {
                 let insts = self.insts.of(expr, handlers);
-                let args = crate::layer::evaluated_args(
+                let args = crate::decl::layer::evaluated_args(
                     program,
                     self.sigs,
                     self.ty_table,
@@ -718,7 +717,7 @@ impl BodyInfer<'_> {
                 out.or(guards)
             }
             ExprKind::With { handlers, body } => {
-                for arg in crate::layer::evaluated_args(
+                for arg in crate::decl::layer::evaluated_args(
                     program,
                     self.sigs,
                     self.ty_table,

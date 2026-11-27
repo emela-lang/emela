@@ -11,8 +11,8 @@ use emela_resolve::hir::{
 };
 use rustc_hash::FxHashMap;
 
+use crate::check::scc::strongly_connected;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::scc::strongly_connected;
 
 pub(crate) fn check(program: &Program, diags: &mut Vec<Diagnostic>) {
     let consts: Vec<DefId> = program
@@ -140,7 +140,7 @@ fn eager_refs(program: &Program, expr: ExprId, out: &mut Vec<DefId>) {
         }
         ExprKind::With { handlers, body } => {
             for item in handlers {
-                crate::layer::item_args(item).for_each(|e| go(e, out));
+                crate::decl::layer::item_args(item).for_each(|e| go(e, out));
             }
             go(*body, out);
         }

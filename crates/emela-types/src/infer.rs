@@ -4,18 +4,22 @@
 //! collected as inclusion constraints ([`Subset`]). A function placed where a type is expected
 //! only needs its E and R to be contained in the expected E and R (spec 7.4, 9.2). The
 //! constraints are solved after the body is inferred (`body/errors.rs`).
+//!
+//! # Type errors
+//!
+//! Type mismatch reports ([`TypeError`]) carry no span yet; the caller attaches one when
+//! connecting to the syntax tree.
 
 use emela_resolve::hir::{DefId, ExprId, LocalId, Span};
 use ena::unify::InPlaceUnificationTable;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 
-use crate::error::{TypeError, TypeErrorKind};
-use crate::row::{Row, RowElem, RowVar, Tag};
-use crate::scheme::{Scheme, param_name, set_param_name, substitute};
-use crate::ty::{ParamKind, Prim, Ty, TyConId, TyParam, TyVar, TyVarValue};
-
-pub use crate::row::SetKind;
+pub use crate::ty::SetKind;
+use crate::ty::{
+    ParamKind, Prim, Row, RowElem, RowVar, Scheme, Tag, Ty, TyConId, TyParam, TyVar, TyVarValue,
+    param_name, set_param_name, substitute,
+};
 
 /// An inclusion constraint `sub ⊆ sup`.
 #[derive(Clone, Debug)]
@@ -365,7 +369,7 @@ impl InferCtx {
                     // As below, the set arguments of the effect of a capability are not
                     // followed.
                     Row::from_elems(row.elems().iter().map(|e| match e {
-                        RowElem::Cap(c) => RowElem::Cap(crate::row::CapElem {
+                        RowElem::Cap(c) => RowElem::Cap(crate::ty::CapElem {
                             tag: c.tag.map_args(|a| match a {
                                 Ty::Set(..) => a.clone(),
                                 a => self.resolve(a),
@@ -383,7 +387,7 @@ impl InferCtx {
             // The set arguments of the effect of a capability are not followed: the R of a task
             // that starts siblings holds the capability of its group, whose effect has that R as
             // an argument (`[task.group]`).
-            RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::row::CapElem {
+            RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::ty::CapElem {
                 tag: c.tag.map_args(|a| match a {
                     Ty::Set(..) => a.clone(),
                     a => self.resolve(a),
@@ -698,13 +702,13 @@ impl InferCtx {
                 if f.params.len() == g.params.len() && f.quantifies() != g.quantifies() =>
             {
                 let (expected, actual) = if f.quantifies() {
-                    let skolem = &mut |_: u32, c: &crate::row::CapElem| {
-                        let id = crate::row::CapId::Skolem(self.scopes.new_skolem());
-                        Row::from_elems([RowElem::Cap(crate::row::CapElem { id, ..c.clone() })])
+                    let skolem = &mut |_: u32, c: &crate::ty::CapElem| {
+                        let id = crate::ty::CapId::Skolem(self.scopes.new_skolem());
+                        Row::from_elems([RowElem::Cap(crate::ty::CapElem { id, ..c.clone() })])
                     };
                     (e.open_quant(skolem), a.clone())
                 } else {
-                    let fresh = &mut |_: u32, _: &crate::row::CapElem| Row::var(self.new_row_var());
+                    let fresh = &mut |_: u32, _: &crate::ty::CapElem| Row::var(self.new_row_var());
                     (e.clone(), a.open_quant(fresh))
                 };
                 self.unify_inner(&expected, &actual, variance)
@@ -963,7 +967,7 @@ fn replace_vars(ty: &Ty, map: &FxHashMap<TyVar, u32>, rows: &FxHashMap<RowVar, u
             },
             RowElem::Of(t) => Row::from_elems([RowElem::Of(replace_vars(t, map, rows))]),
             RowElem::Tag(t) => Row::of_tag(t.map_args(|a| replace_vars(a, map, rows))),
-            RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::row::CapElem {
+            RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::ty::CapElem {
                 tag: c.tag.map_args(|a| replace_vars(a, map, rows)),
                 ..c.clone()
             })]),
@@ -990,4 +994,23 @@ fn replace_vars(ty: &Ty, map: &FxHashMap<TyVar, u32>, rows: &FxHashMap<RowVar, u
         ),
         _ => ty.map_children(|child| replace_vars(child, map, rows)),
     }
+}
+
+/// A unification failure. `expected` and `actual` are the types passed to unification, with
+/// bindings followed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TypeError {
+    pub expected: Ty,
+    pub actual: Ty,
+    /// Boxed to keep the `Err` of a `Result` small.
+    pub kind: Box<TypeErrorKind>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TypeErrorKind {
+    /// The part that differs. Same as the `TypeError`'s `expected` and `actual` when the whole
+    /// type differs.
+    Mismatch { expected: Ty, actual: Ty },
+    /// Binding `var` to `ty` would create an infinite type (occurs check).
+    InfiniteType { var: TyVar, ty: Ty },
 }

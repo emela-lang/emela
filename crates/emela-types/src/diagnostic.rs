@@ -6,9 +6,8 @@
 use emela_resolve::hir::Span;
 use smol_str::SmolStr;
 
-use crate::error::TypeError;
-use crate::row::SetKind;
-use crate::ty::Ty;
+use crate::infer::TypeError;
+use crate::ty::{SetKind, Ty};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
