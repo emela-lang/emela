@@ -9,10 +9,10 @@ use line_index::{TextRange, TextSize};
 
 use super::edit::{Edit, Fix, append, indent};
 use super::{CodeAction, CodeActionKind, Names, clause_edit, visible};
+use crate::analysis::Analysis;
 use crate::code;
 use crate::diagnostic::{Diagnostic, Location};
-use crate::frontend::TypedProgram;
-use crate::pipeline::Analysis;
+use crate::program::TypedProgram;
 use crate::source::FileId;
 
 pub(super) fn quickfixes(

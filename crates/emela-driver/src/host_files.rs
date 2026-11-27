@@ -19,7 +19,7 @@ use emela_core::{HostModule, HostRef, Module};
 use crate::code;
 use crate::diagnostic::{Diagnostic, Location};
 use crate::output::OutputFile;
-use crate::pipeline::{Analysis, Input, SOURCE_DIR};
+use crate::project::{Input, SOURCE_DIR};
 
 pub const PROJECT_DIR: &str = "emela_project";
 pub const TESTS_DIR: &str = "emela_tests";
@@ -62,17 +62,13 @@ pub(crate) fn roots(input: &Input) -> Vec<HostRoot> {
 /// and the copies to write.
 pub(crate) fn place(
     module: &Module,
-    analysis: &Analysis,
+    host_roots: &[HostRoot],
     target: &str,
 ) -> Result<(Module, Vec<OutputFile>), Vec<Diagnostic>> {
     let mut module = module.clone();
     // Compared after resolving `..` and symbolic links: `[replace]` paths are written relative to
     // the project, and lowering resolves a file from its source's directory.
-    let roots: Vec<PathBuf> = analysis
-        .host_roots
-        .iter()
-        .map(|r| canonical(&r.src))
-        .collect();
+    let roots: Vec<PathBuf> = host_roots.iter().map(|r| canonical(&r.src)).collect();
     let mut used: BTreeSet<usize> = BTreeSet::new();
     let mut single: BTreeSet<(usize, PathBuf)> = BTreeSet::new();
     for (_, function) in module.functions.iter_mut() {
@@ -95,7 +91,7 @@ pub(crate) fn place(
             else {
                 continue;
             };
-            let root = &analysis.host_roots[i];
+            let root = &host_roots[i];
             let relative = file.strip_prefix(&roots[i]).expect("under the root");
             if root.copy_all {
                 used.insert(i);
@@ -109,7 +105,7 @@ pub(crate) fn place(
     let mut files = Vec::new();
     let mut errors = Vec::new();
     for i in used {
-        let root = &analysis.host_roots[i];
+        let root = &host_roots[i];
         match host_files_under(&roots[i]) {
             Ok(found) => {
                 for (relative, contents) in found {
@@ -123,7 +119,7 @@ pub(crate) fn place(
         }
     }
     for (i, file) in single {
-        let root = &analysis.host_roots[i];
+        let root = &host_roots[i];
         let relative = file.strip_prefix(&roots[i]).expect("under the root");
         match std::fs::read(&file) {
             Ok(contents) => files.push(OutputFile::new(

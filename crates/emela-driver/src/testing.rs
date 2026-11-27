@@ -1,11 +1,10 @@
 //! The `emela test` stage (spec chapter 13).
 //!
-//! Consists of collecting `@test` functions from source ([`collect_tests`], [`resolve_tests`];
-//! called inside the [`Typecheck`] type checker), a frontend lowering to Core IR with the test
-//! functions as roots ([`LowerTests`]), and turning the Core IR test functions into JS and calling
-//! them one by one on the JS host ([`TestBackend`], [`test`]).
+//! Consists of collecting `@test` functions from source ([`crate::test_fns`]; called inside the
+//! [`Typecheck`] type checker), a frontend lowering to Core IR with the test functions as roots
+//! ([`LowerTests`]), and turning the Core IR test functions into JS and calling them one by one on
+//! the JS host ([`TestBackend`], [`test`]).
 
-mod collect;
 mod report;
 
 use std::io::{BufRead, BufReader, Write};
@@ -18,25 +17,24 @@ use emela_codegen_js::{
     emit_module_exporting, emit_test_main,
 };
 use emela_core::{FnId, Roots};
-use emela_resolve::hir::{DefId, DefKind, Program};
 use emela_resolve::{BuiltinModules, ModuleId, NoBuiltins};
 use serde::Deserialize;
 
-pub use collect::{TEST_ANNOTATION, TestFn, collect_tests, is_test_fn};
 pub use report::{
     AGENT_ENV_VARS, Reporter, TEST_FAILURE_EXIT_CODE, TestOutcome, TestReport, TestResult,
     runs_in_agent,
 };
 
-use crate::code;
+use crate::analysis::Analysis;
 use crate::diagnostic::Diagnostic;
 use crate::frontend::{Typecheck, lower_typed};
 use crate::js::{CoreJs, JS_ENTRY_FILE, bundled_outputs};
 use crate::output::{BuildOutput, OutputFile, write_output};
 use crate::pipeline::{
-    Analysis, Backend, Checked, CoreSource, Frontend, Input, NoJsBackend, Parsed, Runner,
-    build_only_diagnostic, check,
+    Backend, Checked, CoreSource, Frontend, NoJsBackend, Parsed, Runner, build_only_diagnostic,
+    check,
 };
+use crate::project::Input;
 use crate::run::{
     Deadline, Output, exit_code, join_reader, read_to_end_on_thread, spawn_error, wait_child,
 };
@@ -68,62 +66,6 @@ pub fn default_test_out_dir_for(input: &Input, target: Target) -> PathBuf {
         Target::Native => input.base.join(NATIVE_TEST_OUT_DIR),
         Target::Wasm => input.base.join(WASM_TEST_OUT_DIR),
     }
-}
-
-/// A `@test` function that passed type checking. `def` is its HIR definition.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TestDef {
-    pub test: TestFn,
-    pub def: DefId,
-}
-
-/// Maps collected `@test` functions to HIR definitions, and reports references to test functions
-/// from normal code as E2204. Test functions are removed from the normal build (spec 13.1), so
-/// they cannot be referenced. References between test functions are allowed.
-pub(crate) fn resolve_tests(
-    analysis: &Analysis,
-    hir: &Program,
-    tests: Vec<TestFn>,
-) -> (Vec<TestDef>, Vec<Diagnostic>) {
-    // `TestFn::name_range` is the same range as the resolver's `DefData::span`.
-    let tests: Vec<TestDef> = tests
-        .into_iter()
-        .filter_map(|test| {
-            let def = hir.defs.iter().find_map(|(def, data)| {
-                let span = data.span?;
-                (data.kind == DefKind::Fn
-                    && span.module == test.module
-                    && span.range == test.name_range)
-                    .then_some(def)
-            })?;
-            Some(TestDef { test, def })
-        })
-        .collect();
-
-    let mut diagnostics = Vec::new();
-    for (def, _) in hir.defs.iter() {
-        if tests.iter().any(|t| t.def == def) {
-            continue;
-        }
-        for (target, span) in emela_types::body_refs(hir, def) {
-            if !tests.iter().any(|t| t.def == target) {
-                continue;
-            }
-            let Some(&file) = analysis.files.get(span.module) else {
-                continue;
-            };
-            diagnostics.push(
-                Diagnostic::error(format!(
-                    "test function `{}` can only be used from test functions",
-                    hir.defs[target].name
-                ))
-                .with_code(code::TEST_FN_OUTSIDE_TESTS)
-                .with_span(crate::diagnostic::Span::new(file, span.range))
-                .with_note("test functions are removed from normal builds (13.1)"),
-            );
-        }
-    }
-    (tests, diagnostics)
 }
 
 /// A frontend that lowers to Core IR with the test functions as roots, after type checking
@@ -215,7 +157,7 @@ pub struct TestModule {
 /// `function` must take no arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestCase {
-    /// The name used for display and filtering ([`TestFn::display_name`]).
+    /// The name used for display and filtering ([`crate::test_fns::TestFn::display_name`]).
     pub name: String,
     pub function: FnId,
 }
@@ -273,7 +215,8 @@ impl TestBackend<TestModule> for CoreJs {
         analysis: &Analysis,
     ) -> Result<BuildOutput, Vec<Diagnostic>> {
         // Files `@external` points to are copied into the output and imported relatively.
-        let (module, host_files) = crate::host_files::place(&program.module, analysis, "js")?;
+        let (module, host_files) =
+            crate::host_files::place(&program.module, &analysis.host_roots, "js")?;
         let module = &module;
         // Export the selected test functions under their Emela names so the entry module can call
         // them.

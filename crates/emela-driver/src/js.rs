@@ -4,9 +4,10 @@ use emela_codegen_js::{
     BUNDLED_DIR, Options, RUNTIME, RUNTIME_FILE, RuntimeMode, SERVE, SERVE_FILE, emit_program,
 };
 
+use crate::analysis::Analysis;
 use crate::diagnostic::Diagnostic;
 use crate::output::{BuildOutput, OutputFile};
-use crate::pipeline::{Analysis, Backend};
+use crate::pipeline::Backend;
 
 pub const JS_ENTRY_FILE: &str = "main.mjs";
 
@@ -27,7 +28,7 @@ impl Backend<emela_core::Module> for CoreJs {
             runtime: RuntimeMode::Import(None),
         };
         // Files `@external` points to are copied into the output and imported relatively.
-        let (module, host_files) = crate::host_files::place(module, analysis, "js")?;
+        let (module, host_files) = crate::host_files::place(module, &analysis.host_roots, "js")?;
         let mut files = vec![
             OutputFile::new(JS_ENTRY_FILE, emit_program(&module, &options)),
             OutputFile::new(RUNTIME_FILE, RUNTIME),

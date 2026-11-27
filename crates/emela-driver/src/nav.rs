@@ -12,8 +12,8 @@ use emela_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 use emela_types::Ty;
 use line_index::{TextRange, TextSize};
 
-use crate::frontend::TypedProgram;
-use crate::pipeline::Analysis;
+use crate::analysis::Analysis;
+use crate::program::TypedProgram;
 use crate::source::FileId;
 
 /// A position in source: a navigation target or a reference.

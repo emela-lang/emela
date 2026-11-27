@@ -6,14 +6,9 @@ use std::process::{Command, Stdio};
 
 use crate::Target;
 use crate::c::CC_ARGS_ENV;
+use crate::run::wasmtime_version;
+use crate::version::{Version, number};
 use emela_pome::fetch::config::{Config, Source};
-
-pub(crate) struct Version {
-    pub(crate) text: String,
-    pub(crate) major: Option<u32>,
-    pub(crate) minor: Option<u32>,
-    pub(crate) patch: Option<u32>,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Status {
@@ -103,27 +98,6 @@ pub fn doctor(
         DoctorFormat::Json => render_json(&report, version),
     };
     (output, exit_code(&report))
-}
-
-/// `<major>[.<minor>[.<patch>[...]]]`; the minor and the patch are `None` when they are absent
-/// or not a number.
-pub(crate) fn number(word: &str) -> Option<Version> {
-    let mut parts = word.split('.');
-    let major = parts.next().and_then(|s| s.parse::<u32>().ok())?;
-    let minor = parts.next().and_then(|s| s.parse::<u32>().ok());
-    let patch = parts.next().and_then(|s| s.parse::<u32>().ok());
-
-    Some(Version {
-        text: word.to_string(),
-        major: Some(major),
-        minor,
-        patch,
-    })
-}
-
-pub(crate) fn wasmtime_version(out: &str) -> Option<Version> {
-    let word = out.split_whitespace().nth(1)?;
-    number(word)
 }
 
 fn git_version(out: &str) -> Option<Version> {

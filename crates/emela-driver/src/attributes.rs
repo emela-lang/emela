@@ -13,9 +13,9 @@ use emela_syntax::{Parse, SyntaxKind, SyntaxNode};
 use smol_str::SmolStr;
 use std::collections::HashMap;
 
+use crate::analysis::Analysis;
 use crate::code;
 use crate::diagnostic::{Diagnostic, Span};
-use crate::pipeline::Analysis;
 
 const KEY: &str = "key";
 const TAG: &str = "tag";

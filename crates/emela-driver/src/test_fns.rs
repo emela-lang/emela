@@ -1,13 +1,15 @@
-//! Collects `@test` functions from source (spec 13.1).
+//! The `@test` functions of the source (spec 13.1): collecting them, and resolving them to
+//! their definitions.
 
 use emela_resolve::ModuleId;
+use emela_resolve::hir::{DefId, DefKind, Program};
 use emela_syntax::ast::{self, AstNode, HasAttrs};
 use emela_syntax::{Parse, SyntaxKind};
 use line_index::TextRange;
 
+use crate::analysis::Analysis;
 use crate::code;
 use crate::diagnostic::{Diagnostic, Span};
-use crate::pipeline::Analysis;
 use crate::source::FileId;
 
 /// The annotation name of test functions.
@@ -146,4 +148,60 @@ pub fn collect_tests<'p>(
 /// build (spec 13.1).
 pub fn is_test_fn(decl: &ast::FnDecl) -> bool {
     decl.has_annotation(TEST_ANNOTATION)
+}
+
+/// A `@test` function that passed type checking. `def` is its HIR definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestDef {
+    pub test: TestFn,
+    pub def: DefId,
+}
+
+/// Maps collected `@test` functions to HIR definitions, and reports references to test functions
+/// from normal code as E2204. Test functions are removed from the normal build (spec 13.1), so
+/// they cannot be referenced. References between test functions are allowed.
+pub(crate) fn resolve_tests(
+    analysis: &Analysis,
+    hir: &Program,
+    tests: Vec<TestFn>,
+) -> (Vec<TestDef>, Vec<Diagnostic>) {
+    // `TestFn::name_range` is the same range as the resolver's `DefData::span`.
+    let tests: Vec<TestDef> = tests
+        .into_iter()
+        .filter_map(|test| {
+            let def = hir.defs.iter().find_map(|(def, data)| {
+                let span = data.span?;
+                (data.kind == DefKind::Fn
+                    && span.module == test.module
+                    && span.range == test.name_range)
+                    .then_some(def)
+            })?;
+            Some(TestDef { test, def })
+        })
+        .collect();
+
+    let mut diagnostics = Vec::new();
+    for (def, _) in hir.defs.iter() {
+        if tests.iter().any(|t| t.def == def) {
+            continue;
+        }
+        for (target, span) in emela_types::body_refs(hir, def) {
+            if !tests.iter().any(|t| t.def == target) {
+                continue;
+            }
+            let Some(&file) = analysis.files.get(span.module) else {
+                continue;
+            };
+            diagnostics.push(
+                Diagnostic::error(format!(
+                    "test function `{}` can only be used from test functions",
+                    hir.defs[target].name
+                ))
+                .with_code(code::TEST_FN_OUTSIDE_TESTS)
+                .with_span(crate::diagnostic::Span::new(file, span.range))
+                .with_note("test functions are removed from normal builds (13.1)"),
+            );
+        }
+    }
+    (tests, diagnostics)
 }

@@ -7,10 +7,11 @@ use emela_codegen_wasm::{
     Entry, TestEntry, WasmError, WasmErrorKind, WasmOptions, compile_with_wasm_options,
 };
 
+use crate::analysis::Analysis;
 use crate::code;
 use crate::diagnostic::Diagnostic;
 use crate::output::{BuildOutput, OutputFile};
-use crate::pipeline::{Analysis, Backend, Runner};
+use crate::pipeline::{Backend, Runner};
 use crate::testing::{TestBackend, TestModule};
 
 /// The component written to the output directory.

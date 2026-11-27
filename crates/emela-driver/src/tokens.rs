@@ -9,8 +9,8 @@ use emela_resolve::hir::{ExprKind, LocalId, PatKind, Res, Stmt};
 use emela_types::Ty;
 use line_index::TextRange;
 
-use crate::frontend::TypedProgram;
-use crate::pipeline::Analysis;
+use crate::analysis::Analysis;
+use crate::program::TypedProgram;
 use crate::source::FileId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
