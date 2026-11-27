@@ -18,12 +18,10 @@ use la_arena::ArenaMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
+use crate::decl::lower::{Omitted, Scope, TyTable};
+use crate::decl::signature::{Signatures, is_label};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::lower::{Omitted, Scope, TyTable};
-use crate::row::{Row, RowElem, Tag};
-use crate::scheme::substitute_bound;
-use crate::signature::{Signatures, is_label};
-use crate::ty::{Ty, TyCons};
+use crate::ty::{Row, RowElem, Tag, Ty, TyCons, substitute_bound};
 
 /// What provides an effect listed in `with`: a handler, or the provider of an effect already in
 /// scope (a label in `with AuditLog`, or the right of `by` in `with AuditLog by Console`, issue
@@ -875,7 +873,7 @@ pub(crate) fn instantiate_row(row: &Row, ty_args: &[Ty]) -> Row {
     if ty_args.is_empty() {
         return row.clone();
     }
-    crate::scheme::substitute_row(row, ty_args, &[])
+    crate::ty::substitute_row(row, ty_args, &[])
 }
 
 /// The effect name for diagnostics; `State[Int]` if it has type arguments.

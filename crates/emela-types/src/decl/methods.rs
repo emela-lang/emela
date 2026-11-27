@@ -6,56 +6,9 @@
 use emela_resolve::hir::{DefId, DefKind, DefModule, Item, Program};
 use emela_resolve::{ModuleId, PRELUDE};
 
-use crate::program_types::ProgramTypes;
-use crate::signature::Signatures;
-use crate::traits::{Traits, head_def};
+use crate::decl::signature::Signatures;
+use crate::decl::traits::Traits;
 use crate::ty::{Ty, TyParam};
-
-/// The functions that can be called as methods on a value of type `ty` from `module`, with any
-/// name, once the program is checked: the fns of the module of its head first, in declaration
-/// order, then the functions of the traits. Empty unless the head of `ty` is a named type
-/// (`[lsp.completion]`). `env` are the type parameters `Ty::Bound(i)` stands for.
-pub fn methods_of(
-    program: &Program,
-    types: &ProgramTypes,
-    module: ModuleId,
-    ty: &Ty,
-    env: &[TyParam],
-) -> Vec<DefId> {
-    let Some(head) = head_def(program, &types.ty_table, ty) else {
-        return Vec::new();
-    };
-    let mut found = Vec::new();
-    if let Some(owner) = defining_module(program, head) {
-        for &def in &program.modules[owner].items {
-            let data = &program.defs[def];
-            let first = match types.sigs.get(def).map(|sig| &sig.scheme.ty) {
-                Some(Ty::Fn(f)) => f.params.first(),
-                _ => None,
-            };
-            if data.kind == DefKind::Fn
-                && (data.is_pub || owner == module)
-                && first.and_then(|t| head_def(program, &types.ty_table, t)) == Some(head)
-            {
-                found.push(def);
-            }
-        }
-    }
-    for t in candidate_traits(program, &types.traits, module, ty, env) {
-        if types
-            .traits
-            .satisfies(program, &types.ty_table, &erase_args(ty), t, env)
-            .is_ok()
-        {
-            found.extend(
-                trait_fns(program, t)
-                    .into_iter()
-                    .filter(|&f| takes_self(&types.sigs, f)),
-            );
-        }
-    }
-    found
-}
 
 /// The module that defines the type whose head is `head`. The built-in types and the types of
 /// the Prelude have their functions in the core module of the same name (`List`, `String`,

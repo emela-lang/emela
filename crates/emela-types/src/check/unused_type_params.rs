@@ -4,10 +4,9 @@
 
 use emela_resolve::hir::{DefModule, Item, Program};
 
+use crate::decl::signature::Signatures;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::row::{Row, RowElem};
-use crate::signature::Signatures;
-use crate::ty::Ty;
+use crate::ty::{Row, RowElem, Ty};
 
 /// Reports W3002 for top-level fns (including `@external` ones) and for the type parameters that
 /// trait functions declare themselves. Called once every body is checked, so a return type, E and

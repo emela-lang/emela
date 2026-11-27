@@ -13,9 +13,8 @@
 use emela_resolve::hir::{DefId, ExprId, ExprKind, Res, Span};
 
 use super::{BodyInfer, fn_parts};
-use crate::row::{Row, SetKind};
 use crate::sparse::SparseMap;
-use crate::ty::Ty;
+use crate::ty::{Row, SetKind, Ty};
 
 impl BodyInfer<'_> {
     /// Records in [`Self::bound_item_redirects`] the `use E` expressions (W4401, `[effect.use]`)
@@ -165,8 +164,13 @@ impl BodyInfer<'_> {
                 continue;
             };
             let insts = self.item_insts(with, handlers);
-            let entries =
-                crate::layer::with_entries(program, self.sigs, self.ty_table, handlers, &insts);
+            let entries = crate::decl::layer::with_entries(
+                program,
+                self.sigs,
+                self.ty_table,
+                handlers,
+                &insts,
+            );
             if entries.iter().any(|e| e.named && e.effect.def == effect) {
                 return self.uses_by_name(rows, *body, effect, excluded);
             }

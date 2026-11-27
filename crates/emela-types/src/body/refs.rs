@@ -6,8 +6,7 @@ use emela_resolve::hir::{DefId, DefKind, Span};
 use super::{BodyInfer, InstanceSet, SelfObligation, TraitObligation};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::SetKind;
-use crate::row::{Row, RowElem};
-use crate::ty::Ty;
+use crate::ty::{Row, RowElem, Ty};
 
 impl BodyInfer<'_> {
     /// Replaces the declared type's type parameters with fresh type variables.
@@ -132,13 +131,13 @@ impl BodyInfer<'_> {
                 .satisfies(program, self.ty_table, &ty, o.trait_def, &env)
             {
                 // Unsolved sets (`fails ?e1`) of a function type say nothing here.
-                let e = crate::traits::Unsatisfied {
+                let e = crate::decl::traits::Unsatisfied {
                     ty: without_set_vars(&e.ty),
                     ..e
                 };
                 self.diags.push(Diagnostic {
                     span: Some(o.span),
-                    kind: crate::traits::not_implemented(program, self.ty_table, &e, &env),
+                    kind: crate::decl::traits::not_implemented(program, self.ty_table, &e, &env),
                 });
             }
         }

@@ -25,8 +25,8 @@
 //! Constraints on effect sets R (`body/effects.rs`) go into the same table and are solved here
 //! together. E and R get separate set variables, so they never mix.
 
-use crate::scheme::substitute_row;
 use crate::sparse::SparseMap;
+use crate::ty::{CapElem, CapId, Row, RowElem, RowVar, Tag, Ty, TyParam, substitute_row};
 use emela_resolve::hir::{
     Arm, Block, DefId, DefKind, DefModule, ExprId, ExprKind, Item, LocalId, PatId, PatKind,
     Program, Res, Span, Stmt, StrPart,
@@ -35,13 +35,11 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
 use super::{BodyInfer, FnParts, fn_parts};
-use crate::coverage::Shapes;
 use crate::diagnostic::LeakFrom;
 use crate::diagnostic::{BoundItem, EffectContext, LayerArg};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
+use crate::exhaustiveness::coverage::Shapes;
 use crate::infer::{Origin, SetKind, Subset};
-use crate::row::{CapElem, CapId, Row, RowElem, RowVar, Tag};
-use crate::ty::{Ty, TyParam};
 
 /// One lower bound of a set variable: the elements of `elem` minus the elements in `minus`.
 struct Lower {
@@ -371,12 +369,18 @@ impl BodyInfer<'_> {
             // overrides are not evaluated (`[effect.with]`).
             ExprKind::With { handlers, body } => {
                 let insts = self.item_insts(expr, handlers);
-                let entries =
-                    crate::layer::with_entries(program, self.sigs, self.ty_table, handlers, &insts);
+                let entries = crate::decl::layer::with_entries(
+                    program,
+                    self.sigs,
+                    self.ty_table,
+                    handlers,
+                    &insts,
+                );
                 let mut row = Row::empty();
                 for (i, item) in handlers.iter().enumerate() {
-                    let initialized = crate::layer::item_evaluated(program, &entries, handlers, i);
-                    for arg in crate::layer::item_args(item) {
+                    let initialized =
+                        crate::decl::layer::item_evaluated(program, &entries, handlers, i);
+                    for arg in crate::decl::layer::item_args(item) {
                         let arg_row = self.expr_row(arg);
                         if initialized {
                             row.extend(&arg_row);
@@ -387,11 +391,9 @@ impl BodyInfer<'_> {
                 for entry in entries {
                     if let Some(h) = entry.handler() {
                         // The tasks of a built-in handler fail the `with` (`[task.group]`).
-                        if let Some(fails) = self.builtin_handler_sets(
-                            h,
-                            &entry.ty_args,
-                            crate::row::SetKind::Errors,
-                        ) {
+                        if let Some(fails) =
+                            self.builtin_handler_sets(h, &entry.ty_args, crate::ty::SetKind::Errors)
+                        {
                             row.extend(&fails);
                             continue;
                         }
@@ -399,7 +401,7 @@ impl BodyInfer<'_> {
                         let fails = self.instantiate_facts(
                             fails,
                             &entry.ty_args,
-                            crate::row::SetKind::Errors,
+                            crate::ty::SetKind::Errors,
                         );
                         row.extend(&fails);
                     }
@@ -1145,7 +1147,7 @@ impl BodyInfer<'_> {
             };
             let builtin = program.defs[op]
                 .parent
-                .is_some_and(|e| crate::lower::is_intrinsic_effect(program, e));
+                .is_some_and(|e| crate::decl::lower::is_intrinsic_effect(program, e));
             if !builtin || program.defs[op].name != "start" {
                 continue;
             }
@@ -1273,8 +1275,13 @@ impl BodyInfer<'_> {
         loop {
             if let ExprKind::With { handlers, .. } = &program.exprs[current].kind {
                 let insts = self.item_insts(current, handlers);
-                let entries =
-                    crate::layer::with_entries(program, self.sigs, self.ty_table, handlers, &insts);
+                let entries = crate::decl::layer::with_entries(
+                    program,
+                    self.sigs,
+                    self.ty_table,
+                    handlers,
+                    &insts,
+                );
                 let found = entries.iter().find_map(|e| {
                     let item = &handlers[e.origin];
                     let local = item.bind?;
@@ -1365,7 +1372,7 @@ impl BodyInfer<'_> {
             // The arguments of a handler a later item overrides are not evaluated
             // (`[effect.with]`), so no error or call in them is reported.
             ExprKind::With { handlers, body } => {
-                out.extend(crate::layer::evaluated_args(
+                out.extend(crate::decl::layer::evaluated_args(
                     self.program,
                     self.sigs,
                     self.ty_table,
@@ -1529,7 +1536,7 @@ impl BodyInfer<'_> {
             CapId::Item { with, item } => {
                 let made_at = match &program.exprs[with].kind {
                     // A handler member opened through the `with`'s handlers: the items.
-                    ExprKind::With { handlers, .. } if item == crate::row::OPENED_IN_INIT => {
+                    ExprKind::With { handlers, .. } if item == crate::ty::OPENED_IN_INIT => {
                         handlers.first().zip(handlers.last()).map(|(a, b)| Span {
                             module: a.span.module,
                             range: a.span.range.cover(b.span.range),
@@ -1598,7 +1605,7 @@ impl BodyInfer<'_> {
                 _ => continue,
             };
             if let ExprKind::Path(Res::Def(def)) = program.exprs[callee].kind {
-                return crate::builtin::qualified_name(program, def);
+                return crate::decl::builtin::qualified_name(program, def);
             }
         }
         SmolStr::new("the function")
@@ -1662,7 +1669,7 @@ impl BodyInfer<'_> {
     /// same leak is found where the R of the with flows.
     fn check_task_items(&mut self) {
         let program = self.program;
-        let vars: Vec<(crate::row::RowVar, (ExprId, u32))> =
+        let vars: Vec<(crate::ty::RowVar, (ExprId, u32))> =
             self.item_set_vars.iter().map(|(v, w)| (*v, *w)).collect();
         for (v, (with, i)) in vars {
             let ExprKind::With { handlers, .. } = &program.exprs[with].kind else {
@@ -1696,12 +1703,17 @@ impl BodyInfer<'_> {
             };
             let ty = self.ctx.resolve(&ty);
             let insts = self.item_insts(with, handlers);
-            let provides: Vec<Tag> =
-                crate::layer::with_entries(program, self.sigs, self.ty_table, handlers, &insts)
-                    .into_iter()
-                    .filter(|e| e.named)
-                    .map(|e| e.effect.map_args(|a| self.ctx.resolve(a)))
-                    .collect();
+            let provides: Vec<Tag> = crate::decl::layer::with_entries(
+                program,
+                self.sigs,
+                self.ty_table,
+                handlers,
+                &insts,
+            )
+            .into_iter()
+            .filter(|e| e.named)
+            .map(|e| e.effect.map_args(|a| self.ctx.resolve(a)))
+            .collect();
             let mut found = Vec::new();
             caps_of(&ty, &mut found);
             // The E of the `with`: the capabilities an error records (`[type.rules]`).

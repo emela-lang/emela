@@ -4,8 +4,7 @@ use emela_resolve::hir::{Arg, ExprId, ExprKind, Res, Span};
 
 use super::{BodyInfer, methods};
 use crate::FnTy;
-use crate::row::Row;
-use crate::ty::Ty;
+use crate::ty::{Row, Ty};
 
 impl BodyInfer<'_> {
     /// Reorders the arguments by parameter position, then checks types (spec 6.2). `expr` is

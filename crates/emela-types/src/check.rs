@@ -16,12 +16,19 @@ use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 
 use crate::body::{BodyInfer, HandlerFacts};
+use crate::check::program_types::ProgramTypes;
+use crate::check::scc::strongly_connected;
+use crate::decl::layer;
+use crate::decl::lower::TyTable;
+use crate::decl::signature::Signatures;
 use crate::diagnostic::EffectContext;
-use crate::layer;
-use crate::lower::TyTable;
-use crate::program_types::ProgramTypes;
-use crate::scc::strongly_connected;
-use crate::signature::Signatures;
+
+mod const_cycle;
+pub(crate) mod entry_main;
+pub(crate) mod export;
+pub(crate) mod program_types;
+mod scc;
+mod unused_type_params;
 
 /// Names the definitions whose R must be empty (`main` in spec 8.3, test functions in spec
 /// 13.3). The driver decides which is the entry's `main` and which are test functions.
@@ -64,22 +71,22 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
             && f.body.is_some()
         {
             let name = program.defs[def].name.clone();
-            let hosts = names(crate::export::adapter_hosts(program, def));
+            let hosts = names(crate::check::export::adapter_hosts(program, def));
             closed.insert(def, EffectContext::Export { name, hosts });
         }
     }
     // So is a fn made by `@entry`, given what its adapter declares; an error in it becomes E5105
-    // (`crate::export::check`).
+    // (`crate::check::export::check`).
     for e in &program.entry_exports {
         let name = program.defs[e.entry].name.clone();
-        let hosts = names(crate::export::adapter_hosts(program, e.adapter));
+        let hosts = names(crate::check::export::adapter_hosts(program, e.adapter));
         closed.insert(e.def, EffectContext::Export { name, hosts });
     }
     let ty_table = TyTable::new(program);
     let mut diags = Vec::new();
     let mut sigs = Signatures::collect(program, &ty_table, &mut diags);
-    let traits = crate::traits::collect(program, &ty_table, &mut sigs, &mut diags);
-    crate::const_cycle::check(program, &mut diags);
+    let traits = crate::decl::traits::collect(program, &ty_table, &mut sigs, &mut diags);
+    crate::check::const_cycle::check(program, &mut diags);
 
     let mut types = ProgramTypes {
         ty_table,
@@ -116,7 +123,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         diags,
     };
 
-    let builtins = crate::builtin::Builtins::new(program);
+    let builtins = crate::decl::builtin::Builtins::new(program);
     for group in groups(program, &sigs) {
         let mut infer = BodyInfer::new(
             program,
@@ -211,7 +218,7 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         types.diags.extend(body.diags);
     }
 
-    crate::export::check(
+    crate::check::export::check(
         program,
         &types.ty_table,
         &sigs,
@@ -219,15 +226,15 @@ pub fn check_program_with(program: &Program, options: &CheckOptions) -> ProgramT
         options.main,
         &mut types.diags,
     );
-    crate::traits::unused_derives(program, &types.traits, &mut types.diags);
-    crate::entry_main::check(
+    crate::decl::traits::unused_derives(program, &types.traits, &mut types.diags);
+    crate::check::entry_main::check(
         program,
         &types.ty_table,
         &sigs,
         options.main,
         &mut types.diags,
     );
-    crate::unused_type_params::check(program, &sigs, &mut types.diags);
+    crate::check::unused_type_params::check(program, &sigs, &mut types.diags);
     types.layers = layer::check_layers(
         program,
         &sigs,
@@ -327,7 +334,7 @@ fn may_be_method(program: &Program, def: DefId) -> bool {
     };
     program.defs[d].kind != DefKind::TypeParam
         && matches!(program.defs[def].module, DefModule::Source(m)
-            if crate::methods::defining_module(program, d) == Some(m))
+            if crate::decl::methods::defining_module(program, d) == Some(m))
 }
 
 /// The definitions referred to in a definition's body (fns with bodies, consts, handlers), with

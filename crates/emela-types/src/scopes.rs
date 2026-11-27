@@ -17,8 +17,7 @@
 use emela_resolve::hir::{ExprId, Span};
 use rustc_hash::FxHashMap;
 
-use crate::row::{CapElem, CapId, RowVar};
-use crate::ty::TyVar;
+use crate::ty::{CapElem, CapId, RowVar, TyVar};
 
 /// The index of a scope. `0` is the body of the definition, outside every `with`.
 pub(crate) type ScopeId = u32;
