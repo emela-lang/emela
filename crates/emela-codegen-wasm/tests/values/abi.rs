@@ -442,7 +442,7 @@ fn direct_calls_agree_without_the_lir_passes() {
     );
 }
 
-/// The memory each program may grow to: six 64 KiB pages, as in `tests/memory.rs`.
+/// The memory each program may grow to: six 64 KiB pages, as in `tests/programs/memory.rs`.
 const LIMIT: u32 = 6 * 65536;
 
 /// A recursion that keeps one record live across each recursive call: `p` is read after the

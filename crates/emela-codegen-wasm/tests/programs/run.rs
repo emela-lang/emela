@@ -274,8 +274,8 @@ fn strings_extended() {
 fn ascii_case_matches_the_other_targets() {
     // The same program as `crates/emela-codegen-c/tests/programs/ascii_case.emel`, whose
     // `.expected` is the output of the JS target: the three targets must give the same output.
-    let src = include_str!("../../emela-codegen-c/tests/programs/ascii_case.emel");
-    let expected = include_str!("../../emela-codegen-c/tests/programs/ascii_case.expected");
+    let src = include_str!("../../../emela-codegen-c/tests/programs/ascii_case.emel");
+    let expected = include_str!("../../../emela-codegen-c/tests/programs/ascii_case.expected");
     let expected = expected
         .split_once("--- stderr\n")
         .expect("a stderr section")

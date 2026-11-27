@@ -12,7 +12,7 @@
 //! table. Adding a slot moves the end with it, so the slots never overlap the static data.
 //!
 //! The emitted module follows from this definition, so a slot added anywhere else fails a
-//! compile-time assertion or `tests/layout.rs`.
+//! compile-time assertion or `tests/module/layout.rs`.
 
 /// The page the bump allocator grows by.
 pub const PAGE: u32 = 65536;
