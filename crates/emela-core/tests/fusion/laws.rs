@@ -34,12 +34,12 @@ use support::lower_files_with;
 /// This is the driver's mutation pair `option_fused.emel` / `option_expanded.emel` (both run by
 /// `opt_diff`), so the core test and the output test use the same hand-written programs.
 const OPTION_OR_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/option_fused.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/option_fused.emel");
 
 /// `match Array.get(a, i) { Some(x) -> …; None -> … }`, the left-hand side of
 /// `array_get_match` and the hand-written expansion of `option_or`.
 const ARRAY_GET_MATCH_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/option_expanded.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/option_expanded.emel");
 
 /// [`ARRAY_GET_MATCH_INPUT`] with a second `Array.get` match in the same function, for the
 /// per-site budget of the law.
@@ -66,12 +66,12 @@ fn main() {
 ///
 /// This is the driver's mutation pair `range_fused.emel` / `range_expanded.emel`.
 const RANGE_FOLD_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/range_fused.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/range_fused.emel");
 
 /// The hand-written expansion of [`RANGE_FOLD_INPUT`]: the fold as a self tail call, which
 /// lowering turns into a loop.
 const RANGE_FOLD_EXPANDED: &str =
-    include_str!("../../emela-driver/tests/programs/opt/range_expanded.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/range_expanded.emel");
 
 /// `List.map(List.range(lo, hi), f)`, the left-hand side of `range_map`.
 const RANGE_MAP_INPUT: &str = "\
@@ -105,69 +105,69 @@ fn main() {
 /// This is the driver's mutation pair `array_map_range_fused.emel` /
 /// `array_map_range_expanded.emel`.
 const RANGE_MAP_ARRAY_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/array_map_range_fused.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/array_map_range_fused.emel");
 
 /// The hand-written expansion of [`RANGE_MAP_ARRAY_INPUT`]: a fresh array filled in place, with no
 /// range and no mapped list.
 const RANGE_MAP_ARRAY_EXPANDED: &str =
-    include_str!("../../emela-driver/tests/programs/opt/array_map_range_expanded.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/array_map_range_expanded.emel");
 
 /// `List.map(List.map(xs, f), g)`, the left-hand side of `map_map`.
 ///
 /// This is the driver's mutation pair `map_map_fused.emel` / `map_map_expanded.emel`.
 const MAP_MAP_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/map_map_fused.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/map_map_fused.emel");
 
 /// The hand-written expansion of [`MAP_MAP_INPUT`]: one pass calling `g(f(x))` per element, with no
 /// intermediate list.
 const MAP_MAP_EXPANDED: &str =
-    include_str!("../../emela-driver/tests/programs/opt/map_map_expanded.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/map_map_expanded.emel");
 
 /// `List.fold(List.map(xs, f), init, g)`, the left-hand side of `fold_map`.
 ///
 /// This is the driver's mutation pair `fold_map_fused.emel` / `fold_map_expanded.emel`.
 const FOLD_MAP_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/fold_map_fused.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/fold_map_fused.emel");
 
 /// The hand-written expansion of [`FOLD_MAP_INPUT`]: one fold of the composed step, with no mapped
 /// list.
 const FOLD_MAP_EXPANDED: &str =
-    include_str!("../../emela-driver/tests/programs/opt/fold_map_expanded.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/fold_map_expanded.emel");
 
 /// `List.map(List.filter(xs, p), f)`, the left-hand side of `filter_map`.
 ///
 /// This is the driver's mutation pair `filter_map_fused.emel` / `filter_map_expanded.emel`.
 const FILTER_MAP_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/filter_map_fused.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/filter_map_fused.emel");
 
 /// The hand-written expansion of [`FILTER_MAP_INPUT`]: one pass that tests each element and appends
 /// the mapped value, with no filtered list.
 const FILTER_MAP_EXPANDED: &str =
-    include_str!("../../emela-driver/tests/programs/opt/filter_map_expanded.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/filter_map_expanded.emel");
 
 /// `Array.map(Array.map(a, f), g)`, the left-hand side of `array_map_map`.
 ///
 /// This is the driver's mutation pair `array_map_map_fused.emel` /
 /// `array_map_map_expanded.emel`.
 const ARRAY_MAP_MAP_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/array_map_map_fused.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/array_map_map_fused.emel");
 
 /// The hand-written expansion of [`ARRAY_MAP_MAP_INPUT`]: one pass that writes `g(f(x))` into a
 /// fresh array, with no intermediate array.
 const ARRAY_MAP_MAP_EXPANDED: &str =
-    include_str!("../../emela-driver/tests/programs/opt/array_map_map_expanded.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/array_map_map_expanded.emel");
 
 /// `Array.fold(Array.map(a, f), init, g)`, the left-hand side of `array_fold_map`.
 ///
 /// This is the driver's mutation pair `array_fold_map_fused.emel` /
 /// `array_fold_map_expanded.emel`.
 const ARRAY_FOLD_MAP_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/array_fold_map_fused.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/array_fold_map_fused.emel");
 
 /// The hand-written expansion of [`ARRAY_FOLD_MAP_INPUT`]: one pass over the positions that calls
 /// `g(acc, f(x))`, with no mapped array.
 const ARRAY_FOLD_MAP_EXPANDED: &str =
-    include_str!("../../emela-driver/tests/programs/opt/array_fold_map_expanded.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/array_fold_map_expanded.emel");
 
 /// One law and the two sides of its equation, written by hand.
 struct Case {

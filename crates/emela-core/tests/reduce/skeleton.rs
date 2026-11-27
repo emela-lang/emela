@@ -10,8 +10,8 @@
 //! 3. On one corpus program every implemented rule fires at least once. A rule that stops firing
 //!    fails the test instead of turning into a silent no-op.
 //!
-//! The per-rule tests (`tests/zeta.rs`, `tests/beta.rs`, …) still run one rule at a time; this
-//! file is about the default combination.
+//! The per-rule tests (`tests/reduce/zeta.rs`, `tests/reduce/beta.rs`, …) still run one rule at a
+//! time; this file is about the default combination.
 
 use crate::support;
 

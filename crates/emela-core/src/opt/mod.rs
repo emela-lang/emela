@@ -213,7 +213,7 @@
 //! Measures: the benches and allocation counts it targets
 //! ```
 //!
-//! In debug builds [`run_with`] checks the module with [`crate::verify`] after every pass of every
+//! In debug builds [`run_with`] checks the module with [`crate::ir::verify`] after every pass of every
 //! sweep, so a rewrite that breaks typing fails where it was made.
 
 use rustc_hash::FxHashMap;
@@ -678,7 +678,7 @@ pub(super) fn each_body(m: &mut Module, f: &mut impl FnMut(&mut Module, &mut Exp
 /// calls had before the registry.
 pub(in crate::opt) fn check(m: &Module) {
     #[cfg(debug_assertions)]
-    if let Err(errors) = crate::verify(m) {
+    if let Err(errors) = crate::ir::verify(m) {
         let lines: Vec<String> = errors.iter().map(ToString::to_string).collect();
         panic!(
             "a Core IR optimisation pass produced ill-typed IR (a compiler bug):\n{}",

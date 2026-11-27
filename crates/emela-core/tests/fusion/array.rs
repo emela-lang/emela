@@ -7,7 +7,7 @@
 //! - `array_fold_map`: `Array.fold(Array.map(a, f), init, g)` →
 //!   `Array.fold(a, init, λacc, x. g(acc, f x))`.
 //!
-//! `tests/fusion_laws.rs` fixes, for each law, that its equation fires on the left-hand side, that
+//! `tests/fusion/laws.rs` fixes, for each law, that its equation fires on the left-hand side, that
 //! the hand-written right-hand side is not the law's shape, that a second run changes nothing and
 //! that the fused form is within the code-size budget. This file covers what is specific to the
 //! array laws:
@@ -41,11 +41,11 @@ use support::lower_files_with;
 /// `Array.map(Array.map(a, f), g)`, the left-hand side of `array_map_map`: the driver's mutation
 /// pair.
 const ARRAY_MAP_MAP_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/array_map_map_fused.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/array_map_map_fused.emel");
 
 /// `Array.fold(Array.map(a, f), init, g)`, the left-hand side of `array_fold_map`.
 const ARRAY_FOLD_MAP_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/array_fold_map_fused.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/array_fold_map_fused.emel");
 
 /// The most nodes a composed lambda may add over the two function expressions it composes. It
 /// mirrors `COMPOSE_OVERHEAD` in `opt::fusion::list`; the array laws share the composition shape.

@@ -771,7 +771,7 @@ mod tests {
         freshen(&mut m, &mut body);
         let g = m.declare("g", false);
         m.define(g, Vec::new(), TypeId::INT, body);
-        assert_eq!(crate::verify::verify(&m), Ok(()));
+        assert_eq!(crate::ir::verify::verify(&m), Ok(()));
     }
 
     /// `rename` renames reads only; a binder and an unlisted local are left alone.

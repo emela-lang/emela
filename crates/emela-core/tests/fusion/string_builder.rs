@@ -22,11 +22,12 @@ use emela_core::opt::{CoreFns, Stats};
 use emela_core::{Module, dump};
 
 /// The law's left-hand side, as the driver's mutation pair writes it.
-const CONCAT_FUSED: &str = include_str!("../../emela-driver/tests/programs/opt/concat_fused.emel");
+const CONCAT_FUSED: &str =
+    include_str!("../../../emela-driver/tests/programs/opt/concat_fused.emel");
 
 /// The hand-written right-hand side: interpolation, which lowering already builds as one concat.
 const CONCAT_EXPANDED: &str =
-    include_str!("../../emela-driver/tests/programs/opt/concat_expanded.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/concat_expanded.emel");
 
 /// A two-leaf chain: one `String.append`, which already allocates once.
 const TWO_LEAVES: &str = "\

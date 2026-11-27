@@ -8,7 +8,7 @@
 //! - `filter_map`: `List.map(List.filter(xs, p), f)` →
 //!   `List.reverse(List.fold(xs, [], λacc, x. if p(x) { [f(x), ..acc] } else { acc }))`.
 //!
-//! `tests/fusion_laws.rs` fixes, for each law, that its equation fires on the left-hand side, that
+//! `tests/fusion/laws.rs` fixes, for each law, that its equation fires on the left-hand side, that
 //! the hand-written right-hand side is not the law's shape, that a second run changes nothing and
 //! that the fused form is within the code-size budget. This file covers what is specific to the
 //! pipeline laws:
@@ -37,15 +37,15 @@ use support::lower_files_with;
 
 /// `List.map(List.map(xs, f), g)`, the left-hand side of `map_map`: the driver's mutation pair.
 const MAP_MAP_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/map_map_fused.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/map_map_fused.emel");
 
 /// `List.fold(List.map(xs, f), init, g)`, the left-hand side of `fold_map`.
 const FOLD_MAP_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/fold_map_fused.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/fold_map_fused.emel");
 
 /// `List.map(List.filter(xs, p), f)`, the left-hand side of `filter_map`.
 const FILTER_MAP_INPUT: &str =
-    include_str!("../../emela-driver/tests/programs/opt/filter_map_fused.emel");
+    include_str!("../../../emela-driver/tests/programs/opt/filter_map_fused.emel");
 
 /// The most nodes a composed lambda may add over the two function expressions it composes. It
 /// mirrors `COMPOSE_OVERHEAD` in `opt::fusion::list`: the composition is by call, so its size is a

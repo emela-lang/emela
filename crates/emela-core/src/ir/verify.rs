@@ -45,9 +45,9 @@ use std::fmt;
 
 use rustc_hash::FxHashMap;
 
-use crate::dump::type_name;
+use crate::ir::dump::type_name;
+use crate::ir::typing::{Typer, bin_result, lit_type, op_ty_type};
 use crate::ir::*;
-use crate::typing::{Typer, bin_result, lit_type, op_ty_type};
 
 /// One ill-typed place.
 #[derive(Debug, Clone, PartialEq, Eq)]

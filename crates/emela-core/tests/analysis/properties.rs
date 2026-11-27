@@ -10,7 +10,7 @@
 //! - two runs and two arena orders give the same facts.
 //!
 //! The per-analysis edge cases (a divisor that may be zero, an unprovable loop bound, an external
-//! call, …) are in `analysis_effect.rs` and `analysis_ranges.rs`; this file does not repeat them.
+//! call, …) are in `effect.rs` and `ranges.rs`; this file does not repeat them.
 
 use crate::support;
 
@@ -714,19 +714,19 @@ fn the_core_analyses_are_known_on_a_well_formed_module() {
 const CORPUS: &[(&str, &str)] = &[
     (
         "array",
-        include_str!("../../emela-codegen-c/tests/programs/array.emel"),
+        include_str!("../../../emela-codegen-c/tests/programs/array.emel"),
     ),
     (
         "closures",
-        include_str!("../../emela-codegen-c/tests/programs/closures.emel"),
+        include_str!("../../../emela-codegen-c/tests/programs/closures.emel"),
     ),
     (
         "data",
-        include_str!("../../emela-codegen-c/tests/programs/data.emel"),
+        include_str!("../../../emela-codegen-c/tests/programs/data.emel"),
     ),
     (
         "string_concat",
-        include_str!("../../emela-codegen-c/tests/programs/string_concat.emel"),
+        include_str!("../../../emela-codegen-c/tests/programs/string_concat.emel"),
     ),
 ];
 
