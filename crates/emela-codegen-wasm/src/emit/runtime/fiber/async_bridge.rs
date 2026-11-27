@@ -17,28 +17,32 @@
 
 use super::*;
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("sleep_start", &[ValType::I32], &[]),
     ("clock_when_stalled", &[ValType::I64], &[]),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "sleep_start" => vec![(3, ValType::I32), (1, ValType::I64)],
         _ => Vec::new(),
     }
 }
 
-pub(super) fn used(b: &Builder<'_>) -> bool {
+pub(in crate::emit::runtime) fn used(b: &Builder<'_>) -> bool {
     b.uses_sleep()
 }
 
-pub(super) fn prepare(_b: &mut Builder<'_>) {}
+pub(in crate::emit::runtime) fn prepare(_b: &mut Builder<'_>) {}
 
 /// The canonical ABI status codes of an asynchronous lower (low four bits of the packed word).
 const STATUS_RETURNED: i32 = 2;
 
-pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder<'_>,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "sleep_start" => sleep_start(b, ins),
         "clock_when_stalled" => clock_when_stalled(b, ins),
@@ -60,7 +64,7 @@ fn sleep_start(b: &mut Builder<'_>, ins: &mut InstructionSink) {
     const CODE: u32 = 2;
     const HANDLE: u32 = 3;
     const NS: u32 = 4;
-    let wait_set = super::fiber::plan(b).wait_set;
+    let wait_set = super::plan(b).wait_set;
     let wait_for = b.monotonic_wait_for();
     let set_new = b.waitable_set_new();
     let join = b.waitable_join();

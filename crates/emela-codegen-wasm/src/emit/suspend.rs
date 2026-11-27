@@ -24,7 +24,7 @@
 //! through the runtime's `out_word` resume channel, and the emitter keeps a result of more than
 //! one leaf boxed (see `emit::values`).
 //!
-//! The frames and the scheduler live in `runtime::sched`; this module only reads the Heap IR.
+//! The frames and the scheduler live in `runtime::fiber::sched`; this module only reads the Heap IR.
 
 use super::*;
 
@@ -52,10 +52,10 @@ pub(crate) struct Plan {
     pub(crate) in_word: u32,
     pub(crate) out_mode: u32,
     pub(crate) out_word: u32,
-    /// The outermost operation of the current suspension cascade (see `runtime::async_bridge`).
+    /// The outermost operation of the current suspension cascade (see `runtime::fiber::async_bridge`).
     pub(crate) pending: u32,
     /// The innermost active operation, whose implementation the event resumes (see
-    /// `runtime::async_bridge`).
+    /// `runtime::fiber::async_bridge`).
     pub(crate) sleep_op: u32,
     pub(crate) sync_depth: u32,
     /// The descriptor of a `perform` record (the state of an operation call).
@@ -68,7 +68,7 @@ pub(crate) struct Plan {
     pub(crate) interrupted_desc: u32,
     /// The static piece of the resume diagnostic.
     pub(crate) twice_prefix: u32,
-    /// Whether the run unwinds as interrupted (`runtime::attempt`). Allocated only when the
+    /// Whether the run unwinds as interrupted (`runtime::fiber::attempt`). Allocated only when the
     /// program uses `Exit.attempt` or `Std.Cause`, so other programs keep their bytes.
     pub(crate) unwinding: u32,
     /// The table index of `attempt_resume`, when some attempt's function may suspend.

@@ -42,8 +42,6 @@ mod alloc;
 mod args;
 pub(crate) mod array;
 mod ascii;
-pub(super) mod async_bridge;
-pub(super) mod attempt;
 mod bytes;
 mod canon;
 mod clock;
@@ -56,13 +54,11 @@ mod float;
 pub(super) mod fs;
 mod host;
 pub(super) mod http;
-mod line;
 mod notes;
 mod numeric;
 mod option;
 mod protocol;
 mod random;
-mod sched;
 mod show;
 mod string;
 mod tcp;
@@ -202,19 +198,19 @@ const MODULES: &[RuntimeModule] = &[
         used: clock::used,
     },
     RuntimeModule {
-        funcs: sched::FUNCS,
-        locals: sched::locals,
+        funcs: fiber::sched::FUNCS,
+        locals: fiber::sched::locals,
         // The scheduler's cells are allocated by `emit::suspend::prepare`.
         setup: no_setup,
-        emit: sched::emit,
+        emit: fiber::sched::emit,
         used: super::suspend::used,
     },
     RuntimeModule {
-        funcs: async_bridge::FUNCS,
-        locals: async_bridge::locals,
+        funcs: fiber::async_bridge::FUNCS,
+        locals: fiber::async_bridge::locals,
         setup: no_setup,
-        emit: async_bridge::emit,
-        used: async_bridge::used,
+        emit: fiber::async_bridge::emit,
+        used: fiber::async_bridge::used,
     },
     RuntimeModule {
         funcs: fs::FUNCS,
@@ -232,10 +228,10 @@ const MODULES: &[RuntimeModule] = &[
         used: tcp::used,
     },
     RuntimeModule {
-        funcs: attempt::FUNCS,
-        locals: attempt::locals,
+        funcs: fiber::attempt::FUNCS,
+        locals: fiber::attempt::locals,
         setup: no_setup,
-        emit: attempt::emit,
+        emit: fiber::attempt::emit,
         used: |b| b.uses_attempt(),
     },
     RuntimeModule {
@@ -269,11 +265,11 @@ const MODULES: &[RuntimeModule] = &[
         used: |b| b.uses_arrays(),
     },
     RuntimeModule {
-        funcs: line::FUNCS,
-        locals: line::locals,
+        funcs: fiber::line::FUNCS,
+        locals: fiber::line::locals,
         setup: no_setup,
-        emit: line::emit,
-        used: line::used,
+        emit: fiber::line::emit,
+        used: fiber::line::used,
     },
     // Appended last, so a program that does not change ASCII case keeps every function index (and
     // the bytes) of the modules before this one.
@@ -300,7 +296,7 @@ pub(crate) fn register(b: &mut Builder) {
     if float::used(b) {
         float::prepare(b);
     }
-    async_bridge::prepare(b);
+    fiber::async_bridge::prepare(b);
     fs::prepare(b);
     http::prepare(b);
     for module in MODULES {

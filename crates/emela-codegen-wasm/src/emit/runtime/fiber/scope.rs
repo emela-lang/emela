@@ -1,0 +1,798 @@
+//! The run-time scopes of groups and backgrounds (`[task.group]`, `[task.background]`).
+
+use super::*;
+
+/// `fb_scope(body, thunk, repr, background)`: the run-time scope of a group or a background
+/// (`[task.group]`, `[task.background]`). The body takes the run-time scope.
+pub(super) fn scope(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const SO: u32 = 4;
+    const F: u32 = 5;
+    const FR: u32 = 6;
+    const MODE: u32 = 7;
+    const TMP: u32 = 8;
+    const DEPTH: u32 = 9;
+    const WORD: u32 = 10; // i64
+    let sdesc = plan(b).scope_desc;
+    let bdesc = plan(b).scope_body_desc;
+    let table = plan(b).scope_body_table;
+    c(ins, S_SLOTS);
+    c(ins, sdesc as i32);
+    call(b, ins, "alloc");
+    ins.local_set(SO);
+    i32_const_cell(b, ins, |p| p.cur_fiber);
+    ins.i32_load(mem(0, 4));
+    ins.local_set(F);
+    stl(ins, SO, S_FIBER, F);
+    ldl(ins, F, F_SCOPES);
+    ins.local_set(DEPTH);
+    stl(ins, SO, S_DEPTH, DEPTH);
+    g(ins, DEPTH);
+    c(ins, 1);
+    ins.i32_add();
+    ins.local_set(DEPTH);
+    stl(ins, F, F_SCOPES, DEPTH);
+    g(ins, 3);
+    c(ins, SF_BACKGROUND);
+    ins.i32_mul();
+    ins.local_set(TMP);
+    stl(ins, SO, S_FLAGS, TMP);
+    st_const(ins, SO, S_FIRST, 0);
+    st_const(ins, SO, S_CHEAD, 0);
+    st_const(ins, SO, S_CTAIL, 0);
+    st_const(ins, SO, S_CLOSER, 0);
+    // Call the body with the scope capability as its argument.
+    let ty = b.call_ty(&[Repr::Ref, Repr::Ref], Repr::I64);
+    g(ins, 0);
+    g(ins, SO);
+    call(b, ins, "dup");
+    g(ins, SO);
+    g(ins, 1);
+    ins.call_indirect(0, ty);
+    ins.local_set(WORD);
+    ins.global_get(G_SUSPENDING);
+    ins.if_(BlockType::Empty);
+    // The body suspended: end the body when its continuation returns.
+    c(ins, bdesc as i32);
+    c(ins, table as i32);
+    c(ins, 0);
+    c(ins, 2);
+    let new = b.rt("frame_new");
+    ins.call(new);
+    ins.local_set(FR);
+    stl(ins, FR, HDR + 24, SO);
+    stl(ins, FR, HDR + 32, 2);
+    let push = b.rt("frame_push");
+    g(ins, FR);
+    ins.call(push);
+    ins.i64_const(0);
+    ins.return_();
+    ins.end();
+    // The body returned: its value, failure or defect is the scope's input.
+    c(ins, 0);
+    ins.local_set(MODE);
+    ins.global_get(G_DEFECT);
+    ins.if_(BlockType::Empty);
+    ins.global_get(G_DEFECT);
+    ins.i64_extend_i32_u();
+    ins.local_set(WORD);
+    c(ins, 0);
+    ins.global_set(G_DEFECT);
+    c(ins, 2);
+    ins.local_set(MODE);
+    ins.else_();
+    ins.global_get(G_FAILURE);
+    ins.if_(BlockType::Empty);
+    ins.global_get(G_FAILURE);
+    ins.i64_extend_i32_u();
+    ins.local_set(WORD);
+    c(ins, 0);
+    ins.global_set(G_FAILURE);
+    c(ins, 1);
+    ins.local_set(MODE);
+    ins.end();
+    ins.end();
+    g(ins, SO);
+    g(ins, MODE);
+    ins.local_get(WORD);
+    g(ins, 2);
+    let done = b.rt("fb_scope_body_done");
+    ins.call(done);
+}
+
+/// `fb_scope_body_done(so, mode, word, repr) -> word`: the body ended; a group closes. A group
+/// interrupts the tasks left; a background only when the body unwound by an interruption or one
+/// is pending (`[task.background]`).
+pub(super) fn scope_body_done(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const F: u32 = 4;
+    const CHILD: u32 = 5;
+    const NEXT: u32 = 6;
+    const W: u32 = 7;
+    const FR: u32 = 8;
+    const CAUSE: u32 = 9;
+    const TMP: u32 = 10;
+    let cdesc = plan(b).scope_close_desc;
+    let table = plan(b).scope_close_table;
+    ldl(ins, 0, S_FIBER);
+    ins.local_set(F);
+    ldl(ins, F, F_SCOPES);
+    c(ins, 1);
+    ins.i32_sub();
+    ins.local_set(TMP);
+    stl(ins, F, F_SCOPES, TMP);
+    g(ins, F);
+    g(ins, 0);
+    let remove = b.rt("fb_pending_remove");
+    ins.call(remove);
+    // A group closes; a background does not (`[task.background]`).
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BODY_DONE);
+    ins.i32_or();
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BACKGROUND);
+    ins.i32_and();
+    ins.if_(BlockType::Result(ValType::I32));
+    c(ins, 0);
+    ins.else_();
+    c(ins, SF_CLOSED);
+    ins.end();
+    ins.i32_or();
+    ins.local_set(TMP);
+    stl(ins, 0, S_FLAGS, TMP);
+    // The body's own failure (a group only).
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BACKGROUND);
+    ins.i32_and();
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    g(ins, 1);
+    c(ins, 1);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    c(ins, CAUSE_FAIL);
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    let make = b.rt("fb_cause_new");
+    ins.call(make);
+    ins.local_set(CAUSE);
+    g(ins, 0);
+    g(ins, CAUSE);
+    let failed = b.rt("fb_scope_failed");
+    ins.call(failed);
+    ins.else_();
+    g(ins, 1);
+    c(ins, 2);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    let intr = b.rt("fb_is_interrupted");
+    ins.call(intr);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    c(ins, CAUSE_DIE);
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    let make = b.rt("fb_cause_new");
+    ins.call(make);
+    ins.local_set(CAUSE);
+    g(ins, 0);
+    g(ins, CAUSE);
+    let failed = b.rt("fb_scope_failed");
+    ins.call(failed);
+    ins.end();
+    ins.end();
+    ins.end();
+    ins.end();
+    // Interrupt the tasks that are left.
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BACKGROUND);
+    ins.i32_and();
+    ins.i32_eqz();
+    g(ins, 1);
+    c(ins, 2);
+    ins.i32_eq();
+    ins.if_(BlockType::Result(ValType::I32));
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    let intr = b.rt("fb_is_interrupted");
+    ins.call(intr);
+    ins.else_();
+    c(ins, 0);
+    ins.end();
+    ins.i32_or();
+    ldl(ins, F, F_PHEAD);
+    c(ins, 0);
+    ins.i32_ne();
+    ins.i32_or();
+    ins.if_(BlockType::Empty);
+    // For a background, the with was interrupted from outside (only a background reads the flag).
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_INTERRUPTED);
+    ins.i32_or();
+    ins.local_set(TMP);
+    stl(ins, 0, S_FLAGS, TMP);
+    ldl(ins, 0, S_CHEAD);
+    ins.local_set(CHILD);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    g(ins, CHILD);
+    ins.i32_eqz();
+    ins.br_if(1);
+    ldl(ins, CHILD, F_ITEM);
+    ins.local_set(NEXT);
+    g(ins, CHILD);
+    c(ins, 0);
+    let interrupt = b.rt("fb_interrupt_fiber");
+    ins.call(interrupt);
+    g(ins, NEXT);
+    ins.local_set(CHILD);
+    ins.br(0);
+    ins.end();
+    ins.end();
+    ins.end();
+    ldl(ins, 0, S_CHEAD);
+    ins.if_(BlockType::Empty);
+    // Tasks remain: wait for the last one, holding interruption off. The release of a background
+    // passes an interruption that arrives meanwhile on to its tasks (`fb_interrupt_fiber`).
+    ldl(ins, F, F_HOLDS);
+    c(ins, 1);
+    ins.i32_add();
+    ins.local_set(TMP);
+    stl(ins, F, F_HOLDS, TMP);
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BACKGROUND);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    stl(ins, F, F_WAITING, 0);
+    ins.end();
+    c(ins, WK_CLOSER);
+    c(ins, 0);
+    let wait_new = b.rt("fb_wait_new");
+    ins.call(wait_new);
+    ins.local_set(W);
+    ldl(ins, W, W_FLAGS);
+    c(ins, WF_CLOSING);
+    ins.i32_or();
+    ins.local_set(TMP);
+    stl(ins, W, W_FLAGS, TMP);
+    stl(ins, W, W_TARGET, 0);
+    // The scope's field is raw (the descriptor does not count it): the suspension owns the
+    // wait, and `fb_scope_child_ended` wakes it through this pointer.  A counted reference here
+    // would leak with the (finalizer-less) scope record.
+    stl(ins, 0, S_CLOSER, W);
+    i32_const_cell(b, ins, |p| p.susp_wait);
+    g(ins, W);
+    ins.i32_store(mem(0, 4));
+    // The frame holds the body's result until every child ended.
+    c(ins, cdesc as i32);
+    c(ins, table as i32);
+    c(ins, 0);
+    c(ins, 5);
+    let new = b.rt("frame_new");
+    ins.call(new);
+    ins.local_set(FR);
+    ins.local_get(FR);
+    g(ins, 0);
+    ins.i32_store(mem(HDR + 24, 4));
+    stl(ins, FR, HDR + 32, 3);
+    ins.local_get(FR);
+    ins.local_get(2);
+    ins.i64_store(mem(HDR + 40, 8));
+    st_const(ins, FR, HDR + 48, 0);
+    ins.local_get(FR);
+    g(ins, 1);
+    ins.i32_store(mem(HDR + 56, 4));
+    g(ins, 3);
+    c(ins, R_REF);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.local_get(FR);
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    ins.i32_store(mem(HDR + 48, 4));
+    ins.end();
+    let push = b.rt("frame_push");
+    g(ins, FR);
+    ins.call(push);
+    c(ins, 1);
+    ins.global_set(G_SUSPENDING);
+    ins.i64_const(0);
+    ins.return_();
+    ins.end();
+    // No children left: the scope ends now.
+    g(ins, 0);
+    g(ins, 1);
+    ins.local_get(2);
+    g(ins, 3);
+    let finish = b.rt("fb_scope_finish");
+    ins.call(finish);
+}
+
+/// `fb_scope_finish(so, mode, word, repr) -> word`: for a group, the first failure, or the body's
+/// result. For a background, the body's result, unless a task failed (a defect of `on_failure`):
+/// that is a defect of the release of `Task.Background` (`[task.background]`, `[dyn.defect]`):
+/// the result when the body ended with a value, an error or an interruption, and a note on the
+/// body's defect otherwise.
+pub(super) fn scope_finish(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const FIRST: u32 = 4;
+    const V: u32 = 5;
+    const TMP: u32 = 6;
+    const D: u32 = 7;
+    let prefix = plan(b).note_background;
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_ENDED);
+    ins.i32_or();
+    ins.local_set(FIRST);
+    stl(ins, 0, S_FLAGS, FIRST);
+    ldl(ins, 0, S_FIRST);
+    ins.local_set(FIRST);
+    g(ins, FIRST);
+    ins.if_(BlockType::Empty);
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BACKGROUND);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    ldl(ins, FIRST, HDR);
+    ins.local_set(V);
+    g(ins, 1);
+    c(ins, 2);
+    ins.i32_eq();
+    ins.if_(BlockType::Result(ValType::I32));
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    let intr = b.rt("fb_is_interrupted");
+    ins.call(intr);
+    ins.i32_eqz();
+    ins.else_();
+    c(ins, 0);
+    ins.end();
+    ins.if_(BlockType::Empty);
+    // The body ended with a defect: the defect of `on_failure` is a note on it.
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    c(ins, prefix as i32);
+    call(b, ins, "str_append");
+    ins.local_set(TMP);
+    g(ins, TMP);
+    g(ins, V);
+    call(b, ins, "str_append");
+    ins.local_set(D);
+    dropv(b, ins, TMP);
+    // The note keeps the body's defect markers (`aux`).
+    g(ins, D);
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    ins.i32_load(mem(4, 4));
+    ins.i32_store(mem(4, 4));
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    call(b, ins, "drop");
+    g(ins, D);
+    ins.global_set(G_DEFECT);
+    ins.else_();
+    g(ins, 1);
+    c(ins, 1);
+    ins.i32_eq();
+    g(ins, 1);
+    c(ins, 2);
+    ins.i32_eq();
+    ins.i32_or();
+    g(ins, 1);
+    ins.i32_eqz();
+    g(ins, 3);
+    c(ins, R_REF);
+    ins.i32_eq();
+    ins.i32_and();
+    ins.i32_or();
+    ins.if_(BlockType::Empty);
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    call(b, ins, "drop");
+    ins.end();
+    g(ins, V);
+    call(b, ins, "dup");
+    g(ins, V);
+    ins.global_set(G_DEFECT);
+    ins.end();
+    dropv(b, ins, 0);
+    ins.i64_const(0);
+    ins.return_();
+    ins.end();
+    ins.end();
+    g(ins, FIRST);
+    ins.if_(BlockType::Empty);
+    // A failure wins over how the body ended. The body's own input is released with the
+    // reference-counting `drop`: a failure or defect/interruption value (modes 1 and 2) is a
+    // reference, a value only when it is one.
+    g(ins, 1);
+    c(ins, 1);
+    ins.i32_eq();
+    g(ins, 1);
+    c(ins, 2);
+    ins.i32_eq();
+    ins.i32_or();
+    g(ins, 1);
+    ins.i32_eqz();
+    g(ins, 3);
+    c(ins, R_REF);
+    ins.i32_eq();
+    ins.i32_and();
+    ins.i32_or();
+    ins.if_(BlockType::Empty);
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    call(b, ins, "drop");
+    ins.end();
+    ldl(ins, FIRST, HDR);
+    ins.local_set(V);
+    g(ins, V);
+    call(b, ins, "dup");
+    ldl(ins, FIRST, 4);
+    c(ins, CAUSE_FAIL);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    g(ins, V);
+    ins.global_set(G_FAILURE);
+    ins.else_();
+    g(ins, V);
+    ins.global_set(G_DEFECT);
+    ins.end();
+    ins.i64_const(0);
+    ins.local_set(2);
+    ins.else_();
+    g(ins, 1);
+    c(ins, 1);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    ins.global_set(G_FAILURE);
+    ins.i64_const(0);
+    ins.local_set(2);
+    ins.end();
+    g(ins, 1);
+    c(ins, 2);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    ins.local_get(2);
+    ins.i32_wrap_i64();
+    ins.global_set(G_DEFECT);
+    ins.i64_const(0);
+    ins.local_set(2);
+    ins.end();
+    ins.end();
+    dropv(b, ins, 0);
+    ins.local_get(2);
+}
+
+/// `fb_scope_body_resume(frame)`: the body's continuation returned; end the body.
+pub(super) fn scope_body_resume(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const SO: u32 = 1;
+    const REPR: u32 = 2;
+    const TMP: u32 = 3;
+    const RES: u32 = 4; // i64
+    ins.local_get(0);
+    ins.i32_load(mem(HDR + 24, 4));
+    ins.local_set(SO);
+    ins.local_get(0);
+    ins.i32_load(mem(HDR + 32, 4));
+    ins.local_set(REPR);
+    st_const(ins, 0, HDR + 24, 0);
+    dropv(b, ins, 0);
+    g(ins, SO);
+    sic(b, ins, |p| p.in_mode);
+    ins.i32_load8_u(mem(0, 1));
+    sic(b, ins, |p| p.in_word);
+    ins.i64_load(mem(0, 8));
+    g(ins, REPR);
+    let done = b.rt("fb_scope_body_done");
+    ins.call(done);
+    ins.local_set(RES);
+    write_out(b, ins, RES, REPR);
+    let _ = TMP;
+}
+
+/// Writes the result of a custom resume function: the value, or the pending failure or defect.
+pub(super) fn write_out(b: &mut Builder<'_>, ins: &mut InstructionSink, word: u32, repr: u32) {
+    ins.global_get(G_DEFECT);
+    ins.if_(BlockType::Empty);
+    sic(b, ins, |p| p.out_mode);
+    c(ins, 2);
+    ins.i32_store(mem(0, 4));
+    sic(b, ins, |p| p.out_word);
+    ins.global_get(G_DEFECT);
+    ins.i32_store(mem(0, 4));
+    c(ins, 0);
+    ins.global_set(G_DEFECT);
+    ins.return_();
+    ins.end();
+    ins.global_get(G_FAILURE);
+    ins.if_(BlockType::Empty);
+    sic(b, ins, |p| p.out_mode);
+    c(ins, 1);
+    ins.i32_store(mem(0, 4));
+    sic(b, ins, |p| p.out_word);
+    ins.global_get(G_FAILURE);
+    ins.i32_store(mem(0, 4));
+    c(ins, 0);
+    ins.global_set(G_FAILURE);
+    ins.return_();
+    ins.end();
+    sic(b, ins, |p| p.out_mode);
+    c(ins, 0);
+    ins.i32_store(mem(0, 4));
+    sic(b, ins, |p| p.out_word);
+    g(ins, word);
+    ins.i64_store(mem(0, 8));
+    let _ = repr;
+}
+
+/// `fb_scope_close_resume(frame)`: every child ended; finish the scope with the saved result.
+pub(super) fn scope_close_resume(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const SO: u32 = 1;
+    const REPR: u32 = 2;
+    const MODE: u32 = 3;
+    const RESVAL: u32 = 4;
+    const RES: u32 = 5;
+    const F: u32 = 6;
+    const WORD: u32 = 7; // i64
+    ins.local_get(0);
+    ins.i32_load(mem(HDR + 24, 4));
+    ins.local_set(SO);
+    ins.local_get(0);
+    ins.i32_load(mem(HDR + 32, 4));
+    ins.local_set(REPR);
+    ins.local_get(0);
+    ins.i32_load(mem(HDR + 56, 4));
+    ins.local_set(MODE);
+    ins.local_get(0);
+    ins.i64_load(mem(HDR + 40, 8));
+    ins.local_set(WORD);
+    ins.local_get(0);
+    ins.i32_load(mem(HDR + 48, 4));
+    ins.local_set(RESVAL);
+    st_const(ins, 0, HDR + 48, 0);
+    st_const(ins, 0, HDR + 24, 0);
+    dropv(b, ins, 0);
+    ldl(ins, SO, S_FIBER);
+    ins.local_set(F);
+    ldl(ins, F, F_HOLDS);
+    c(ins, 1);
+    ins.i32_sub();
+    ins.local_set(RES);
+    stl(ins, F, F_HOLDS, RES);
+    ldl(ins, F, F_WAITING);
+    g(ins, SO);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    st_const(ins, F, F_WAITING, 0);
+    ins.end();
+    // The saved word is the reference when the body's value was one.
+    g(ins, REPR);
+    c(ins, R_REF);
+    ins.i32_eq();
+    ins.if_(BlockType::Empty);
+    g(ins, RESVAL);
+    ins.i64_extend_i32_u();
+    ins.local_set(WORD);
+    ins.end();
+    g(ins, SO);
+    g(ins, MODE);
+    ins.local_get(WORD);
+    g(ins, REPR);
+    let finish = b.rt("fb_scope_finish");
+    ins.call(finish);
+    ins.local_set(WORD);
+    // The result is the next frame's input.
+    ins.global_get(G_DEFECT);
+    ins.if_(BlockType::Empty);
+    sic(b, ins, |p| p.out_mode);
+    c(ins, 2);
+    ins.i32_store(mem(0, 4));
+    sic(b, ins, |p| p.out_word);
+    ins.global_get(G_DEFECT);
+    ins.i32_store(mem(0, 4));
+    c(ins, 0);
+    ins.global_set(G_DEFECT);
+    ins.return_();
+    ins.end();
+    ins.global_get(G_FAILURE);
+    ins.if_(BlockType::Empty);
+    sic(b, ins, |p| p.out_mode);
+    c(ins, 1);
+    ins.i32_store(mem(0, 4));
+    sic(b, ins, |p| p.out_word);
+    ins.global_get(G_FAILURE);
+    ins.i32_store(mem(0, 4));
+    c(ins, 0);
+    ins.global_set(G_FAILURE);
+    ins.return_();
+    ins.end();
+    sic(b, ins, |p| p.out_mode);
+    c(ins, 0);
+    ins.i32_store(mem(0, 4));
+    sic(b, ins, |p| p.out_word);
+    g(ins, WORD);
+    ins.i64_store(mem(0, 8));
+}
+
+/// `fb_scope_failed(so, cause)`: a failure of the body or a task (`[task.group]`). Takes the cause.
+/// A failure of a task of a background (a defect of `on_failure`) stops nothing; the body's result
+/// decides what it becomes (`fb_scope_finish`).
+pub(super) fn scope_failed(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const CHILD: u32 = 2;
+    const NEXT: u32 = 3;
+    const F: u32 = 4;
+    const TMP: u32 = 5;
+    ldl(ins, 0, S_FIRST);
+    ins.if_(BlockType::Empty);
+    // The first failure stays the result; this one becomes a note.
+    ldl(ins, 0, S_FIRST);
+    g(ins, 1);
+    let note = b.rt("fb_note");
+    ins.call(note);
+    dropv(b, ins, 1);
+    ins.return_();
+    ins.end();
+    stl(ins, 0, S_FIRST, 1);
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BACKGROUND);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    ins.return_();
+    ins.end();
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_CLOSED);
+    ins.i32_or();
+    ins.local_set(TMP);
+    stl(ins, 0, S_FLAGS, TMP);
+    ldl(ins, 0, S_CHEAD);
+    ins.local_set(CHILD);
+    ins.block(BlockType::Empty);
+    ins.loop_(BlockType::Empty);
+    g(ins, CHILD);
+    ins.i32_eqz();
+    ins.br_if(1);
+    ldl(ins, CHILD, F_ITEM);
+    ins.local_set(NEXT);
+    g(ins, CHILD);
+    c(ins, 0);
+    let interrupt = b.rt("fb_interrupt_fiber");
+    ins.call(interrupt);
+    g(ins, NEXT);
+    ins.local_set(CHILD);
+    ins.br(0);
+    ins.end();
+    ins.end();
+    ldl(ins, 0, S_FIBER);
+    ins.local_set(F);
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BODY_DONE);
+    ins.i32_and();
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    g(ins, F);
+    g(ins, 0);
+    let interrupt = b.rt("fb_interrupt_fiber");
+    ins.call(interrupt);
+    ins.end();
+}
+
+/// `fb_scope_interrupted(so) -> i32`: whether the with of a background was interrupted from
+/// outside (`[task.background]`). While the body runs, an interruption of the whole fiber or of the
+/// body of an enclosing scope (a smaller depth), pending or unwinding, reaches the with from
+/// outside; one of an inner scope does not.
+pub(super) fn scope_interrupted(_b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const F: u32 = 1;
+    const P: u32 = 2;
+    const T: u32 = 3;
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_INTERRUPTED);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    c(ins, 1);
+    ins.return_();
+    ins.end();
+    ldl(ins, 0, S_FLAGS);
+    c(ins, SF_BODY_DONE);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    c(ins, 0);
+    ins.return_();
+    ins.end();
+    ldl(ins, 0, S_FIBER);
+    ins.local_set(F);
+    ldl(ins, F, F_FLAGS);
+    c(ins, FF_UNWINDING);
+    ins.i32_and();
+    ins.if_(BlockType::Empty);
+    c(ins, 1);
+    ins.return_();
+    ins.end();
+    for head in [F_PHEAD, F_UHEAD] {
+        ldl(ins, F, head);
+        ins.local_set(P);
+        ins.block(BlockType::Empty);
+        ins.loop_(BlockType::Empty);
+        g(ins, P);
+        ins.i32_eqz();
+        ins.br_if(1);
+        ldl(ins, P, N_TARGET);
+        ins.local_tee(T);
+        ins.i32_eqz();
+        ins.if_(BlockType::Empty);
+        c(ins, 1);
+        ins.return_();
+        ins.end();
+        ldl(ins, T, S_DEPTH);
+        ldl(ins, 0, S_DEPTH);
+        ins.i32_lt_s();
+        ins.if_(BlockType::Empty);
+        c(ins, 1);
+        ins.return_();
+        ins.end();
+        ldl(ins, P, N_NEXT);
+        ins.local_set(P);
+        ins.br(0);
+        ins.end();
+        ins.end();
+    }
+    c(ins, 0);
+}
+
+/// `fb_scope_child_ended(so, child)`: a child finished. Unlinks it, records its failure and wakes
+/// a scope that waits for its last child.
+pub(super) fn scope_child_ended(b: &mut Builder<'_>, ins: &mut InstructionSink) {
+    const PREV: u32 = 2;
+    const NEXT: u32 = 3;
+    const CAUSE: u32 = 4;
+    const W: u32 = 5;
+    ldl(ins, 1, F_ITEMPREV);
+    ins.local_set(PREV);
+    ldl(ins, 1, F_ITEM);
+    ins.local_set(NEXT);
+    g(ins, PREV);
+    ins.if_(BlockType::Empty);
+    stl(ins, PREV, F_ITEM, NEXT);
+    ins.else_();
+    stl(ins, 0, S_CHEAD, NEXT);
+    ins.end();
+    g(ins, NEXT);
+    ins.if_(BlockType::Empty);
+    stl(ins, NEXT, F_ITEMPREV, PREV);
+    ins.else_();
+    stl(ins, 0, S_CTAIL, PREV);
+    ins.end();
+    st_const(ins, 1, F_ITEM, 0);
+    st_const(ins, 1, F_ITEMPREV, 0);
+    ldl(ins, 1, F_CAUSE);
+    ins.local_set(CAUSE);
+    g(ins, CAUSE);
+    ins.if_(BlockType::Empty);
+    ldl(ins, CAUSE, 4);
+    c(ins, CAUSE_INTERRUPT);
+    ins.i32_ne();
+    ins.if_(BlockType::Empty);
+    g(ins, CAUSE);
+    call(b, ins, "dup");
+    g(ins, 0);
+    g(ins, CAUSE);
+    let failed = b.rt("fb_scope_failed");
+    ins.call(failed);
+    ins.end();
+    ins.end();
+    ldl(ins, 0, S_CHEAD);
+    ins.i32_eqz();
+    ins.if_(BlockType::Empty);
+    ldl(ins, 0, S_CLOSER);
+    ins.local_tee(W);
+    ins.if_(BlockType::Empty);
+    st_const(ins, 0, S_CLOSER, 0);
+    g(ins, W);
+    c(ins, 0);
+    ins.i64_const(0);
+    let wake = b.rt("fb_wait_wake");
+    ins.call(wake);
+    ins.end();
+    ins.end();
+}

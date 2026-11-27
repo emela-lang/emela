@@ -20,11 +20,11 @@
 //! - A wait in a line counts its owner, so the record lives while a fiber waits on it. The wait
 //!   forgets it when woken or dropped, which breaks the cycle through the line.
 
-use super::fiber::{
+use super::*;
+use super::{
     R_REF, W_LIVE, W_OWNER, W_REPR, WK_LINE, c, call, dropv, g, i32_const_cell, ldl, plan,
     st_const, stl,
 };
-use super::*;
 
 // ---- the Semaphore and Queue records ----
 
@@ -76,7 +76,7 @@ pub(crate) struct Plan {
 
 /// Whether the program has Semaphore or Queue operations.
 pub(crate) fn used(b: &Builder<'_>) -> bool {
-    super::super::suspend::used(b)
+    super::super::super::suspend::used(b)
         && b.m.functions.iter().any(|(_, f)| {
             f.stmts.iter().any(|(_, s)| {
                 matches!(
@@ -158,7 +158,7 @@ fn lp<'a>(b: &'a Builder<'_>) -> &'a Plan {
     &plan(b).line
 }
 
-pub(super) const FUNCS: &[Sig] = &[
+pub(in crate::emit::runtime) const FUNCS: &[Sig] = &[
     ("fb_semaphore", &[ValType::I32], &[ValType::I32]),
     ("fb_queue", &[ValType::I32], &[ValType::I32]),
     ("fb_acquire", &[ValType::I32, ValType::I32], &[]),
@@ -246,7 +246,7 @@ pub(super) const FUNCS: &[Sig] = &[
     ),
 ];
 
-pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
+pub(in crate::emit::runtime) fn locals(name: &str) -> Vec<(u32, ValType)> {
     match name {
         "fb_semaphore" | "fb_queue" => i32s(1),
         "fb_acquire" | "fb_try_acquire" | "fb_release" => i32s(1),
@@ -268,7 +268,11 @@ pub(super) fn locals(name: &str) -> Vec<(u32, ValType)> {
     }
 }
 
-pub(super) fn emit(b: &mut Builder<'_>, name: &str, ins: &mut InstructionSink) -> bool {
+pub(in crate::emit::runtime) fn emit(
+    b: &mut Builder<'_>,
+    name: &str,
+    ins: &mut InstructionSink,
+) -> bool {
     match name {
         "fb_semaphore" => new_cell(b, ins, false),
         "fb_queue" => new_cell(b, ins, true),
