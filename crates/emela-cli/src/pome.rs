@@ -46,7 +46,7 @@ pub fn pome(command: PomeCommand) -> ExitCode {
     let progress = Arc::new(CommandProgress::new(StatusLine::stderr()));
     let result = run(command, &progress);
     // The status line is erased before anything else is written.
-    progress.line.stop();
+    progress.stop();
     match result {
         Ok(Done::Changed(outcome)) => report(outcome),
         Ok(Done::List(tree)) => print!("{tree}"),
@@ -142,7 +142,7 @@ pub fn dependencies(base: &Path, tests: bool) -> Result<Dependencies, PomeError>
         &Fetcher::new(config, Http::new()).with_progress(Shared(Arc::clone(&progress))),
         tests,
     );
-    progress.line.stop();
+    progress.stop();
     dependencies
 }
 
@@ -173,6 +173,11 @@ impl CommandProgress {
                 downloaded: 0,
             }),
         }
+    }
+
+    /// Erases the status line, before the command prints anything else.
+    pub fn stop(&self) {
+        self.line.stop();
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, PhaseState> {
@@ -281,7 +286,7 @@ mod tests {
         progress.step(Step::Fetch(&b, &b2));
         progress.fetched(&b, &b2);
         progress.finish(Phase::Fetch, 2);
-        progress.line.stop();
+        progress.stop();
 
         let text = out.text();
         let kept: Vec<&str> = text

@@ -103,7 +103,7 @@ pub(crate) fn complete(
             Some("with") => cx.in_scope(offset, |kind| {
                 matches!(kind, DefKind::Handler | DefKind::Layer)
             }),
-            _ => match slot(&before[..start]) {
+            _ => match Tokens::new(&before[..start]).slot() {
                 Some(Slot::Effect) => cx.in_scope(offset, |kind| kind == DefKind::Effect),
                 Some(Slot::Error) => cx.in_scope(offset, |kind| kind == DefKind::Error),
                 Some(Slot::Trait) => cx.in_scope(offset, |kind| kind == DefKind::Trait),
@@ -771,157 +771,6 @@ enum Slot {
     Type,
 }
 
-/// The slot at the end of `text` (the text before the partially typed name), decided from its
-/// tokens. The source being edited does not parse, so this reads only the shape of the tokens
-/// before the cursor. A position that this shape cannot tell apart from an expression (the
-/// parameters of a lambda or of `init`, a pattern before `:`) gets `None`, and with it the
-/// general candidates.
-///
-/// One shape is read wrongly: after a lambda whose last parameter has a function type with a
-/// `fails` clause (`|f: fn() -> A fails E| `), the body is taken as the error set.
-fn slot(text: &str) -> Option<Slot> {
-    use SyntaxKind as K;
-    let t = Tokens::new(text);
-    let end = t.kinds.len();
-    let last = end.checked_sub(1).map(|i| t.kinds[i]);
-
-    // `fails E1 | E2 | `: the clause follows a type (`[error.fails]`), which tells the
-    // contextual keyword apart from a variable named `fails`.
-    let list = t.list_before(end, K::PIPE);
-    if t.word_before(list, "fails")
-        && list.checked_sub(2).is_some_and(|i| {
-            matches!(
-                t.kinds[i],
-                K::TYPE_NAME | K::UPPER_NAME | K::R_BRACK | K::R_PAREN | K::SELF_TYPE_KW
-            )
-        })
-    {
-        return Some(Slot::Error);
-    }
-
-    // `impl T:`, `impl T[A]:`, `trait T: A + `, `[A: B + ` in declared type parameters, and
-    // `handler H:`, `handler H(…):`, `handler H[…]:`, `handler H[…](…):`.
-    let list = t.list_before(end, K::PLUS);
-    if let Some(colon) = list.checked_sub(1).filter(|&i| t.kinds[i] == K::COLON) {
-        let head = t.group_before(colon).unwrap_or(colon);
-        if t.type_ref_before(head)
-            .is_some_and(|name| t.kind(name.wrapping_sub(1)) == Some(K::IMPL_KW))
-            || (t.kind(colon.wrapping_sub(1)) == Some(K::TYPE_NAME)
-                && t.kind(colon.wrapping_sub(2)) == Some(K::TRAIT_KW))
-        {
-            return Some(Slot::Trait);
-        }
-        // The type parameters of a handler come before its fields (`[grammar.decl]`).
-        let head = match t.kind(head.wrapping_sub(1)) {
-            Some(K::R_BRACK) => t.group_before(head).unwrap_or(head),
-            _ => head,
-        };
-        if list == end
-            && t.kind(head.wrapping_sub(1)) == Some(K::TYPE_NAME)
-            && t.kind(head.wrapping_sub(2)) == Some(K::HANDLER_KW)
-        {
-            return Some(Slot::Effect);
-        }
-        if let Some(&open) = t.open.last()
-            && t.declares_params(open)
-            && matches!(
-                t.kind(colon.wrapping_sub(1)),
-                Some(K::TYPE_NAME | K::UPPER_NAME)
-            )
-            && (colon - 2 == open || t.kind(colon - 2) == Some(K::COMMA))
-        {
-            return Some(Slot::Trait);
-        }
-    }
-
-    // `derive A, B, ` after the fields or the variants of a declaration (`[trait.derive]`).
-    let list = t.list_before(end, K::COMMA);
-    if t.word_before(list, "derive")
-        && list.checked_sub(2).is_some_and(|i| {
-            matches!(
-                t.kinds[i],
-                K::TYPE_NAME | K::R_PAREN | K::R_BRACE | K::R_BRACK
-            )
-        })
-    {
-        return Some(Slot::Trait);
-    }
-
-    // At the start of an item inside a bracket still open.
-    if let Some(&open) = t.open.last() {
-        let item = t.item_start(open, end);
-        let enclosing = t.open.len().checked_sub(2).map(|i| t.open[i]);
-        match t.kinds[open] {
-            K::L_BRACE if item == end => {
-                if t.word_before(open, "uses") {
-                    return Some(Slot::Effect);
-                }
-                // `TaskGroup[E, { `: an effect set as a type argument.
-                if enclosing.is_some_and(|e| t.type_args(e))
-                    && matches!(t.kind(open - 1), Some(K::L_BRACK | K::COMMA))
-                {
-                    return Some(Slot::Effect);
-                }
-            }
-            // `List[`, `Map[K, `, and an error set `E1 | ` as a type argument.
-            K::L_BRACK if t.type_args(open) && (item == end || last == Some(K::PIPE)) => {
-                return Some(Slot::Type);
-            }
-            // The parameters of a function type, `fn(A, `.
-            K::L_PAREN if item == end && t.kind(open.wrapping_sub(1)) == Some(K::FN_KW) => {
-                return Some(Slot::Type);
-            }
-            // A variant with positional fields, `V(A, ` in an enum.
-            K::L_PAREN
-                if item == end
-                    && t.variant(open.wrapping_sub(1), enclosing)
-                    && !t.kinds[open + 1..end].contains(&K::COLON) =>
-            {
-                return Some(Slot::Type);
-            }
-            _ => {}
-        }
-    }
-
-    match last {
-        // `name: ` in the parameters of a function, the fields of a type, an error, a handler
-        // or a variant, a binding at the start of a statement, and `const C: `. A label in a call
-        // (`f(x: `) is a value position and is not matched.
-        Some(K::COLON) => {
-            let name = end.checked_sub(2)?;
-            match t.kinds[name] {
-                K::UPPER_NAME if t.kind(name.wrapping_sub(1)) == Some(K::CONST_KW) => {
-                    Some(Slot::Type)
-                }
-                K::LOWER_NAME => {
-                    let open = t.open.last().copied();
-                    let enclosing = t.open.len().checked_sub(2).map(|i| t.open[i]);
-                    let first_in =
-                        |open: usize| name - 1 == open || t.kind(name - 1) == Some(K::COMMA);
-                    let field = open.is_some_and(|open| {
-                        t.kinds[open] == K::L_PAREN
-                            && first_in(open)
-                            && t.declares_fields(open, enclosing)
-                    });
-                    let binding = (t.line_start[name] || open.is_some_and(|o| name - 1 == o))
-                        && open.is_none_or(|open| t.kinds[open] == K::L_BRACE);
-                    (field || binding).then_some(Slot::Type)
-                }
-                _ => None,
-            }
-        }
-        // A return type: `->` after the parameters of a function or a function type. After a
-        // pattern (`Some(x) ->` in a match arm) it is a value position.
-        Some(K::THIN_ARROW) => {
-            let close = end.checked_sub(2)?;
-            let open = t.opener[close]?;
-            (t.kind(open.wrapping_sub(1)) == Some(K::FN_KW) || t.fn_params(open))
-                .then_some(Slot::Type)
-        }
-        _ => None,
-    }
-}
-
 /// The tokens of the text before the cursor, without trivia and newlines, and the brackets they
 /// leave open.
 struct Tokens<'a> {
@@ -971,6 +820,158 @@ impl<'a> Tokens<'a> {
             tokens.opener.push(opener);
         }
         tokens
+    }
+
+    /// The slot at the end of these tokens (of the text before the partially typed name). The
+    /// source being edited does not parse, so this reads only the shape of the tokens before the
+    /// cursor. A position that this shape cannot tell apart from an expression (the parameters
+    /// of a lambda or of `init`, a pattern before `:`) gets `None`, and with it the general
+    /// candidates.
+    ///
+    /// One shape is read wrongly: after a lambda whose last parameter has a function type with a
+    /// `fails` clause (`|f: fn() -> A fails E| `), the body is taken as the error set.
+    fn slot(&self) -> Option<Slot> {
+        use SyntaxKind as K;
+        let end = self.kinds.len();
+        let last = end.checked_sub(1).map(|i| self.kinds[i]);
+
+        // `fails E1 | E2 | `: the clause follows a type (`[error.fails]`), which tells the
+        // contextual keyword apart from a variable named `fails`.
+        let list = self.list_before(end, K::PIPE);
+        if self.word_before(list, "fails")
+            && list.checked_sub(2).is_some_and(|i| {
+                matches!(
+                    self.kinds[i],
+                    K::TYPE_NAME | K::UPPER_NAME | K::R_BRACK | K::R_PAREN | K::SELF_TYPE_KW
+                )
+            })
+        {
+            return Some(Slot::Error);
+        }
+
+        // `impl T:`, `impl T[A]:`, `trait T: A + `, `[A: B + ` in declared type parameters, and
+        // `handler H:`, `handler H(…):`, `handler H[…]:`, `handler H[…](…):`.
+        let list = self.list_before(end, K::PLUS);
+        if let Some(colon) = list.checked_sub(1).filter(|&i| self.kinds[i] == K::COLON) {
+            let head = self.group_before(colon).unwrap_or(colon);
+            if self
+                .type_ref_before(head)
+                .is_some_and(|name| self.kind(name.wrapping_sub(1)) == Some(K::IMPL_KW))
+                || (self.kind(colon.wrapping_sub(1)) == Some(K::TYPE_NAME)
+                    && self.kind(colon.wrapping_sub(2)) == Some(K::TRAIT_KW))
+            {
+                return Some(Slot::Trait);
+            }
+            // The type parameters of a handler come before its fields (`[grammar.decl]`).
+            let head = match self.kind(head.wrapping_sub(1)) {
+                Some(K::R_BRACK) => self.group_before(head).unwrap_or(head),
+                _ => head,
+            };
+            if list == end
+                && self.kind(head.wrapping_sub(1)) == Some(K::TYPE_NAME)
+                && self.kind(head.wrapping_sub(2)) == Some(K::HANDLER_KW)
+            {
+                return Some(Slot::Effect);
+            }
+            if let Some(&open) = self.open.last()
+                && self.declares_params(open)
+                && matches!(
+                    self.kind(colon.wrapping_sub(1)),
+                    Some(K::TYPE_NAME | K::UPPER_NAME)
+                )
+                && (colon - 2 == open || self.kind(colon - 2) == Some(K::COMMA))
+            {
+                return Some(Slot::Trait);
+            }
+        }
+
+        // `derive A, B, ` after the fields or the variants of a declaration (`[trait.derive]`).
+        let list = self.list_before(end, K::COMMA);
+        if self.word_before(list, "derive")
+            && list.checked_sub(2).is_some_and(|i| {
+                matches!(
+                    self.kinds[i],
+                    K::TYPE_NAME | K::R_PAREN | K::R_BRACE | K::R_BRACK
+                )
+            })
+        {
+            return Some(Slot::Trait);
+        }
+
+        // At the start of an item inside a bracket still open.
+        if let Some(&open) = self.open.last() {
+            let item = self.item_start(open, end);
+            let enclosing = self.open.len().checked_sub(2).map(|i| self.open[i]);
+            match self.kinds[open] {
+                K::L_BRACE if item == end => {
+                    if self.word_before(open, "uses") {
+                        return Some(Slot::Effect);
+                    }
+                    // `TaskGroup[E, { `: an effect set as a type argument.
+                    if enclosing.is_some_and(|e| self.type_args(e))
+                        && matches!(self.kind(open - 1), Some(K::L_BRACK | K::COMMA))
+                    {
+                        return Some(Slot::Effect);
+                    }
+                }
+                // `List[`, `Map[K, `, and an error set `E1 | ` as a type argument.
+                K::L_BRACK if self.type_args(open) && (item == end || last == Some(K::PIPE)) => {
+                    return Some(Slot::Type);
+                }
+                // The parameters of a function type, `fn(A, `.
+                K::L_PAREN if item == end && self.kind(open.wrapping_sub(1)) == Some(K::FN_KW) => {
+                    return Some(Slot::Type);
+                }
+                // A variant with positional fields, `V(A, ` in an enum.
+                K::L_PAREN
+                    if item == end
+                        && self.variant(open.wrapping_sub(1), enclosing)
+                        && !self.kinds[open + 1..end].contains(&K::COLON) =>
+                {
+                    return Some(Slot::Type);
+                }
+                _ => {}
+            }
+        }
+
+        match last {
+            // `name: ` in the parameters of a function, the fields of a type, an error, a handler
+            // or a variant, a binding at the start of a statement, and `const C: `. A label in a call
+            // (`f(x: `) is a value position and is not matched.
+            Some(K::COLON) => {
+                let name = end.checked_sub(2)?;
+                match self.kinds[name] {
+                    K::UPPER_NAME if self.kind(name.wrapping_sub(1)) == Some(K::CONST_KW) => {
+                        Some(Slot::Type)
+                    }
+                    K::LOWER_NAME => {
+                        let open = self.open.last().copied();
+                        let enclosing = self.open.len().checked_sub(2).map(|i| self.open[i]);
+                        let first_in =
+                            |open: usize| name - 1 == open || self.kind(name - 1) == Some(K::COMMA);
+                        let field = open.is_some_and(|open| {
+                            self.kinds[open] == K::L_PAREN
+                                && first_in(open)
+                                && self.declares_fields(open, enclosing)
+                        });
+                        let binding = (self.line_start[name]
+                            || open.is_some_and(|o| name - 1 == o))
+                            && open.is_none_or(|open| self.kinds[open] == K::L_BRACE);
+                        (field || binding).then_some(Slot::Type)
+                    }
+                    _ => None,
+                }
+            }
+            // A return type: `->` after the parameters of a function or a function type. After a
+            // pattern (`Some(x) ->` in a match arm) it is a value position.
+            Some(K::THIN_ARROW) => {
+                let close = end.checked_sub(2)?;
+                let open = self.opener[close]?;
+                (self.kind(open.wrapping_sub(1)) == Some(K::FN_KW) || self.fn_params(open))
+                    .then_some(Slot::Type)
+            }
+            _ => None,
+        }
     }
 
     /// The kind at `i`, if there is a token there (an index below zero wraps and is out of range).
