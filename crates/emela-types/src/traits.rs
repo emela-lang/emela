@@ -15,8 +15,7 @@ use smol_str::SmolStr;
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::lower::{TyTable, with_traits};
 use crate::row::{Row, RowElem};
-use crate::scheme::Scheme;
-use crate::scheme::substitute;
+use crate::scheme::{Scheme, substitute};
 use crate::signature::{Signature, Signatures, param_labels};
 use crate::ty::{CAPABILITY, ParamKind, Prim, Ty, TyParam};
 
