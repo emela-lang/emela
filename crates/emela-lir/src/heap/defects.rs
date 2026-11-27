@@ -618,8 +618,7 @@ impl<'a> Explicit<'a> {
             }
             Stmt::Block { dst, label, body } => {
                 self.depth.insert(*label, self.stack.len());
-                let new = self.out.labels.alloc(src.labels[*label].clone());
-                self.c.labels.insert(*label, new);
+                let new = self.c.fresh_label(&mut self.out, *label);
                 let body = self.seq(*body, false);
                 Stmt::Block {
                     dst: self.fresh_dst(*dst),
