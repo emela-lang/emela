@@ -112,7 +112,7 @@ fn paren_type(p: &mut Parser<'_>) {
     while !p.at(R_PAREN) && !p.at_eof() {
         count += 1;
         // `|f: (fn() -> A fails B | C)| ...`: inside parentheses `|` joins an error set again.
-        p.with_closure_params(false, type_);
+        p.in_brackets(type_);
         trailing_comma = p.eat(COMMA);
         if !trailing_comma {
             break;
@@ -233,7 +233,7 @@ fn error_set(p: &mut Parser<'_>) {
         p.expect(R_BRACE);
     } else {
         set_element(p);
-        while !p.in_closure_params && p.eat(PIPE) {
+        while !p.pipe_closes_closure_params() && p.eat(PIPE) {
             set_element(p);
         }
     }

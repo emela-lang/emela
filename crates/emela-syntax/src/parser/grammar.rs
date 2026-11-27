@@ -5,11 +5,60 @@ mod items;
 mod patterns;
 mod types;
 
-use super::{CompletedMarker, Parser};
+use super::{CompletedMarker, Marker, Parser};
 use crate::SyntaxKind::{self, *};
 use crate::diagnostic::DiagnosticCode;
 
 pub(crate) use items::source_file as root;
+
+/// Reads separating newlines. If a doc comment is attached, returns a marker opened at its
+/// position. The declaration opens with this marker, so `sink` puts the comment inside the
+/// declaration node.
+fn newlines_with_doc(p: &mut Parser<'_>) -> Option<Marker> {
+    let mut doc = None;
+    while p.at(NEWLINE) {
+        if doc.is_none() && p.at_doc_comment() {
+            doc = Some(p.start());
+        }
+        p.bump();
+    }
+    doc
+}
+
+/// `local_fn = "fn" lower_name "(" [ params ] ")" [ signature ] block` (`[fn.local]`), a statement
+/// of a block. `m` is opened before its doc comment, if any. It is a declaration read from inside
+/// an expression, so it lives here rather than in `items` or `expressions`.
+///
+/// The parser also reads the attributes, `pub`, `suspend` and type parameters of a top-level fn
+/// into the node, and validation reports them (E1212, E1213). A missing body is reported here.
+fn local_fn(p: &mut Parser<'_>, m: Marker) {
+    while p.at(AT) {
+        items::annotation(p);
+        while p.eat(NEWLINE) {}
+    }
+    p.eat(PUB_KW);
+    let has_body = items::fn_head_and_body(p);
+    if !has_body {
+        p.error(
+            DiagnosticCode::ExpectedToken,
+            "expected `{` and the body of the local function",
+        );
+    }
+    m.complete(p, LOCAL_FN);
+}
+
+/// Whether the parser is at the start of a local fn: `fn` and a name, or the attributes, `pub`
+/// and `suspend` that a top-level fn can have before `fn`. A statement cannot start with any of
+/// them otherwise.
+fn at_local_fn_start(p: &Parser<'_>) -> bool {
+    match p.current() {
+        FN_KW => p.nth(1) == LOWER_NAME,
+        SUSPEND_KW => p.nth(1) == FN_KW,
+        PUB_KW => matches!(p.nth(1), FN_KW | SUSPEND_KW),
+        AT => true,
+        _ => false,
+    }
+}
 
 /// A comma-separated list from `open` to `close`, with an optional trailing comma. Newlines
 /// inside braces remain as separators in the token stream, so they are skipped around elements.
@@ -27,7 +76,7 @@ fn delimited(
     while p.eat(NEWLINE) {}
     while !p.at(close) && !p.at_eof() {
         // A `|` inside brackets is not the end of a closure's parameter list.
-        p.with_closure_params(false, &mut element);
+        p.in_brackets(&mut element);
         while p.eat(NEWLINE) {}
         if !p.eat(COMMA) {
             break;
@@ -83,7 +132,7 @@ fn closure_param_list(p: &mut Parser<'_>) {
         return;
     }
     p.bump_kind(PIPE);
-    p.with_closure_params(true, |p| {
+    p.in_closure_param_list(|p| {
         while !p.at(PIPE) && !p.at_eof() {
             lambda_param(p);
             if !p.eat(COMMA) {
