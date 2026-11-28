@@ -960,7 +960,9 @@ fn pipe_outside_brackets(ty: &SyntaxNode) -> bool {
 fn inside_brackets(node: &SyntaxNode) -> bool {
     for ancestor in node.ancestors().skip(1) {
         match ancestor.kind() {
-            ARG_LIST | PAREN_EXPR | TUPLE_EXPR | LIST_EXPR | INTERP => return true,
+            ARG_LIST | LOOP_PARAM_LIST | PAREN_EXPR | TUPLE_EXPR | LIST_EXPR | INTERP => {
+                return true;
+            }
             BLOCK_EXPR | MATCH_ARM_LIST | ROOT => return false,
             _ => {}
         }

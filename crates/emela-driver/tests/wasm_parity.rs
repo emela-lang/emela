@@ -1237,6 +1237,100 @@ fn main() {
 }
 "#,
     ),
+    // `[fn.loop]`: loop expressions, their initial values evaluated left to right outside the
+    // loop, calls with positional and named arguments, a pipe into the name, a deep loop, errors
+    // of the body, a handler provided by the `with` around it, and a nested loop.
+    (
+        "loop_exprs",
+        r##"
+error Boom(at: Int)
+
+effect Name {
+  fn name() -> String
+}
+
+handler Alice: Name {
+  fn name() { "alice" }
+}
+
+type Point(x: Int, y: Int)
+
+fn range(from: Int, to: Int) -> List[Int] {
+  loop onto(to:, acc: []) {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+}
+
+fn noisy(label: String, n: Int) -> Int {
+  _ = dbg(label)
+  n
+}
+
+fn order(a: Int) -> Int {
+  loop go(a: noisy("a", 1), b: noisy("b", a)) { a * 10 + b }
+}
+
+fn named(n: Int) -> Int {
+  loop go(i: n, acc: 0) {
+    if i == 0 { acc } else { go(acc: acc + i, i: i - 1) }
+  }
+}
+
+fn piped(n: Int) -> Int {
+  loop go(i: n) {
+    if i <= 0 { i } else { i - 1 |> go }
+  }
+}
+
+fn walk(p: Point, steps: Int) -> Int {
+  loop go(q: p, n: steps) {
+    if n == 0 { q.x * 100 + q.y } else { go(Point(x: q.x + 1, y: q.y * 2), n - 1) }
+  }
+}
+
+fn first_negative(xs: List[Int]) -> Int fails Boom {
+  loop go(ys: xs, i: 0) {
+    ys match {
+      [] -> i
+      [y, ..rest] -> if y < 0 { fail Boom(at: i) } else { go(rest, i + 1) }
+    }
+  }
+}
+
+fn greet(times: Int) -> String {
+  with Alice {
+    loop go(n: times, acc: "") {
+      name <- Name
+      if n == 0 { acc } else { go(n - 1, "#{acc}#{name.name()}") }
+    }
+  }
+}
+
+fn nested(n: Int) -> Int {
+  loop outer(i: n, total: 0) {
+    if i == 0 { total } else {
+      row = loop inner(j: i, acc: 0) {
+        if j == 0 { acc } else { inner(j - 1, acc + j) }
+      }
+      outer(i - 1, total + row)
+    }
+  }
+}
+
+fn main() {
+  dbg(range(1, 5))
+  dbg(order(7))
+  dbg(loop go(n: 0) { if n == 1000000 { n } else { go(n + 1) } })
+  dbg(named(4))
+  dbg(piped(5))
+  dbg(walk(Point(x: 0, y: 1), 3))
+  dbg(first_negative([1, 2, 3]) escape { Boom(at:) -> 0 - at })
+  dbg(first_negative([1, -2, 3]) escape { Boom(at:) -> 0 - at })
+  dbg(greet(2))
+  dbg(nested(4))
+}
+"##,
+    ),
     // `[effect.with]`, `[effect.handler]`: handler members opened by `with` and inside an init,
     // released in reverse order, those opened by an init after the handler that opened them.
     (

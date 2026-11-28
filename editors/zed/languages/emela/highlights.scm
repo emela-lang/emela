@@ -94,6 +94,13 @@
 (local_function
   name: (identifier) @function)
 
+(loop_expression
+  name: (identifier) @function)
+
+(loop_parameters
+  (named_argument
+    name: (identifier) @variable.parameter))
+
 (operation
   name: (identifier) @function)
 
@@ -212,6 +219,8 @@
 ] @keyword.modifier
 
 "import" @keyword.import
+
+"loop" @keyword.repeat
 
 [
   "if"

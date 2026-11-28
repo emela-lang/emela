@@ -396,3 +396,39 @@ fn local_fns_in_ide_queries() {
         "{hints:?}"
     );
 }
+
+/// `[fn.loop]`: hover shows the type of a loop expression's name, highlights find its calls in
+/// the body, completion offers the name only inside the body and the parameters there, and the
+/// `loop` keyword is offered.
+#[test]
+fn loop_exprs_in_ide_queries() {
+    let text = "fn main() -> Int {\n  before = 1\n  loop go(n: before) {\n    if n == 0 { n } else { go(n - 1) }\n  }\n}\n";
+    let (analysis, program) = checked(&[("/app/Pome.toml", ""), ("/app/src/main.emel", text)]);
+    let file = analysis
+        .sources
+        .file_id(Path::new("/app/src/main.emel"))
+        .unwrap();
+    for needle in ["go(n: before)", "go(n - 1)"] {
+        let shown = Typecheck::hover(&program, &analysis, file, at(text, needle))
+            .unwrap()
+            .contents;
+        assert!(shown.contains("fn(Int) -> Int"), "{shown}");
+    }
+
+    let ranges = Typecheck::document_highlights(&program, &analysis, file, at(text, "go(n - 1)"));
+    let starts: Vec<TextSize> = ranges.iter().map(|r| r.start()).collect();
+    assert_eq!(starts, [at(text, "go(n: before)"), at(text, "go(n - 1)")]);
+
+    let labels = |needle: &str| -> Vec<String> {
+        Typecheck::complete(&program, &analysis, file, at(text, needle))
+            .into_iter()
+            .map(|c| c.label)
+            .collect()
+    };
+    let in_head = labels("before) {");
+    assert!(!in_head.iter().any(|l| l == "go"), "{in_head:?}");
+    assert!(in_head.iter().any(|l| l == "loop"), "{in_head:?}");
+    let in_body = labels("n == 0");
+    assert!(in_body.iter().any(|l| l == "go"), "{in_body:?}");
+    assert!(in_body.iter().any(|l| l == "n"), "{in_body:?}");
+}

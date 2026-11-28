@@ -1,0 +1,43 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\ntype Point(x: Int, y: Int)\n\npub fn range(from: Int, to: Int) -> List[Int] {\n  loop onto(to:, acc: []) {\n    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }\n  }\n}\n\nfn sum_x(ps: List[Point]) -> Int {\n  loop go(ps:, total: 0) {\n    ps match {\n      [] -> total\n      [p, ..rest] -> go(total: total + p.x, ps: rest)\n    }\n  }\n}\n\nfn field_of_init(p: Point) -> Int {\n  loop go(q: p, n: 3) {\n    if n == 0 { q.x } else { go(Point(x: q.x + 1, y: q.y), n - 1) }\n  }\n}\n\nfn piped(n: Int) -> Int {\n  loop go(i: n) {\n    if i <= 0 { i } else { i - 1 |> go }\n  }\n}\n\nfn empty_head() -> Int {\n  loop go() { 1 }\n}\n\nfn by_return_type() -> List[Point] {\n  loop go(acc: [], n: 0) -> List[Point] {\n    if n == 0 { acc } else { go(acc, n - 1) }\n  }\n}\n\nfn by_binding() -> Int {\n  empty: List[Point] = []\n  loop go(acc: empty) {\n    acc match {\n      [p, ..] -> p.y\n      [] -> 0\n    }\n  }\n}\n\nfn generic[A](xs: List[A]) -> Int {\n  loop go(ys: xs, n: 0) {\n    ys match {\n      [] -> n\n      [_, ..rest] -> go(rest, n + 1)\n    }\n  }\n}\n\"#)"
+---
+range: fn(Int, Int) -> List[Int]
+  from: Int
+  to: Int
+  onto: fn(Int, List[Int]) -> List[Int]
+  to: Int
+  acc: List[Int]
+sum_x: fn(List[Point]) -> Int
+  ps: List[Point]
+  go: fn(List[Point], Int) -> Int
+  ps: List[Point]
+  total: Int
+  p: Point
+  rest: List[Point]
+field_of_init: fn(Point) -> Int
+  p: Point
+  go: fn(Point, Int) -> Int
+  q: Point
+  n: Int
+piped: fn(Int) -> Int
+  n: Int
+  go: fn(Int) -> Int
+  i: Int
+empty_head: fn() -> Int
+  go: fn() -> Int
+by_return_type: fn() -> List[Point]
+  go: fn(List[Point], Int) -> List[Point]
+  acc: List[Point]
+  n: Int
+by_binding: fn() -> Int
+  empty: List[Point]
+  go: fn(List[Point]) -> Int
+  acc: List[Point]
+  p: Point
+generic: ∀ A. fn(List[A]) -> Int
+  xs: List['0]
+  go: fn(List['0], Int) -> Int
+  ys: List['0]
+  n: Int
+  rest: List['0]

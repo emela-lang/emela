@@ -230,6 +230,20 @@ fn area(shape: Shape) -> Float {
     ));
 }
 
+/// 6.8 Repetition: a loop expression whose parameter types come from its initial values.
+#[test]
+fn spec_6_8_loop_expression() {
+    insta::assert_snapshot!(render_bodies(
+        r#"
+pub fn range(from: Int, to: Int) -> List[Int] {
+  loop onto(to:, acc: []) {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+}
+"#
+    ));
+}
+
 /// 6.7 Pipes. The named arguments of `List.fold(from: 0, f: add)` follow the pipe's left side.
 /// 6.9 Local functions: `onto` captures `from` and calls itself.
 #[test]

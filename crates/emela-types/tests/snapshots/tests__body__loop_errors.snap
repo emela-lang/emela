@@ -1,0 +1,33 @@
+---
+source: crates/emela-types/tests/body.rs
+expression: "run(r#\"\nfn twice() -> Int {\n  loop go(a: 1, a: 2) { a }\n}\n\nfn mismatch(n: Int) -> Int {\n  loop go(i: n) { if i > 0 { go(\"a\") } else { i } }\n}\n\nfn label(n: Int) -> Int {\n  loop go(i: n) { if i > 0 { go(j: 1) } else { i } }\n}\n\nfn count(n: Int) -> Int {\n  loop go(i: n) { if i > 0 { go(1, 2) } else { i } }\n}\n\nfn ret(n: Int) -> Int {\n  loop go(i: n) -> String { \"a\" }\n}\n\nfn method(n: Int) -> Int {\n  loop go(i: n) { if i > 0 { i.go() } else { i } }\n}\n\"#)"
+---
+twice: fn() -> Int
+  go: fn(Int) -> Int
+  a: Int
+mismatch: fn(Int) -> Int
+  n: Int
+  go: fn(Int) -> Int
+  i: Int
+label: fn(Int) -> Int
+  n: Int
+  go: fn(Int) -> Int
+  i: Int
+count: fn(Int) -> Int
+  n: Int
+  go: fn(Int) -> Int
+  i: Int
+ret: fn(Int) -> Int
+  n: Int
+  go: fn(Int) -> String
+  i: Int
+method: fn(Int) -> Int
+  n: Int
+  go: fn(Int) -> Int
+  i: Int
+`a` DuplicateArg { label: "a" }
+`"a"` mismatch: expected `Int`, found `String`
+`j` UnknownLabel { callee: "go", label: "j" }
+`go(1, 2)` WrongArgCount { callee: Some("go"), expected: 1, found: 2 }
+`loop go(i: n) -> String { "a" }` mismatch: expected `Int`, found `String`
+`go` type `Int` has no fields (`go`)

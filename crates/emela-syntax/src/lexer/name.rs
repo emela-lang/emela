@@ -57,11 +57,12 @@ fn keyword(word: &str) -> Option<SyntaxKind> {
         "use" => USE_KW,
         "with" => WITH_KW,
         "assert" => ASSERT_KW,
+        "loop" => LOOP_KW,
         "self" => SELF_KW,
         "Self" => SELF_TYPE_KW,
         "as" => AS_KW,
-        "var" | "return" | "while" | "loop" | "let" | "mut" | "in" | "where" | "do" | "try"
-        | "catch" | "throw" | "async" | "yield" | "defer" | "macro" | "mod" => RESERVED_KW,
+        "var" | "return" | "while" | "let" | "mut" | "in" | "where" | "do" | "try" | "catch"
+        | "throw" | "async" | "yield" | "defer" | "macro" | "mod" => RESERVED_KW,
         _ => return None,
     };
     Some(kind)
@@ -134,6 +135,7 @@ mod tests {
             ("Self", Some(SELF_TYPE_KW)),
             ("return", Some(RESERVED_KW)),
             ("mod", Some(RESERVED_KW)),
+            ("loop", Some(LOOP_KW)),
         ]);
     }
 

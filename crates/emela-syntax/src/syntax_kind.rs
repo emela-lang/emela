@@ -97,6 +97,8 @@ pub enum SyntaxKind {
     WITH_KW,
     /// `assert`
     ASSERT_KW,
+    /// `loop`
+    LOOP_KW,
     /// `self`
     SELF_KW,
     /// `Self`
@@ -105,7 +107,7 @@ pub enum SyntaxKind {
     AS_KW,
     /// Words reserved for the future (spec 3.3). They have no syntax, so they share one kind.
     ///
-    /// `var` `return` `while` `loop` `let` `mut` `in` `where` `do` `try` `catch` `throw`
+    /// `var` `return` `while` `let` `mut` `in` `where` `do` `try` `catch` `throw`
     /// `async` `yield` `defer` `macro` `mod`
     RESERVED_KW,
 
@@ -400,6 +402,15 @@ pub enum SyntaxKind {
     ESCAPE_EXPR,
     /// `|n| n + 1`
     LAMBDA_EXPR,
+    /// `loop onto(to:, acc: []) -> List[Int] { ... }` (`[fn.loop]`). Children: `loop`, the
+    /// name, LOOP_PARAM_LIST, the signature as in FN_DECL (RET_TYPE, FAILS_CLAUSE, USES_CLAUSE),
+    /// and the body.
+    LOOP_EXPR,
+    /// `(to:, acc: [])`, the parameters of a loop expression with their initial values.
+    LOOP_PARAM_LIST,
+    /// `acc: []` `to:`. An element that does not start with a name and `:` (`0`, `i`) is still
+    /// read into a LOOP_PARAM, without the name, and validation reports it (E1101).
+    LOOP_PARAM,
     /// `(x: Int, f)`
     PARAM_LIST,
     /// `x: Int` `self`
@@ -468,6 +479,7 @@ impl SyntaxKind {
             USE_KW => "`use`",
             WITH_KW => "`with`",
             ASSERT_KW => "`assert`",
+            LOOP_KW => "`loop`",
             SELF_KW => "`self`",
             SELF_TYPE_KW => "`Self`",
             AS_KW => "`as`",
@@ -557,7 +569,7 @@ mod tests {
     fn 記号と予約語は書いたとおりの綴りで呼ぶ() {
         let src = concat!(
             "fn type enum error const trait impl effect handler layer import pub opaque suspend ",
-            "if else match fail escape use with assert self Self as _ ",
+            "if else match fail escape use with assert loop self Self as _ ",
             "( ) [ ] { } , . .. : = -> | |> + - * / % ! == != < <= <- > >= && || @ ",
             "\"#{x}\"\n\"\"\"\nt\n\"\"\"\n",
         );

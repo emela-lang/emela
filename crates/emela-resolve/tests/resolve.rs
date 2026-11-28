@@ -1559,6 +1559,160 @@ fn local_fn_param_duplicates() {
     )]));
 }
 
+/// A loop expression is a local fn called in place with its initial values (`[fn.loop]`). The
+/// initial values are resolved outside the loop, so the parameters are not visible in them; the
+/// name is visible only in the body; a parameter, binding or local fn of the same name in the
+/// body hides it, and the name and the parameters hide a top-level fn of the same name
+/// (`[module.resolution]`).
+#[test]
+fn loop_scopes() {
+    insta::assert_snapshot!(run(&[(
+        "main.emel",
+        r##"fn range(from: Int, to: Int) -> List[Int] {
+  loop onto(to:, acc: []) {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+}
+
+fn outer_values(a: Int) -> Int {
+  loop go(a: 1, b: a) { b }
+}
+
+fn hidden(n: Int) -> Int {
+  x = loop go(go: n) { go }
+  y = loop go(i: n) {
+    go = i
+    go
+  }
+  x + y
+}
+
+fn hides_top_level() -> Int {
+  loop range(from: 0) { from }
+}
+"##,
+    )]));
+}
+
+/// The name of a loop expression is not visible in its parentheses nor after it (`[fn.loop]`).
+#[test]
+fn loop_name_scope() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"fn f() -> Int {
+  a = loop go(i: go) { i }
+  b = loop again(i: 0) { i }
+  again(1)
+}
+"##,
+    )]));
+}
+
+/// The name of a loop expression can be written only as the callee of a call in tail position of
+/// its body (E3111), and not as a value (E3112, `[fn.loop]`). A pipe into it is a call; an
+/// `escape` or `with` around the whole loop does not count; a name that hides it is not checked.
+#[test]
+fn loop_name_uses() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"error Boom
+
+fn tail(n: Int, xs: List[Int]) -> Int {
+  a = loop go(i: n) {
+    if i > 0 { go(i - 1) } else { i }
+  }
+  b = loop go(i: n, acc: 0) {
+    xs match {
+      [] -> acc
+      _ if i > 0 && acc > 0 -> go(i - 1, acc + 1)
+      _ -> go(acc: 1, i: 0)
+    }
+  }
+  even = loop go(i: n) { i == 0 || i > 1 && go(i - 2) }
+  c = loop go(i: n) {
+    x = 1
+    { i |> go }
+  }
+  d = loop go(i: n) { (i - 1) |> go() } escape { Boom -> 0 }
+  e = loop go(i: n) {
+    go = |k| k
+    go(go(i))
+  }
+  a + b + c + d + e
+}
+
+fn not_tail(n: Int) -> Int {
+  a = loop go(i: n) { go(i) + 1 }
+  b = loop go(i: n) { go(go(i)) }
+  c = loop go(i: n) {
+    x = go(i)
+    x
+  }
+  d = loop go(i: n) {
+    go(i)
+    i
+  }
+  e = loop go(i: n) { !go(i) }
+  f = loop go(i: n) { go(i) |> g }
+  g = loop go(i: n) { if go(i) > 0 { 1 } else { 0 } }
+  a + b + c + d + e + f + g
+}
+
+fn not_tail_constructs(n: Int) -> Int {
+  a = loop go(i: n) { go(i) escape { Boom -> 0 } }
+  b = loop go(i: n) { boom() escape { Boom -> go(i) } }
+  c = loop go(i: n) { with Quiet { go(i) } }
+  d = loop go(i: n) { (|| go(i))() }
+  e = loop go(i: n) {
+    fn inner() -> Int { go(i) }
+    inner()
+  }
+  f = loop go(i: n) {
+    loop inner(j: i) { go(j) }
+  }
+  g = loop go(i: n) {
+    loop inner(j: go(i)) { j }
+  }
+  a + b + c + d + e + f + g
+}
+
+fn as_value(xs: List[Int]) -> Int {
+  a = loop go(i: 0) {
+    f = go
+    List.map(xs, go)
+    g(go:)
+    i
+  }
+  a
+}
+
+fn boom() -> Int fails Boom { fail Boom }
+fn g(go: Int) -> Int { go }
+handler Quiet: Log {
+  fn info() { () }
+}
+effect Log {
+  fn info() -> ()
+}
+"##,
+    )]));
+}
+
+/// A type written as an initial value (E2106), and a parameter written twice, which is reported
+/// by type inference as an argument given twice (E3104), not here (`[fn.loop]`).
+#[test]
+fn loop_head_errors() {
+    insta::assert_snapshot!(diagnostics(&[(
+        "main.emel",
+        r##"fn f() -> Int {
+  a = loop go(i: Int) { 1 }
+  b = loop go(a: 1, a: 2) { a }
+  a + b
+}
+"##,
+    )]));
+}
+
 /// The type of a capability `use E` (`[effect.use]`, `[grammar.type]`) names an effect or a label
 /// with its type arguments, wherever a type can be written.
 #[test]

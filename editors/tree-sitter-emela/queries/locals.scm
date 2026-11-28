@@ -4,6 +4,7 @@
   (source_file)
   (function_declaration)
   (local_function)
+  (loop_expression)
   (handler_init)
   (lambda)
   (block)
@@ -17,6 +18,13 @@
 
 (local_function
   name: (identifier) @local.definition.function)
+
+(loop_expression
+  name: (identifier) @local.definition.function)
+
+(loop_parameters
+  (named_argument
+    name: (identifier) @local.definition.parameter))
 
 (const_declaration
   name: (constant_identifier) @local.definition.constant)

@@ -1,0 +1,52 @@
+---
+source: crates/emela-types/tests/errors.rs
+expression: "render_errors(r#\"\nerror Boom\n\nfn inferred(n: Int) {\n  loop go(i: n) { if i == 0 { fail Boom } else { go(i - 1) } }\n}\n\nfn handled(n: Int) -> Int {\n  loop go(i: n) { if i == 0 { fail Boom } else { go(i - 1) } } escape { Boom -> 0 }\n}\n\nfn declared(n: Int) -> Int fails Boom {\n  loop go(i: n) -> Int fails Boom { if i == 0 { fail Boom } else { go(i - 1) } }\n}\n\nfn not_declared(n: Int) -> Int fails Boom {\n  loop go(i: n) -> Int { if i == 0 { fail Boom } else { go(i - 1) } }\n}\n\"#)"
+---
+inferred: ∀ A. fn(Int) -> A fails Boom
+  n: Int
+  go: fn(Int) -> ?2 fails Boom
+  i: Int
+handled: fn(Int) -> Int
+  n: Int
+  go: fn(Int) -> Int fails Boom
+  i: Int
+declared: fn(Int) -> Int fails Boom
+  n: Int
+  go: fn(Int) -> Int fails Boom
+  i: Int
+not_declared: fn(Int) -> Int fails Boom
+  n: Int
+  go: fn(Int) -> Int
+  i: Int
+`fail Boom` unhandled errors Boom (fails written: false)
+--- E
+{   loop go(i: n) { if i == 0 { fail Boom } else { go(i - 1) } } }: Boom
+loop go(i: n) { if i == 0 { fail Boom } else { go(i - 1) } }: Boom
+loop go(i: n) { if i == 0 { fail Boom } else { go(i - 1) } }: Boom
+{ if i == 0 { fail Boom } else { go(i - 1) } }: Boom
+if i == 0 { fail Boom } else { go(i - 1) }: Boom
+{ fail Boom }: Boom
+fail Boom: Boom
+{ go(i - 1) }: Boom
+go(i - 1): Boom
+loop go(i: n) { if i == 0 { fail Boom } else { go(i - 1) } }: Boom
+loop go(i: n) { if i == 0 { fail Boom } else { go(i - 1) } }: Boom
+{ if i == 0 { fail Boom } else { go(i - 1) } }: Boom
+if i == 0 { fail Boom } else { go(i - 1) }: Boom
+{ fail Boom }: Boom
+fail Boom: Boom
+{ go(i - 1) }: Boom
+go(i - 1): Boom
+{   loop go(i: n) -> Int fails Boom { if i == 0 { fail Boom } else { go(i - 1) } } }: Boom
+loop go(i: n) -> Int fails Boom { if i == 0 { fail Boom } else { go(i - 1) } }: Boom
+loop go(i: n) -> Int fails Boom { if i == 0 { fail Boom } else { go(i - 1) } }: Boom
+{ if i == 0 { fail Boom } else { go(i - 1) } }: Boom
+if i == 0 { fail Boom } else { go(i - 1) }: Boom
+{ fail Boom }: Boom
+fail Boom: Boom
+{ go(i - 1) }: Boom
+go(i - 1): Boom
+{ if i == 0 { fail Boom } else { go(i - 1) } }: Boom
+if i == 0 { fail Boom } else { go(i - 1) }: Boom
+{ fail Boom }: Boom
+fail Boom: Boom

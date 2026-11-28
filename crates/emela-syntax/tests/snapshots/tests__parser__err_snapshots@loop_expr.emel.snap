@@ -1,0 +1,354 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/loop_expr.emel
+---
+ROOT@0..457
+  COMMENT@0..85 "# E1101: ループ式の頭の要素は名前と `:` で始まる（[grammar.expr]）"
+  NEWLINE@85..86 "\n"
+  FN_DECL@86..131
+    FN_KW@86..88 "fn"
+    WHITESPACE@88..89 " "
+    LOWER_NAME@89..99 "positional"
+    PARAM_LIST@99..101
+      L_PAREN@99..100 "("
+      R_PAREN@100..101 ")"
+    WHITESPACE@101..102 " "
+    RET_TYPE@102..108
+      THIN_ARROW@102..104 "->"
+      WHITESPACE@104..105 " "
+      PATH_TYPE@105..108
+        PATH@105..108
+          TYPE_NAME@105..108 "Int"
+    WHITESPACE@108..109 " "
+    BLOCK_EXPR@109..131
+      L_BRACE@109..110 "{"
+      NEWLINE@110..111 "\n"
+      WHITESPACE@111..113 "  "
+      LOOP_EXPR@113..129
+        LOOP_KW@113..117 "loop"
+        WHITESPACE@117..118 " "
+        LOWER_NAME@118..120 "go"
+        LOOP_PARAM_LIST@120..123
+          L_PAREN@120..121 "("
+          LOOP_PARAM@121..122
+            LITERAL@121..122
+              INT@121..122 "0"
+          R_PAREN@122..123 ")"
+        WHITESPACE@123..124 " "
+        BLOCK_EXPR@124..129
+          L_BRACE@124..125 "{"
+          WHITESPACE@125..126 " "
+          LITERAL@126..127
+            INT@126..127 "1"
+          WHITESPACE@127..128 " "
+          R_BRACE@128..129 "}"
+      NEWLINE@129..130 "\n"
+      R_BRACE@130..131 "}"
+  NEWLINE@131..132 "\n"
+  NEWLINE@132..133 "\n"
+  FN_DECL@133..192
+    FN_KW@133..135 "fn"
+    WHITESPACE@135..136 " "
+    LOWER_NAME@136..154 "name_without_colon"
+    PARAM_LIST@154..162
+      L_PAREN@154..155 "("
+      PARAM@155..161
+        LOWER_NAME@155..156 "i"
+        COLON@156..157 ":"
+        WHITESPACE@157..158 " "
+        PATH_TYPE@158..161
+          PATH@158..161
+            TYPE_NAME@158..161 "Int"
+      R_PAREN@161..162 ")"
+    WHITESPACE@162..163 " "
+    RET_TYPE@163..169
+      THIN_ARROW@163..165 "->"
+      WHITESPACE@165..166 " "
+      PATH_TYPE@166..169
+        PATH@166..169
+          TYPE_NAME@166..169 "Int"
+    WHITESPACE@169..170 " "
+    BLOCK_EXPR@170..192
+      L_BRACE@170..171 "{"
+      NEWLINE@171..172 "\n"
+      WHITESPACE@172..174 "  "
+      LOOP_EXPR@174..190
+        LOOP_KW@174..178 "loop"
+        WHITESPACE@178..179 " "
+        LOWER_NAME@179..181 "go"
+        LOOP_PARAM_LIST@181..184
+          L_PAREN@181..182 "("
+          LOOP_PARAM@182..183
+            NAME_REF@182..183
+              LOWER_NAME@182..183 "i"
+          R_PAREN@183..184 ")"
+        WHITESPACE@184..185 " "
+        BLOCK_EXPR@185..190
+          L_BRACE@185..186 "{"
+          WHITESPACE@186..187 " "
+          LITERAL@187..188
+            INT@187..188 "1"
+          WHITESPACE@188..189 " "
+          R_BRACE@189..190 "}"
+      NEWLINE@190..191 "\n"
+      R_BRACE@191..192 "}"
+  NEWLINE@192..193 "\n"
+  NEWLINE@193..194 "\n"
+  FN_DECL@194..249
+    FN_KW@194..196 "fn"
+    WHITESPACE@196..197 " "
+    LOWER_NAME@197..207 "expression"
+    PARAM_LIST@207..215
+      L_PAREN@207..208 "("
+      PARAM@208..214
+        LOWER_NAME@208..209 "x"
+        COLON@209..210 ":"
+        WHITESPACE@210..211 " "
+        PATH_TYPE@211..214
+          PATH@211..214
+            TYPE_NAME@211..214 "Int"
+      R_PAREN@214..215 ")"
+    WHITESPACE@215..216 " "
+    RET_TYPE@216..222
+      THIN_ARROW@216..218 "->"
+      WHITESPACE@218..219 " "
+      PATH_TYPE@219..222
+        PATH@219..222
+          TYPE_NAME@219..222 "Int"
+    WHITESPACE@222..223 " "
+    BLOCK_EXPR@223..249
+      L_BRACE@223..224 "{"
+      NEWLINE@224..225 "\n"
+      WHITESPACE@225..227 "  "
+      LOOP_EXPR@227..247
+        LOOP_KW@227..231 "loop"
+        WHITESPACE@231..232 " "
+        LOWER_NAME@232..234 "go"
+        LOOP_PARAM_LIST@234..241
+          L_PAREN@234..235 "("
+          LOOP_PARAM@235..240
+            BIN_EXPR@235..240
+              NAME_REF@235..236
+                LOWER_NAME@235..236 "x"
+              WHITESPACE@236..237 " "
+              PLUS@237..238 "+"
+              WHITESPACE@238..239 " "
+              LITERAL@239..240
+                INT@239..240 "1"
+          R_PAREN@240..241 ")"
+        WHITESPACE@241..242 " "
+        BLOCK_EXPR@242..247
+          L_BRACE@242..243 "{"
+          WHITESPACE@243..244 " "
+          LITERAL@244..245
+            INT@244..245 "1"
+          WHITESPACE@245..246 " "
+          R_BRACE@246..247 "}"
+      NEWLINE@247..248 "\n"
+      R_BRACE@248..249 "}"
+  NEWLINE@249..250 "\n"
+  NEWLINE@250..251 "\n"
+  FN_DECL@251..312
+    FN_KW@251..253 "fn"
+    WHITESPACE@253..254 " "
+    LOWER_NAME@254..268 "type_with_args"
+    PARAM_LIST@268..270
+      L_PAREN@268..269 "("
+      R_PAREN@269..270 ")"
+    WHITESPACE@270..271 " "
+    RET_TYPE@271..277
+      THIN_ARROW@271..273 "->"
+      WHITESPACE@273..274 " "
+      PATH_TYPE@274..277
+        PATH@274..277
+          TYPE_NAME@274..277 "Int"
+    WHITESPACE@277..278 " "
+    BLOCK_EXPR@278..312
+      L_BRACE@278..279 "{"
+      NEWLINE@279..280 "\n"
+      WHITESPACE@280..282 "  "
+      LOOP_EXPR@282..310
+        LOOP_KW@282..286 "loop"
+        WHITESPACE@286..287 " "
+        LOWER_NAME@287..289 "go"
+        LOOP_PARAM_LIST@289..304
+          L_PAREN@289..290 "("
+          LOOP_PARAM@290..303
+            LOWER_NAME@290..292 "xs"
+            COLON@292..293 ":"
+            WHITESPACE@293..294 " "
+            PATH_EXPR@294..298
+              PATH@294..298
+                TYPE_NAME@294..298 "List"
+            ERROR@298..303
+              TYPE_ARG_LIST@298..303
+                L_BRACK@298..299 "["
+                PATH_TYPE@299..302
+                  PATH@299..302
+                    TYPE_NAME@299..302 "Int"
+                R_BRACK@302..303 "]"
+          R_PAREN@303..304 ")"
+        WHITESPACE@304..305 " "
+        BLOCK_EXPR@305..310
+          L_BRACE@305..306 "{"
+          WHITESPACE@306..307 " "
+          LITERAL@307..308
+            INT@307..308 "1"
+          WHITESPACE@308..309 " "
+          R_BRACE@309..310 "}"
+      NEWLINE@310..311 "\n"
+      R_BRACE@311..312 "}"
+  NEWLINE@312..313 "\n"
+  NEWLINE@313..314 "\n"
+  FN_DECL@314..370
+    FN_KW@314..316 "fn"
+    WHITESPACE@316..317 " "
+    LOWER_NAME@317..322 "mixed"
+    PARAM_LIST@322..330
+      L_PAREN@322..323 "("
+      PARAM@323..329
+        LOWER_NAME@323..324 "i"
+        COLON@324..325 ":"
+        WHITESPACE@325..326 " "
+        PATH_TYPE@326..329
+          PATH@326..329
+            TYPE_NAME@326..329 "Int"
+      R_PAREN@329..330 ")"
+    WHITESPACE@330..331 " "
+    RET_TYPE@331..337
+      THIN_ARROW@331..333 "->"
+      WHITESPACE@333..334 " "
+      PATH_TYPE@334..337
+        PATH@334..337
+          TYPE_NAME@334..337 "Int"
+    WHITESPACE@337..338 " "
+    BLOCK_EXPR@338..370
+      L_BRACE@338..339 "{"
+      NEWLINE@339..340 "\n"
+      WHITESPACE@340..342 "  "
+      LOOP_EXPR@342..368
+        LOOP_KW@342..346 "loop"
+        WHITESPACE@346..347 " "
+        LOWER_NAME@347..349 "go"
+        LOOP_PARAM_LIST@349..362
+          L_PAREN@349..350 "("
+          LOOP_PARAM@350..354
+            LOWER_NAME@350..351 "a"
+            COLON@351..352 ":"
+            WHITESPACE@352..353 " "
+            LITERAL@353..354
+              INT@353..354 "1"
+          COMMA@354..355 ","
+          WHITESPACE@355..356 " "
+          LOOP_PARAM@356..357
+            NAME_REF@356..357
+              LOWER_NAME@356..357 "i"
+          COMMA@357..358 ","
+          WHITESPACE@358..359 " "
+          LOOP_PARAM@359..361
+            LOWER_NAME@359..360 "b"
+            COLON@360..361 ":"
+          R_PAREN@361..362 ")"
+        WHITESPACE@362..363 " "
+        BLOCK_EXPR@363..368
+          L_BRACE@363..364 "{"
+          WHITESPACE@364..365 " "
+          LITERAL@365..366
+            INT@365..366 "1"
+          WHITESPACE@366..367 " "
+          R_BRACE@367..368 "}"
+      NEWLINE@368..369 "\n"
+      R_BRACE@369..370 "}"
+  NEWLINE@370..371 "\n"
+  NEWLINE@371..372 "\n"
+  FN_DECL@372..415
+    FN_KW@372..374 "fn"
+    WHITESPACE@374..375 " "
+    LOWER_NAME@375..382 "no_name"
+    PARAM_LIST@382..384
+      L_PAREN@382..383 "("
+      R_PAREN@383..384 ")"
+    WHITESPACE@384..385 " "
+    RET_TYPE@385..391
+      THIN_ARROW@385..387 "->"
+      WHITESPACE@387..388 " "
+      PATH_TYPE@388..391
+        PATH@388..391
+          TYPE_NAME@388..391 "Int"
+    WHITESPACE@391..392 " "
+    BLOCK_EXPR@392..415
+      L_BRACE@392..393 "{"
+      NEWLINE@393..394 "\n"
+      WHITESPACE@394..396 "  "
+      LOOP_EXPR@396..413
+        LOOP_KW@396..400 "loop"
+        WHITESPACE@400..401 " "
+        LOOP_PARAM_LIST@401..407
+          L_PAREN@401..402 "("
+          LOOP_PARAM@402..406
+            LOWER_NAME@402..403 "i"
+            COLON@403..404 ":"
+            WHITESPACE@404..405 " "
+            LITERAL@405..406
+              INT@405..406 "0"
+          R_PAREN@406..407 ")"
+        WHITESPACE@407..408 " "
+        BLOCK_EXPR@408..413
+          L_BRACE@408..409 "{"
+          WHITESPACE@409..410 " "
+          LITERAL@410..411
+            INT@410..411 "1"
+          WHITESPACE@411..412 " "
+          R_BRACE@412..413 "}"
+      NEWLINE@413..414 "\n"
+      R_BRACE@414..415 "}"
+  NEWLINE@415..416 "\n"
+  NEWLINE@416..417 "\n"
+  FN_DECL@417..456
+    FN_KW@417..419 "fn"
+    WHITESPACE@419..420 " "
+    LOWER_NAME@420..427 "no_body"
+    PARAM_LIST@427..429
+      L_PAREN@427..428 "("
+      R_PAREN@428..429 ")"
+    WHITESPACE@429..430 " "
+    RET_TYPE@430..436
+      THIN_ARROW@430..432 "->"
+      WHITESPACE@432..433 " "
+      PATH_TYPE@433..436
+        PATH@433..436
+          TYPE_NAME@433..436 "Int"
+    WHITESPACE@436..437 " "
+    BLOCK_EXPR@437..456
+      L_BRACE@437..438 "{"
+      NEWLINE@438..439 "\n"
+      WHITESPACE@439..441 "  "
+      LOOP_EXPR@441..454
+        LOOP_KW@441..445 "loop"
+        WHITESPACE@445..446 " "
+        LOWER_NAME@446..448 "go"
+        LOOP_PARAM_LIST@448..454
+          L_PAREN@448..449 "("
+          LOOP_PARAM@449..453
+            LOWER_NAME@449..450 "i"
+            COLON@450..451 ":"
+            WHITESPACE@451..452 " "
+            LITERAL@452..453
+              INT@452..453 "0"
+          R_PAREN@453..454 ")"
+      NEWLINE@454..455 "\n"
+      R_BRACE@455..456 "}"
+  NEWLINE@456..457 "\n"
+error[E1101]@121..122: expected parameter name
+  = help: give it a name: `name: 0`
+error[E1101]@183..184: expected `:`
+  = help: write `i:` to start `i` from the value of `i`
+error[E1101]@237..238: expected `:`
+  = help: give it a name: `name: x + 1`
+error[E1101]@298..299: expected `)`
+  = help: the parentheses of `loop` take initial values; the type of `xs` is inferred from its initial value
+error[E1101]@357..358: expected `:`
+  = help: write `i:` to start `i` from the value of `i`
+error[E1101]@401..402: expected lower name
+error[E1101]@454..455: expected `{`

@@ -385,7 +385,7 @@ impl Printer {
             TYPE_ARG_LIST | PARAM_TYPE_LIST | UNIT_TYPE | TUPLE_TYPE | TYPE_PARAM_LIST
             | PARAM_LIST | UNIT_EXPR | TUPLE_EXPR | LIST_EXPR | PAT_ARG_LIST | UNIT_PAT
             | TUPLE_PAT | LIST_PAT | ANNOT_ARG_LIST | FIELD_LIST | TUPLE_FIELD_LIST
-            | IMPORT_LIST => self.list(node, |p, n| p.node(n)),
+            | IMPORT_LIST | LOOP_PARAM_LIST => self.list(node, |p, n| p.node(n)),
             VARIANT => self.variant(node),
             FIELD => self.seq(node, |_, cur| cur != COLON),
             DERIVE_CLAUSE => self.seq(node, |_, cur| cur != COMMA),
@@ -402,7 +402,7 @@ impl Printer {
             }
             USES_CLAUSE => self.uses_clause(node),
             // No space before `:`.
-            PARAM | TYPE_PARAM | NAMED_ARG | FIELD_PAT | BINDING | ANNOT_ARG => {
+            PARAM | TYPE_PARAM | NAMED_ARG | FIELD_PAT | BINDING | ANNOT_ARG | LOOP_PARAM => {
                 self.seq(node, |_, cur| cur != COLON)
             }
             FN_TYPE => self.seq(node, |_, cur| cur != PARAM_TYPE_LIST),
@@ -417,6 +417,9 @@ impl Printer {
             BLOCK_EXPR => self.block(node).assemble(false).group(),
             // A local fn is laid out as a top-level fn, indented in its block (`[fn.local]`).
             LOCAL_FN => self.decl_seq(node),
+            // A loop expression has the signature of a local fn, its parentheses laid out as
+            // arguments (`[fn.loop]`, `[fmt.wrap]`).
+            LOOP_EXPR => self.decl_seq(node),
             IF_EXPR => self.if_chain(node).group(),
             MATCH_EXPR | ESCAPE_EXPR => self.arms_expr(node),
             MATCH_ARM_LIST => self.arm_list(node),

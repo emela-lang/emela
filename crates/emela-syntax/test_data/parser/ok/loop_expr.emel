@@ -1,0 +1,31 @@
+# ループ式（[fn.loop]）：頭は名前付き引数の並び，シグネチャは書いても省いてもよい
+pub fn range(from: Int, to: Int) -> List[Int] {
+  loop onto(to:, acc: []) {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+}
+
+fn signatures(n: Int) -> Int {
+  a = loop empty() { 1 }
+  b = loop typed(i: 0) -> Int { if i < n { typed(i + 1) } else { i } }
+  c = loop full(i: 0) -> Int fails Boom uses { Log } { i }
+  d = loop effects(i: 0) uses { Log } { i }
+  e = loop trailing(
+    i: 0,
+    acc: 1,
+  ) {
+    acc
+  }
+  a + b + c + d + e
+}
+
+fn positions(xs: List[Int]) -> Int {
+  # 演算子のオペランド，引数，escape の対象，後置の match の対象
+  x = 1 + loop go(i: 0) { i }
+  y = f(loop go(i: 0) { i })
+  z = loop go(i: 0) { i } escape { Boom -> 0 }
+  loop go(xs:) { xs } match {
+    [] -> 0
+    _ -> 1
+  }
+}

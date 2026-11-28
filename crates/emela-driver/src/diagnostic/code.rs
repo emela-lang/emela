@@ -110,6 +110,10 @@ pub const NO_FIELDS: &str = "E3107";
 pub const REFUTABLE_BINDING: &str = "E3108";
 pub const FN_NAMED_LIKE_FIELD: &str = "E3109";
 pub const AMBIGUOUS_METHOD: &str = "E3110";
+/// A call to the name of a loop expression that is not in tail position of its body (`[fn.loop]`).
+pub const LOOP_CALL_NOT_TAIL: &str = "E3111";
+/// The name of a loop expression written as a value (`[fn.loop]`).
+pub const LOOP_AS_VALUE: &str = "E3112";
 pub const UNREACHABLE_MATCH_ARM: &str = "W3101";
 
 // E32xx: error types (E)

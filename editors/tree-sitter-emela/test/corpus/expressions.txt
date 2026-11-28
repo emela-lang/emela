@@ -486,3 +486,62 @@ fn f() {
         (identifier)
         (unary_expression
           (integer))))))
+
+================================================================================
+Loop expression
+================================================================================
+
+fn range(from: Int, to: Int) -> List[Int] {
+  loop onto(to:, acc: []) -> List[Int] {
+    onto(to - 1, [to - 1, ..acc])
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (type_reference
+          (type_identifier)))
+      (parameter
+        (identifier)
+        (type_reference
+          (type_identifier))))
+    (generic_type
+      (type_reference
+        (type_identifier))
+      (type_arguments
+        (type_reference
+          (type_identifier))))
+    (block
+      (loop_expression
+        (identifier)
+        (loop_parameters
+          (named_argument
+            (identifier))
+          (named_argument
+            (identifier)
+            (list_expression)))
+        (generic_type
+          (type_reference
+            (type_identifier))
+          (type_arguments
+            (type_reference
+              (type_identifier))))
+        (block
+          (call_expression
+            (identifier)
+            (arguments
+              (binary_expression
+                (identifier)
+                (integer))
+              (list_expression
+                (binary_expression
+                  (identifier)
+                  (integer))
+                (spread
+                  (identifier))))))))))

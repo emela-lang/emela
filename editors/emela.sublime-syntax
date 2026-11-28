@@ -185,6 +185,8 @@ contexts:
       scope: keyword.control.conditional.emela
     - match: '\b(fail|escape)\b'
       scope: keyword.control.exception.emela
+    - match: '\bloop\b'
+      scope: keyword.control.loop.emela
     - match: '\bfn\b'
       scope: storage.type.function.emela
     - match: '\b(type|enum|error|effect|handler|layer|trait|const)\b'
@@ -204,7 +206,7 @@ contexts:
     - match: '\bSelf\b'
       scope: storage.type.self.emela
     # Reserved words without syntax ([kw.reserved], [kw.future]).
-    - match: '\b(as|var|return|while|loop|let|mut|in|where|do|try|catch|throw|async|yield|defer|macro|mod)\b'
+    - match: '\b(as|var|return|while|let|mut|in|where|do|try|catch|throw|async|yield|defer|macro|mod)\b'
       scope: invalid.illegal.reserved.emela
 
   types:

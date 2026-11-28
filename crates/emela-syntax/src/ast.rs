@@ -129,6 +129,55 @@ impl LocalFn {
 }
 
 ast_node!(
+    /// `loop onto(to:, acc: []) -> List[Int] { ... }` (`[fn.loop]`). The signature is laid out
+    /// as in [`FnDecl`].
+    LoopExpr,
+    LOOP_EXPR
+);
+
+impl LoopExpr {
+    pub fn name(&self) -> Option<SyntaxToken> {
+        token(&self.0, LOWER_NAME)
+    }
+    /// The elements in the parentheses, in the order written.
+    pub fn params(&self) -> impl Iterator<Item = LoopParam> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LOOP_PARAM_LIST)
+            .into_iter()
+            .flat_map(|list| list.children().filter_map(LoopParam::cast))
+    }
+    /// The `T` of `-> T`, as an untyped node.
+    pub fn ret_type(&self) -> Option<SyntaxNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == RET_TYPE)?
+            .first_child()
+    }
+    pub fn body(&self) -> Option<BlockExpr> {
+        child(&self.0)
+    }
+}
+
+ast_node!(
+    /// `acc: []` `to:`, an element of the parentheses of a loop expression. Without a name, an
+    /// element that is not one (E1101, reported by validation).
+    LoopParam,
+    LOOP_PARAM
+);
+
+impl LoopParam {
+    pub fn name(&self) -> Option<SyntaxToken> {
+        token(&self.0, LOWER_NAME)
+    }
+    /// The initial value written after `:`. `None` for the shorthand `p:`, which starts `p`
+    /// from the value of `p`.
+    pub fn value(&self) -> Option<Expr> {
+        self.0.children().find_map(Expr::cast)
+    }
+}
+
+ast_node!(
     /// `(x: Int, f)`
     ParamList,
     PARAM_LIST
@@ -272,7 +321,7 @@ impl Expr {
             IF_EXPR => Expr::IfExpr(IfExpr(node)),
             PATH_EXPR | UNDERSCORE_EXPR | UNIT_EXPR | PAREN_EXPR | TUPLE_EXPR | LIST_EXPR
             | REST_EXPR | FIELD_EXPR | PREFIX_EXPR | USE_EXPR | FAIL_EXPR | ASSERT_EXPR
-            | MATCH_EXPR | WITH_EXPR | ESCAPE_EXPR | LAMBDA_EXPR => Expr::Other(node),
+            | MATCH_EXPR | WITH_EXPR | ESCAPE_EXPR | LAMBDA_EXPR | LOOP_EXPR => Expr::Other(node),
             _ => return None,
         })
     }

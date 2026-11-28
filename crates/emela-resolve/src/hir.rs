@@ -126,6 +126,12 @@ pub enum LocalKind {
     Binding,
     /// The name of a local fn (`[fn.local]`). Its parameters are [`LocalKind::Param`].
     LocalFn,
+    /// The name of a loop expression (`[fn.loop]`). The loop is lowered to a block that declares
+    /// a local fn of this name and calls it with the initial values as named arguments: `loop
+    /// go(i: 0) { body }` is `{ fn go(i) { body }⏎ go(i: 0) }`, with the parameter types left
+    /// out ([`Param::ty`] is `None`) and the span of the loop expression on the block and the
+    /// call. Its parameters are [`LocalKind::Param`].
+    Loop,
     /// The x of an effect alias `x <- E` (`[effect.use]`). It is not a value: each reference is
     /// lowered to its own `use E` ([`Program::alias_uses`]).
     EffectAlias,

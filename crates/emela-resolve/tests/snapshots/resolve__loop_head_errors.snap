@@ -1,0 +1,5 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"fn f() -> Int {\n  a = loop go(i: Int) { 1 }\n  b = loop go(a: 1, a: 2) { a }\n  a + b\n}\n\"##,)])"
+---
+error src/main.emel@33..36 `Int`: expected constructor, found type `Int`

@@ -1,6 +1,6 @@
 //! Lambdas and local fns.
 
-use emela_resolve::hir::{ExprId, LocalFn, Param, Span};
+use emela_resolve::hir::{ExprId, LocalFn, LocalKind, Param, Span};
 use smol_str::SmolStr;
 
 use super::{BodyInfer, LocalFnInfo};
@@ -23,7 +23,34 @@ impl BodyInfer<'_> {
     /// constrained to the type's E and R when E and R are computed (`body/errors.rs`,
     /// `body/effects.rs`); the declaration itself has none.
     pub(super) fn infer_local_fn(&mut self, f: &LocalFn) {
+        let ret = self.local_fn_head(f);
+        self.local_fn_body(f, &ret);
+    }
+
+    /// A loop expression (`[fn.loop]`), lowered to the block `{ fn go(p, ...) { body }⏎ go(p:
+    /// e, ...) }` ([`LocalKind::Loop`]). It is checked as that local fn and its call, except that
+    /// the parameters take inference variables in place of written types, and the call, with
+    /// the initial values, is checked before the body: the initial values come first, so a type
+    /// they determine is known in the body (a field access, `[type.rules]`). Each parameter is
+    /// monomorphic and not generalized (`[fn.block]`).
+    pub(super) fn infer_loop(&mut self, f: &LocalFn, call: ExprId, expected: Option<&Ty>) -> Ty {
+        let ret = self.local_fn_head(f);
+        let ty = match expected {
+            Some(expected) => {
+                self.check_expr(call, expected);
+                expected.clone()
+            }
+            None => self.infer_expr(call),
+        };
+        self.local_fn_body(f, &ret);
+        ty
+    }
+
+    /// The type of a local fn, bound to its name, with the parameters bound to their types.
+    /// Returns its return type.
+    fn local_fn_head(&mut self, f: &LocalFn) -> Ty {
         let program = self.program;
+        let is_loop = program.locals[f.local].kind == LocalKind::Loop;
         let outer = self.binder.replace(f.body);
         let mut hidden_fails = Row::empty();
         let mut hidden_uses = Row::empty();
@@ -47,6 +74,7 @@ impl BodyInfer<'_> {
                     self.ty_table
                         .lower_in(program, &mut scope, ty, true, &mut self.diags)
                 }
+                None if is_loop => self.ctx.new_var(),
                 None => {
                     let local = &program.locals[p.local];
                     self.diags.push(Diagnostic {
@@ -110,9 +138,17 @@ impl BodyInfer<'_> {
                 uses_written: f.sig.uses.is_some(),
             },
         );
+        self.binder = outer;
+        ret
+    }
+
+    /// Checks the body of a local fn against its return type `ret`, after
+    /// [`Self::local_fn_head`].
+    fn local_fn_body(&mut self, f: &LocalFn, ret: &Ty) {
+        let outer = self.binder.replace(f.body);
         self.name_providers.push(None);
         self.ctx.enter_scope(f.body);
-        self.check_expr(f.body, &ret);
+        self.check_expr(f.body, ret);
         self.ctx.exit_scope();
         self.name_providers.pop();
         self.binder = outer;

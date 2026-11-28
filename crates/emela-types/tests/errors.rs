@@ -499,6 +499,34 @@ fn union_of_arguments() {
     ));
 }
 
+/// A loop expression is not a function value: its E is part of the E of the enclosing body, and an
+/// `escape` around it handles the errors of its body. A written `-> T` without `fails` means no
+/// errors, as for a local fn (`[fn.loop]`, `[type.inference]`).
+#[test]
+fn loop_errors() {
+    insta::assert_snapshot!(render_errors(
+        r#"
+error Boom
+
+fn inferred(n: Int) {
+  loop go(i: n) { if i == 0 { fail Boom } else { go(i - 1) } }
+}
+
+fn handled(n: Int) -> Int {
+  loop go(i: n) { if i == 0 { fail Boom } else { go(i - 1) } } escape { Boom -> 0 }
+}
+
+fn declared(n: Int) -> Int fails Boom {
+  loop go(i: n) -> Int fails Boom { if i == 0 { fail Boom } else { go(i - 1) } }
+}
+
+fn not_declared(n: Int) -> Int fails Boom {
+  loop go(i: n) -> Int { if i == 0 { fail Boom } else { go(i - 1) } }
+}
+"#
+    ));
+}
+
 /// `each` of List, Array, Map and Set (`[api.list]`, `[api.std.array]`, `[api.std.map]`,
 /// `[api.std.set]`): `f` returns `()`, and the errors of `f` are those of the call, since the
 /// `fails` of `f` is a hidden set variable (`[type.fn]`). A function that returns a value is a

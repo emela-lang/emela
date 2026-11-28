@@ -1,9 +1,10 @@
 //! Expressions (spec 17.5).
 
 use super::patterns::pattern;
-use super::types::{effect_type_args, path, type_};
+use super::types::{effect_type_args, effects_and_errors, path, ret_type, type_};
 use super::{
-    at_local_fn_start, closure_param_list, literal, newlines_with_doc, old_lambda_param_list,
+    at_local_fn_start, closure_param_list, delimited, literal, newlines_with_doc,
+    old_lambda_param_list,
 };
 use crate::SyntaxKind::{self, *};
 use crate::diagnostic::DiagnosticCode;
@@ -287,6 +288,59 @@ fn with_expr(p: &mut Parser<'_>) {
     block_or_error(p);
 }
 
+/// `"loop" lower_name "(" [ loop_param { "," loop_param } ] ")" [ signature ] block`
+/// (`[fn.loop]`). The signature is read as the one of a top-level fn.
+fn loop_expr(p: &mut Parser<'_>) {
+    p.bump_kind(LOOP_KW);
+    p.expect(LOWER_NAME);
+    if p.at(L_PAREN) {
+        loop_param_list(p);
+    } else {
+        p.expect(L_PAREN);
+    }
+    if p.at(THIN_ARROW) {
+        ret_type(p);
+    } else if p.at_contextual_kw("fails") {
+        p.error(
+            DiagnosticCode::ExpectedToken,
+            "expected `->` before `fails`",
+        );
+    }
+    effects_and_errors(p);
+    block_or_error(p);
+}
+
+/// `loop_param = lower_name ":" [ expr ]`, in parentheses.
+///
+/// An element that does not start with a name and `:` is read as an expression into a
+/// LOOP_PARAM without a name, so that validation reports it once with a help (E1101,
+/// `[grammar.expr]`). A type name followed by `[` as the initial value (`xs: List[Int]`, a type
+/// written where the value goes) keeps the brackets in an ERROR node, which validation reports
+/// too.
+fn loop_param_list(p: &mut Parser<'_>) {
+    let m = p.start();
+    delimited(p, L_PAREN, R_PAREN, |p| {
+        let param = p.start();
+        if p.at(LOWER_NAME) && p.nth(1) == COLON {
+            p.bump();
+            p.bump();
+            if !matches!(p.current(), COMMA | R_PAREN | NEWLINE) {
+                let type_name = p.at(TYPE_NAME);
+                expr(p);
+                if type_name && p.at(L_BRACK) {
+                    let e = p.start();
+                    effect_type_args(p);
+                    e.complete(p, ERROR);
+                }
+            }
+        } else if !matches!(p.current(), COMMA | R_PAREN) {
+            expr(p);
+        }
+        param.complete(p, LOOP_PARAM);
+    });
+    m.complete(p, LOOP_PARAM_LIST);
+}
+
 /// `lower_name "." type_name "(" [ args ] ")"`: a handler member of a capability as an item of
 /// `with` (`[grammar.expr]`). The arguments are required; without them, the error is reported
 /// and the item is still a SUPPLY.
@@ -499,6 +553,10 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         WITH_KW => {
             with_expr(p);
             WITH_EXPR
+        }
+        LOOP_KW => {
+            loop_expr(p);
+            LOOP_EXPR
         }
         // The old form `fn(params) { ... }` (E1405, reported by validation). It is read into the
         // node of an anonymous function, so the later passes need not tell the forms apart, and

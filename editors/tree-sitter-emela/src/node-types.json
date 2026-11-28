@@ -106,6 +106,10 @@
         "named": true
       },
       {
+        "type": "loop_expression",
+        "named": true
+      },
+      {
         "type": "match_expression",
         "named": true
       },
@@ -1933,6 +1937,81 @@
     }
   },
   {
+    "type": "loop_expression",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "block",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "loop_parameters",
+            "named": true
+          }
+        ]
+      },
+      "return_type": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "_type",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "fails_clause",
+          "named": true
+        },
+        {
+          "type": "uses_clause",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "loop_parameters",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "named_argument",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "match_arm",
     "named": true,
     "fields": {
@@ -3165,6 +3244,10 @@
   },
   {
     "type": "layer",
+    "named": false
+  },
+  {
+    "type": "loop",
     "named": false
   },
   {

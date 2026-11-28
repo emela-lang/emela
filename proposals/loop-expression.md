@@ -1,7 +1,7 @@
 ---
 title: The loop expression
 authors: [somnicattus]
-status: accepted
+status: implemented
 issue:
 touches: [glossary.terms, kw, kw.reserved, kw.future, module.resolution, fn.decl, fn.args, fn.loop, effect.with, type.inference, type.rules, grammar.expr, diag.list]
 requires: []
@@ -125,14 +125,14 @@ A call to the name follows the rules of calls (`[fn.args]`): the arguments can b
 
 Two kinds of mistake, fixed in different ways, so two codes (`[diag]`). They are the next free codes of E31xx (calls and patterns).
 
-- [ ] E3111 (new): a call to the name of a loop expression that is not in tail position of its body. It is fixed by moving the call to a tail position, or by writing a local fn when the recursion is not meant as a loop. The label says why the position is not a tail position (something runs after the call: `+` applied to the result, another call taking it as an argument, a binding, a later statement; or the call is in the target of `escape`, an escape arm, the body of `with`, inside an anonymous function, a local fn or another loop expression). Example message: ``call to `onto` is not in tail position``
-- [ ] E3112 (new): the name of a loop expression used as a value (`List.map(xs, onto)`, `f = onto`). It is fixed by calling the name, or by writing a local fn when a function value is needed. Example message: ``loop `onto` can only be called``
-- [ ] E1101 (changed): in the head of a loop expression, a help.
+- [x] E3111 (new): a call to the name of a loop expression that is not in tail position of its body. It is fixed by moving the call to a tail position, or by writing a local fn when the recursion is not meant as a loop. The label says why the position is not a tail position (something runs after the call: `+` applied to the result, another call taking it as an argument, a binding, a later statement; or the call is in the target of `escape`, an escape arm, the body of `with`, inside an anonymous function, a local fn or another loop expression). Example message: ``call to `onto` is not in tail position``
+- [x] E3112 (new): the name of a loop expression used as a value (`List.map(xs, onto)`, `f = onto`). It is fixed by calling the name, or by writing a local fn when a function value is needed. Example message: ``loop `onto` can only be called``
+- [x] E1101 (changed): in the head of a loop expression, a help.
   - a name without `:` (`loop go(i)`): ``= help: write `i:` to start `i` from the value of `i` ``
   - any other element (`loop go(0)`, `loop go(x + 1)`): ``= help: give it a name: `name: 0` ``, with the element as written after `name: `. `name` is a placeholder, not a guess from the element
   - a type name followed by `[` (`loop go(xs: List[Int])`, which stops at `[` with ``expected `)` ``): the help of E2106 below
-- [ ] E2106 (changed): in the head of a loop expression, when the initial value is a type name (`loop go(i: Int)`, ``expected constructor, found type `Int` ``), ``= help: the parentheses of `loop` take initial values; the type of `i` is inferred from its initial value``
-- [ ] E3104 (changed): also the same parameter given twice in the head (`loop go(a: 1, a: 2)`), ``argument `a` given more than once``. The head is written as arguments, so this is E3104 and not E2109 (a name bound twice in one parameter list).
+- [x] E2106 (changed): in the head of a loop expression, when the initial value is a type name (`loop go(i: Int)`, ``expected constructor, found type `Int` ``), ``= help: the parentheses of `loop` take initial values; the type of `i` is inferred from its initial value``
+- [x] E3104 (changed): also the same parameter given twice in the head (`loop go(a: 1, a: 2)`), ``argument `a` given more than once``. The head is written as arguments, so this is E3104 and not E2109 (a name bound twice in one parameter list).
 
 ## Compatibility
 

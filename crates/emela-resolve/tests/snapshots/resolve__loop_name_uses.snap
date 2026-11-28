@@ -1,0 +1,21 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"error Boom\n\nfn tail(n: Int, xs: List[Int]) -> Int {\n  a = loop go(i: n) {\n    if i > 0 { go(i - 1) } else { i }\n  }\n  b = loop go(i: n, acc: 0) {\n    xs match {\n      [] -> acc\n      _ if i > 0 && acc > 0 -> go(i - 1, acc + 1)\n      _ -> go(acc: 1, i: 0)\n    }\n  }\n  even = loop go(i: n) { i == 0 || i > 1 && go(i - 2) }\n  c = loop go(i: n) {\n    x = 1\n    { i |> go }\n  }\n  d = loop go(i: n) { (i - 1) |> go() } escape { Boom -> 0 }\n  e = loop go(i: n) {\n    go = |k| k\n    go(go(i))\n  }\n  a + b + c + d + e\n}\n\nfn not_tail(n: Int) -> Int {\n  a = loop go(i: n) { go(i) + 1 }\n  b = loop go(i: n) { go(go(i)) }\n  c = loop go(i: n) {\n    x = go(i)\n    x\n  }\n  d = loop go(i: n) {\n    go(i)\n    i\n  }\n  e = loop go(i: n) { !go(i) }\n  f = loop go(i: n) { go(i) |> g }\n  g = loop go(i: n) { if go(i) > 0 { 1 } else { 0 } }\n  a + b + c + d + e + f + g\n}\n\nfn not_tail_constructs(n: Int) -> Int {\n  a = loop go(i: n) { go(i) escape { Boom -> 0 } }\n  b = loop go(i: n) { boom() escape { Boom -> go(i) } }\n  c = loop go(i: n) { with Quiet { go(i) } }\n  d = loop go(i: n) { (|| go(i))() }\n  e = loop go(i: n) {\n    fn inner() -> Int { go(i) }\n    inner()\n  }\n  f = loop go(i: n) {\n    loop inner(j: i) { go(j) }\n  }\n  g = loop go(i: n) {\n    loop inner(j: go(i)) { j }\n  }\n  a + b + c + d + e + f + g\n}\n\nfn as_value(xs: List[Int]) -> Int {\n  a = loop go(i: 0) {\n    f = go\n    List.map(xs, go)\n    g(go:)\n    i\n  }\n  a\n}\n\nfn boom() -> Int fails Boom { fail Boom }\nfn g(go: Int) -> Int { go }\nhandler Quiet: Log {\n  fn info() { () }\n}\neffect Log {\n  fn info() -> ()\n}\n\"##,)])"
+---
+error src/main.emel@563..568 `go(i)`: call to `go` is not in tail position
+error src/main.emel@600..605 `go(i)`: call to `go` is not in tail position
+error src/main.emel@639..644 `go(i)`: call to `go` is not in tail position
+error src/main.emel@681..686 `go(i)`: call to `go` is not in tail position
+error src/main.emel@720..725 `go(i)`: call to `go` is not in tail position
+error src/main.emel@750..755 `go(i)`: call to `go` is not in tail position
+error src/main.emel@788..793 `go(i)`: call to `go` is not in tail position
+error src/main.emel@910..915 `go(i)`: call to `go` is not in tail position
+error src/main.emel@985..990 `go(i)`: call to `go` is not in tail position
+error src/main.emel@1030..1035 `go(i)`: call to `go` is not in tail position
+error src/main.emel@1066..1071 `go(i)`: call to `go` is not in tail position
+error src/main.emel@1123..1128 `go(i)`: call to `go` is not in tail position
+error src/main.emel@1192..1197 `go(j)`: call to `go` is not in tail position
+error src/main.emel@1244..1249 `go(i)`: call to `go` is not in tail position
+error src/main.emel@1358..1360 `go`: loop `go` can only be called
+error src/main.emel@1378..1380 `go`: loop `go` can only be called
+error src/main.emel@1388..1390 `go`: loop `go` can only be called

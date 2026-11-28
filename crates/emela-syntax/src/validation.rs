@@ -13,6 +13,8 @@
 //!   (E1112).
 //! - Report what a local fn cannot have (E1212, E1213) and a local fn as the last statement of its
 //!   block (E1214).
+//! - Report an element of the parentheses of a loop expression that is not a name followed by
+//!   `:`, with the form to write (E1101, `[grammar.expr]`).
 
 use rowan::{TextRange, TextSize};
 
@@ -162,6 +164,7 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
             }
             return;
         }
+        LOOP_PARAM => loop_param(node, out),
         UNDERSCORE_EXPR => error(
             out,
             node.text_range(),
@@ -179,6 +182,69 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
     for child in node.children() {
         walk(&child, out);
     }
+}
+
+/// E1101 for an element of the parentheses of a loop expression that the parser read without a
+/// name (`[fn.loop]`, `[diag.list]`). The message is what the parser expected at the element: a
+/// name, or `:` after a name. The help writes the element as a named one: a name alone is the
+/// shorthand `i:`, and anything else gets the placeholder `name:`, which is not a guess from the
+/// element. A type name followed by `[` as the initial value (`xs: List[Int]`) is a type written
+/// where the value goes: the parser stopped at `[`, and the help is the one of E2106.
+fn loop_param(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
+    let name = node
+        .children_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| t.kind() == LOWER_NAME);
+    if let Some(name) = name {
+        if let Some(brackets) = child_kind(node, ERROR) {
+            let start = brackets.text_range().start();
+            let bracket = TextRange::at(start, TextSize::of("["));
+            out.push(Diagnostic {
+                range: bracket,
+                code: DiagnosticCode::ExpectedToken,
+                message: "expected `)`".to_owned(),
+                help: Some(loop_init_type_help(name.text())),
+            });
+        }
+        return;
+    }
+    let Some(element) = node.children().next() else {
+        return;
+    };
+    let text = element.text().to_string();
+    let first = element.first_token().filter(|t| t.kind() == LOWER_NAME);
+    let (range, message) = match &first {
+        Some(t) => {
+            let mut next = t.next_token();
+            while let Some(tok) = next.as_ref().filter(|tok| tok.kind().is_trivia()) {
+                next = tok.next_token();
+            }
+            let range = next.map_or(TextRange::empty(t.text_range().end()), |tok| {
+                tok.text_range()
+            });
+            (range, "expected `:`")
+        }
+        None => (element.text_range(), "expected parameter name"),
+    };
+    let help = if element.kind() == NAME_REF && first.is_some() {
+        format!("write `{text}:` to start `{text}` from the value of `{text}`")
+    } else {
+        format!("give it a name: `name: {text}`")
+    };
+    out.push(Diagnostic {
+        range,
+        code: DiagnosticCode::ExpectedToken,
+        message: message.to_owned(),
+        help: Some(help),
+    });
+}
+
+/// The help of E2106 and E1101 for a type written as the initial value of the parameter `name`
+/// of a loop expression (`[diag.list]`).
+pub fn loop_init_type_help(name: &str) -> String {
+    format!(
+        "the parentheses of `loop` take initial values; the type of `{name}` is inferred from its initial value"
+    )
 }
 
 /// From `fn` to the end of the parameter list of the old form of an anonymous function.

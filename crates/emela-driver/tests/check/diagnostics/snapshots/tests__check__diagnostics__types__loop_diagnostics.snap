@@ -1,0 +1,62 @@
+---
+source: crates/emela-driver/tests/check/diagnostics/types.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E3111]: call to `go` is not in tail position
+   ╭─[ main.emel:9:26 ]
+   │
+ 9 │       [x, ..rest] -> x + go(rest)
+   │                      ──────┬─┬───  
+   │                            ╰─────── `+` is applied to its result
+   │                              │     
+   │                              ╰───── 
+───╯
+
+error[E3111]: call to `go` is not in tail position
+    ╭─[ main.emel:16:44 ]
+    │
+ 16 │     fetch() escape { Timeout -> if n > 0 { go(n - 1) } else { 0 } }
+    │     ───────────────────────────────┬───────────┬───────────────────  
+    │                                    ╰───────────────────────────────── it is in an arm of this `escape`
+    │                                                │                     
+    │                                                ╰───────────────────── 
+────╯
+
+error[E3111]: call to `go` is not in tail position
+    ╭─[ main.emel:22:5 ]
+    │
+ 22 │     go(i)
+    │     ──┬──  
+    │       ╰──── 
+ 23 │     i
+    │     ┬  
+    │     ╰── this statement runs after it
+────╯
+
+error[E3111]: call to `go` is not in tail position
+    ╭─[ main.emel:29:12 ]
+    │
+ 29 │     f = || go(i)
+    │         ────┬┬──  
+    │             ╰───── it is inside this anonymous function
+    │              │    
+    │              ╰──── 
+────╯
+
+error[E3112]: loop `go` can only be called
+    ╭─[ main.emel:36:23 ]
+    │
+ 36 │     ys = List.map(xs, go)
+    │                       ─┬  
+    │                        ╰── 
+────╯
+
+error[E3104]: argument `a` given more than once
+    ╭─[ main.emel:42:17 ]
+    │
+ 42 │   loop go(a: 1, a: 2) { a }
+    │                 ┬  
+    │                 ╰── 
+────╯
+
+6 errors

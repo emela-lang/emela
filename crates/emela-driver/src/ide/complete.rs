@@ -59,7 +59,7 @@ pub enum CompletionKind {
 const KEYWORDS: &[&str] = &[
     "fn", "type", "enum", "error", "const", "trait", "impl", "effect", "handler", "layer",
     "import", "pub", "opaque", "suspend", "if", "else", "match", "fail", "escape", "use", "with",
-    "assert", "self", "Self",
+    "assert", "loop", "self", "Self",
 ];
 
 /// Filtering by the partially typed name is left to the editor.
@@ -1210,9 +1210,12 @@ fn visible_locals(
                     }
                     // A local fn's name from its declaration to the end of the block, its own
                     // body included; its parameters in its body (`[fn.local]`).
+                    // A loop expression's name only in its body (`[fn.loop]`).
                     if let Stmt::LocalFn(f) = stmt {
                         let start = hir.locals[f.local].span.range.start();
-                        if start <= span.range.end() {
+                        if hir.locals[f.local].kind == LocalKind::Loop {
+                            add(vec![f.local], span_of(f.body));
+                        } else if start <= span.range.end() {
                             add(vec![f.local], TextRange::new(start, span.range.end()));
                         }
                         add(

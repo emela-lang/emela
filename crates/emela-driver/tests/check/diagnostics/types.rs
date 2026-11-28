@@ -412,6 +412,98 @@ fn undeclared() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// The elements of the parentheses of a loop expression that are not a name followed by `:`
+/// (E1101), and a type written as an initial value (E1101 before `[`, E2106), each with its help
+/// (`[fn.loop]`, `[diag.list]`).
+#[test]
+fn loop_head_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"fn shorthand(i: Int) -> Int {
+  loop go(i) { 1 }
+}
+
+fn positional(x: Int) -> Int {
+  a = loop go(0) { 1 }
+  b = loop go(x + 1) { 1 }
+  a + b
+}
+
+fn typed() -> Int {
+  a = loop go(i: Int) { 1 }
+  b = loop go(xs: List[Int]) { 1 }
+  a + b
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
+/// The name of a loop expression called out of tail position (E3111, with the reason in the
+/// label), written as a value (E3112), and a parameter written twice (E3104), as the user sees
+/// them (`[fn.loop]`, `[diag.list]`).
+#[test]
+fn loop_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"error Timeout
+
+fn fetch() -> Int fails Timeout { fail Timeout }
+
+fn sum(xs: List[Int]) -> Int {
+  loop go(xs:) {
+    xs match {
+      [] -> 0
+      [x, ..rest] -> x + go(rest)
+    }
+  }
+}
+
+fn retry(n: Int) -> Int {
+  loop go(n:) {
+    fetch() escape { Timeout -> if n > 0 { go(n - 1) } else { 0 } }
+  }
+}
+
+fn statement(n: Int) -> Int {
+  loop go(i: n) {
+    go(i)
+    i
+  }
+}
+
+fn inside(n: Int) -> Int {
+  loop go(i: n) {
+    f = || go(i)
+    f()
+  }
+}
+
+fn as_value(xs: List[Int]) -> Int {
+  loop go(i: 0) {
+    ys = List.map(xs, go)
+    i
+  }
+}
+
+fn twice() -> Int {
+  loop go(a: 1, a: 2) { a }
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 /// W3002 (`[fn.decl]`, `[trait.decl]`, `[ext.decl]`): a type parameter of a top-level fn, of a
 /// trait function or of an `@external` fn that does not appear in the type of the fn. One that
 /// appears only in a bound or in type annotations inside the body is warned about too, and set

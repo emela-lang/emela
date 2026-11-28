@@ -35,6 +35,37 @@ pub struct Diagnostic {
     pub kind: DiagnosticKind,
 }
 
+/// Why a position in the body of a loop expression is not a tail position (`[fn.loop]`), for the
+/// label of E3111.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotTail {
+    /// An operator is applied to the result (`+`, `!`).
+    Operator(SmolStr),
+    /// The result is an argument of another call, or the value piped into one.
+    Argument,
+    /// The result is an initial value of another loop expression.
+    LoopInit,
+    /// The result is bound by a binding.
+    Binding,
+    /// A later statement of the block runs after it.
+    LaterStatement,
+    /// The target of an `escape`, whose arms can run after it.
+    EscapeTarget,
+    /// The body of an arm of an `escape`.
+    EscapeArm,
+    /// The body of a `with`, whose handlers' release runs after it.
+    WithBody,
+    /// The body of an anonymous function.
+    Lambda,
+    /// The body of a local fn.
+    LocalFn,
+    /// The body of another loop expression, named.
+    Loop(SmolStr),
+    /// The result is used by the enclosing expression in any other way (a condition, a field
+    /// access, an element of a list).
+    Used,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosticKind {
     /// The file name (without extension) cannot be converted to a type name.
@@ -81,6 +112,22 @@ pub enum DiagnosticKind {
     OpaqueConstruction { name: SmolStr, module: ModuleName },
     /// An opaque type used in a pattern outside its defining module (E2105).
     OpaquePattern { name: SmolStr, module: ModuleName },
+    /// A type name written as the initial value of the parameter `param` of a loop expression
+    /// (`loop go(i: Int)`, E2106, `[fn.loop]`).
+    TypeAsLoopInit {
+        name: SmolStr,
+        found: &'static str,
+        param: SmolStr,
+    },
+    /// A call to the name of a loop expression that is not in tail position of its body (E3111,
+    /// `[fn.loop]`). `at` is the construct that makes the position not a tail position.
+    LoopCallNotTail {
+        name: SmolStr,
+        reason: NotTail,
+        at: TextRange,
+    },
+    /// The name of a loop expression written as a value, not called (E3112, `[fn.loop]`).
+    LoopAsValue { name: SmolStr },
     /// The name was found, but its kind cannot be written in that position (E2106).
     WrongKind {
         name: SmolStr,
@@ -337,6 +384,15 @@ impl fmt::Display for DiagnosticKind {
             }
             DiagnosticKind::DuplicateBinding { name, .. } => {
                 write!(f, "`{name}` is bound twice")
+            }
+            DiagnosticKind::TypeAsLoopInit { name, found, .. } => {
+                write!(f, "expected constructor, found {found} `{name}`")
+            }
+            DiagnosticKind::LoopCallNotTail { name, .. } => {
+                write!(f, "call to `{name}` is not in tail position")
+            }
+            DiagnosticKind::LoopAsValue { name } => {
+                write!(f, "loop `{name}` can only be called")
             }
             DiagnosticKind::InvalidUpdateTarget { name, found } => match name {
                 Some(name) => write!(f, "{found} `{name}` cannot be updated"),
