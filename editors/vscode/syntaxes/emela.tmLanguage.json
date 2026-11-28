@@ -224,6 +224,10 @@
           "name": "storage.modifier.emela"
         },
         {
+          "match": "\\bloop\\b",
+          "name": "keyword.control.loop.emela"
+        },
+        {
           "match": "\\b(impl|use|with|assert)\\b",
           "name": "keyword.other.emela"
         },
@@ -246,7 +250,7 @@
         },
         {
           "comment": "Reserved words without syntax ([kw.reserved], [kw.future]).",
-          "match": "\\b(as|var|return|while|loop|let|mut|in|where|do|try|catch|throw|async|yield|defer|macro|mod)\\b",
+          "match": "\\b(as|var|return|while|let|mut|in|where|do|try|catch|throw|async|yield|defer|macro|mod)\\b",
           "name": "invalid.illegal.reserved.emela"
         }
       ]

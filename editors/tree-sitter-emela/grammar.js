@@ -26,7 +26,7 @@ const PREC = {
 const RESERVED = [
   'fn', 'type', 'enum', 'error', 'const', 'trait', 'impl', 'effect', 'handler', 'layer', 'import',
   'pub', 'opaque', 'suspend',
-  'if', 'else', 'match', 'fail', 'escape', 'use', 'with', 'assert',
+  'if', 'else', 'match', 'fail', 'escape', 'use', 'with', 'assert', 'loop',
   'self',
 ];
 
@@ -600,6 +600,7 @@ module.exports = grammar({
       $.block,
       $.if_expression,
       $.with_expression,
+      $.loop_expression,
     ),
 
     self: _ => 'self',
@@ -632,6 +633,20 @@ module.exports = grammar({
       commaSep1($.with_item),
       field('body', $.block),
     ),
+
+    // `loop go(i: 0, acc:) -> T { ... }` ([fn.loop]). The parentheses hold named arguments: the
+    // parameters with their initial values.
+    loop_expression: $ => seq(
+      'loop',
+      field('name', $.identifier),
+      field('parameters', $.loop_parameters),
+      optional(seq('->', field('return_type', $._type))),
+      optional($.fails_clause),
+      optional($.uses_clause),
+      field('body', $.block),
+    ),
+
+    loop_parameters: $ => seq('(', commaSep($.named_argument), ')'),
 
     // `src = Files.Open(path)`, `f = fs.Open(path)` ([effect.with]).
     with_item: $ => seq(

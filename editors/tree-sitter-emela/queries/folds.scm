@@ -1,6 +1,7 @@
 [
   (function_declaration)
   (local_function)
+  (loop_expression)
   (type_declaration)
   (enum_declaration)
   (error_declaration)

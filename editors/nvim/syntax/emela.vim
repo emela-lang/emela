@@ -65,11 +65,12 @@ syntax keyword emelaConditional if else match
 syntax keyword emelaException   fail escape
 syntax keyword emelaEffect      use with
 syntax keyword emelaStatement   assert
+syntax keyword emelaRepeat      loop
 syntax keyword emelaSelf        self Self
 
 " `as` is reserved without syntax in 0.20, and the words of spec 3.3 have no syntax at all.
 " Writing any of them is an error.
-syntax keyword emelaReserved as var return while loop let mut in where do try catch throw async
+syntax keyword emelaReserved as var return while let mut in where do try catch throw async
       \ yield defer macro mod
 
 " Contextual words (spec 3.2). They are keywords only in the position shown; elsewhere they are
@@ -154,7 +155,7 @@ syntax match emelaDocComment "##.*$" contains=emelaTodo,@Spell
 syntax cluster emelaCode contains=emelaNameError,emelaType,emelaConstant,emelaTypeParam,
       \emelaConstructor,emelaFunctionCall,emelaInclude,emelaStorageClass,emelaKeyword,
       \emelaStructure,emelaEffectDecl,emelaConditional,emelaException,emelaEffect,emelaStatement,
-      \emelaSelf,emelaReserved,emelaContextual,emelaBoolean,emelaPreludeConstructor,emelaUnit,
+      \emelaRepeat,emelaSelf,emelaReserved,emelaContextual,emelaBoolean,emelaPreludeConstructor,emelaUnit,
       \emelaOperator,emelaNumber,emelaNumberError,emelaFloat,emelaString,emelaComment,
       \emelaDocComment,emelaClosureParams,emelaDelimiter
 
@@ -189,6 +190,7 @@ highlight default link emelaConditional        Conditional
 highlight default link emelaException          Exception
 highlight default link emelaEffect             Statement
 highlight default link emelaStatement          Statement
+highlight default link emelaRepeat             Repeat
 highlight default link emelaSelf               Special
 highlight default link emelaReserved           Error
 highlight default link emelaContextual         Keyword
