@@ -82,6 +82,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | deriving | 導出 |
 | bound (`[A: Ord]`), constraint | 制約 |
 | anonymous function | 無名関数 |
+| loop expression, initial value (of a parameter of a loop expression) | loop 式、最初の値 |
 | function value | 関数の値 |
 | unwind, unwinding | 巻き戻す、巻き戻り |
 | yield (for fairness) | 譲渡 |
