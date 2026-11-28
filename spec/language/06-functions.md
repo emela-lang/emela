@@ -91,10 +91,10 @@ c match {
 
 ```emel
 shape match {
-  Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius
-  Circle(_)                       -> 0.0
-  Rect(w, h)                      -> w * h
-  Empty                           -> 0.0
+  Circle(radius:) where radius > 0.0 -> 3.14 * radius * radius
+  Circle(_)                          -> 0.0
+  Rect(w, h)                         -> w * h
+  Empty                              -> 0.0
 }
 ```
 
@@ -118,7 +118,7 @@ load(id) match {
 - The prefix form (`match expr { arms }`) cannot be written. Writing it is a compile error (E1401) with help that suggests the postfix form. The diagnostic points at `match`. The same holds in an operand position of an operator (`1 + match x { ... }`). The implementation recovers by reading it in the prefix form and continues type checking.
 - Arms are tried from top to bottom. A match that does not cover all cases is a compile error.
 - A match with no arms is not exhaustive for a value of any type, including `Never` (E3102).
-- Arms with a guard (`if condition`) are not counted when judging exhaustiveness. An arm with a guard also does not cover the arms below it when judging whether those arms are redundant.
+- Arms with a guard (`where condition`) are not counted when judging exhaustiveness. An arm with a guard also does not cover the arms below it when judging whether those arms are redundant.
 - The guard of an arm, in a match or in an escape (7.3), is a position with the expected type Bool (`[type.rules]`), so its type is Bool or Never.
 - An arm fully covered by the arms above it is warned about as redundant (W3101).
 - When a match is not exhaustive, examples of missing patterns are shown (`Rect(_, _)`, `[_, ..]`, `Some(None)`). The examples take the following form.

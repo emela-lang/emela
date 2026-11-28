@@ -178,7 +178,7 @@ args       = arg { "," arg } [ "," ".." expr ]
 arg        = expr | lower_name ":" [ expr ]
 
 if_expr    = "if" expr block [ "else" ( block | if_expr ) ]
-arm        = pattern [ "if" expr ] "->" expr
+arm        = pattern [ "where" expr ] "->" expr
 with_expr  = "with" with_item { "," with_item } block
 loop_expr  = "loop" lower_name "(" [ loop_param { "," loop_param } ] ")" [ signature ] block   (* 6.8 *)
 loop_param = lower_name ":" [ expr ]
@@ -201,6 +201,7 @@ lambda_param = pattern [ ":" type ]
 - An effect_alias is a statement (8.2). Whether a statement is an effect_alias is decided by whether a lower_name is immediately followed by `<-`.
 - To call an operation of `use X` in place, wrap it in parentheses: `(use X).op(...)`. Writing `.` or `(` directly after `use X` is a compile error (E1108).
 - In an argument list, a positional argument cannot follow a named argument.
+- Until 0.30, the guard of an arm MAY be written after `if` instead of `where`, with the same meaning (W1401). From 0.30 it is a compile error (E1406).
 - The type arguments on the right of `by` can be written when it names an effect (`Hits by State[Int]`) or a handler with type parameters (`Hits by Memory[Int](initial: 0)`). Arguments can be written only when it names a handler or opens a handler member (`Source by Files.Open(p)`, `[effect.label]`).
 - `Self` as an expression is the value of a handler, and can be written only inside the init of a handler, called with its fields or alone (8.4).
 - A trailing `..expr` in an argument list is a record update of a constructor (5.3). Writing it in a function call is a compile error (E2111). Writing an argument after `..` is a compile error (E1104).
