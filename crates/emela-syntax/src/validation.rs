@@ -9,6 +9,7 @@
 //! - Report the old impl and handler heads with the head to write instead (E1402, E1403), the
 //!   old effect clause `use` with the uses clause to write instead (E1404), and the old form of an
 //!   anonymous function with the closure to write instead (E1405).
+//! - Report a guard written after `if` instead of `where` (W1401).
 //! - Report an anonymous function written as a statement that is not the last of its block
 //!   (E1112).
 //! - Report what a local fn cannot have (E1212, E1213) and a local fn as the last statement of its
@@ -82,6 +83,16 @@ fn walk(node: &SyntaxNode, out: &mut Vec<Diagnostic>) {
                     DiagnosticCode::UseOnEffectOp,
                     message,
                 );
+            }
+        }
+        MATCH_GUARD => {
+            if let Some(keyword) = crate::rewrite::guard_after_if(node) {
+                out.push(Diagnostic {
+                    range: keyword.text_range(),
+                    code: DiagnosticCode::GuardAfterIf,
+                    message: "a guard written after `if` is deprecated".to_owned(),
+                    help: Some("write `where` instead of `if`".to_owned()),
+                });
             }
         }
         USES_CLAUSE => {

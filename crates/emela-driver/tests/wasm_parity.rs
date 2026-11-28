@@ -296,7 +296,7 @@ fn find(id: Int) -> Int fails NotFound | Empty {
 
 fn describe(id: Int) -> Int {
   find(id) escape {
-    NotFound(id:) if id > 5 -> 100 + id
+    NotFound(id:) where id > 5 -> 100 + id
     NotFound(id: 3) -> 30
     _ -> -1
   }
@@ -1119,6 +1119,11 @@ fn main() {
     (
         "bytes_hex_defect",
         include_str!("../../emela-codegen-c/tests/programs/bytes_hex_defect.emel"),
+    ),
+    // `[grammar.expr]`, `[fn.match]`: guards after `where`, and after `if` (W1401).
+    (
+        "match_guard",
+        include_str!("../../emela-codegen-c/tests/programs/match_guard.emel"),
     ),
     // `[api.std.array]`: the same programs as the JS and C parity tests.
     (

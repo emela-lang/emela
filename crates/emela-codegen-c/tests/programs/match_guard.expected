@@ -1,0 +1,9 @@
+exit: 0
+--- stdout
+--- stderr
+("positive", "negative", "zero", "none")
+("positive", "negative", "zero", "none")
+(1, 0, 1)
+(1, 0, 1)
+(1, -1, 90)
+(1, -1, 90)

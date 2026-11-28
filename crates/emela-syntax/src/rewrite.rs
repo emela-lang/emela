@@ -1,5 +1,6 @@
-//! Rewrites of the old forms the parser still reads (E1402, E1403, E1404, E1405). Validation shows them
-//! in the message, and the driver's quick fixes apply them, so both come from here.
+//! Rewrites of the old forms the parser still reads (E1402, E1403, E1404, E1405, W1401).
+//! Validation shows them in the message, and the driver's quick fixes apply them, so both come
+//! from here.
 
 use rowan::{NodeOrToken, TextRange};
 
@@ -305,4 +306,16 @@ fn compact(text: &str) -> String {
         .replace(" ]", "]")
         .replace("( ", "(")
         .replace(" )", ")")
+}
+
+/// The `if` of a guard written after `if` (W1401, `[grammar.expr]`), which is written `where`
+/// instead. `None` for a guard written after `where`, or a node that is not a guard.
+pub fn guard_after_if(node: &SyntaxNode) -> Option<SyntaxToken> {
+    if node.kind() != MATCH_GUARD {
+        return None;
+    }
+    node.children_with_tokens()
+        .filter_map(NodeOrToken::into_token)
+        .find(|t| !t.kind().is_trivia() && t.kind() != NEWLINE)
+        .filter(|t| t.kind() == IF_KW)
 }

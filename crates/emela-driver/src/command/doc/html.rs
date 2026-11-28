@@ -261,7 +261,7 @@ fn token_class(kind: SyntaxKind, text: &str) -> Option<&'static str> {
     match kind {
         FN_KW | TYPE_KW | ENUM_KW | ERROR_KW | CONST_KW | TRAIT_KW | IMPL_KW | EFFECT_KW
         | HANDLER_KW | LAYER_KW | IMPORT_KW | PUB_KW | OPAQUE_KW | SUSPEND_KW | IF_KW | ELSE_KW
-        | MATCH_KW | FAIL_KW | ESCAPE_KW | USE_KW | WITH_KW | ASSERT_KW | SELF_KW
+        | WHERE_KW | MATCH_KW | FAIL_KW | ESCAPE_KW | USE_KW | WITH_KW | ASSERT_KW | SELF_KW
         | SELF_TYPE_KW | AS_KW | RESERVED_KW => Some("kw"),
         // Words that are keywords only by position (spec 3.2).
         LOWER_NAME if matches!(text, "fails" | "uses" | "derive" | "init" | "release") => {

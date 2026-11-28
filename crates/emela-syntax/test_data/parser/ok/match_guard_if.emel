@@ -1,0 +1,21 @@
+# Until 0.30, a guard written after `if` keeps its meaning and is reported with W1401.
+fn area(shape: Shape) -> Float {
+  shape match {
+    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius
+    _                               -> 0.0
+  }
+}
+
+fn load(id: Int) -> String {
+  find(id) escape {
+    NotFound(key) if key == id -> "missing"
+    DbError(_)                 -> "unavailable"
+  }
+}
+
+fn sign(o: Option[Int], b: Bool) -> Int {
+  o match {
+    Some(x) if if b { x > 0 } else { x < 0 } -> 1
+    _                                        -> 0
+  }
+}

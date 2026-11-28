@@ -319,7 +319,26 @@ impl Printer {
             .group()
     }
 
-    /// `pattern [ "if" expr ] "->" expr`
+    /// `"where" expr`. A guard written after `if` (W1401) is printed with `where`
+    /// (`[fmt.block]`); the arm measures the printed head, so the `->` are aligned after the
+    /// rewrite.
+    pub(super) fn guard(&mut self, node: &SyntaxNode) -> Doc {
+        let mut out = RcDoc::nil();
+        for (i, child) in significant_children(node).enumerate() {
+            if i > 0 {
+                out = out.append(self.space());
+            }
+            let doc = match child {
+                rowan::NodeOrToken::Token(t) if t.kind() == IF_KW => self.tok_as(&t, text("where")),
+                rowan::NodeOrToken::Token(t) => self.tok(&t),
+                rowan::NodeOrToken::Node(n) => self.node(&n),
+            };
+            out = out.append(doc);
+        }
+        out
+    }
+
+    /// `pattern [ "where" expr ] "->" expr`
     fn arm(&mut self, node: &SyntaxNode, pre: Doc) -> ArmDoc {
         let mut head = RcDoc::nil();
         let mut gap = RcDoc::nil();

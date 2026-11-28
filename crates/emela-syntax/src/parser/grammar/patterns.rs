@@ -9,7 +9,7 @@ use crate::parser::Parser;
 /// When a pattern fails to parse, stop without consuming the next token if it belongs to what
 /// follows.
 const RECOVERY: &[SyntaxKind] = &[
-    R_PAREN, R_BRACK, L_BRACE, R_BRACE, COMMA, EQ, COLON, THIN_ARROW, IF_KW, NEWLINE,
+    R_PAREN, R_BRACK, L_BRACE, R_BRACE, COMMA, EQ, COLON, THIN_ARROW, WHERE_KW, IF_KW, NEWLINE,
 ];
 
 /// Whether [`pattern`] can read something here.

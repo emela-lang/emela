@@ -131,9 +131,14 @@ impl Diagnostic {
         self.severity == Severity::Error
     }
 
-    /// The code (E1xxx) and English message come from emela-syntax.
+    /// The code (E1xxx, or W1xxx for a warning) and English message come from emela-syntax.
     pub fn from_syntax(file: FileId, diagnostic: &emela_syntax::Diagnostic) -> Self {
-        let out = Diagnostic::error(&diagnostic.message)
+        let severity = if diagnostic.code.is_warning() {
+            Severity::Warning
+        } else {
+            Severity::Error
+        };
+        let out = Diagnostic::new(severity, &diagnostic.message)
             .with_code(diagnostic.code.as_str())
             .with_span(Span::new(file, diagnostic.range));
         match &diagnostic.help {

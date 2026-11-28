@@ -289,3 +289,27 @@ fn old_lambda_has_a_rewriting_quickfix() {
     assert_eq!(edits[0].new_text, "|x| x + 1");
     client.shutdown();
 }
+
+/// A guard written after `if` is published as a warning (W1401) with a quick fix that replaces
+/// `if` with `where` (`[lsp.code-action]`).
+#[test]
+fn guard_after_if_has_a_rewriting_quickfix() {
+    let main = "fn f(o: Option[Int]) -> Int {\n  o match {\n    Some(x) if x > 0 -> x\n    _                -> 0\n  }\n}\n";
+    let files = [("/app/Pome.toml", ""), (MAIN, main)];
+    let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
+    let published = client.diagnostics();
+    assert_eq!(codes(&published), ["W1401"]);
+    assert_eq!(
+        published.diagnostics[0].severity,
+        Some(lsp::DiagnosticSeverity::WARNING)
+    );
+    let actions = client.quickfixes(MAIN, (2, 12), (2, 12));
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].title, "Replace `if` with `where`");
+    let edits = &actions[0].edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri(MAIN)];
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0].new_text, "where");
+    assert_eq!(edits[0].range.start, lsp::Position::new(2, 12));
+    assert_eq!(edits[0].range.end, lsp::Position::new(2, 14));
+    client.shutdown();
+}

@@ -315,6 +315,65 @@ fn main() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// A guard written after `if` is W1401 at `if`, in a match arm and in an escape arm; the program
+/// keeps its meaning and has no error. A guard after `where` has no diagnostic, and `where` is
+/// not an identifier (`[grammar.expr]`, `[kw.reserved]`, `[diag.list]`).
+#[test]
+fn guard_diagnostics() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"error Boom(code: Int)
+
+fn f(o: Option[Int]) -> Int {
+  o match {
+    Some(x) if x > 0 -> x
+    Some(x) where x < 0 -> -x
+    _ -> 0
+  }
+}
+
+fn g() -> Int fails Boom {
+  fail Boom(code: 1)
+}
+
+fn h() -> Int {
+  g() escape {
+    Boom(code:) if code > 0 -> code
+    Boom(_) -> 0
+  }
+}
+
+fn main() {
+  dbg(f(Some(1)) + h())
+  ()
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    assert!(!analysis.has_errors());
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            "fn where() -> Int {\n  1\n}\n\nfn main() -> Int {\n  where = 1\n  0\n}\n",
+        )],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    let codes: Vec<_> = analysis
+        .diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.code)
+        .collect();
+    assert_eq!(codes, [Some("E1101"), Some("E1102"), Some("E1109")]);
+}
+
 /// The old form of an anonymous function (E1405) shows its rewrite; an anonymous function before
 /// the last statement of a block is E1112; a line that starts with `||` gets a help on E1112 and
 /// on E3001 (`[fn.decl]`, `[fn.block]`, `[diag.list]`).

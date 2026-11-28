@@ -95,6 +95,7 @@ fn completion_of_names_in_scope() {
     assert!(!names.contains(&"Prelude"), "{names:?}");
     for name in [
         "greet", "main", "Logger", "Quiet", "Shape", "area", "Log", "List", "Some", "match",
+        "where",
     ] {
         assert!(names.contains(&name), "{name}: {names:?}");
     }

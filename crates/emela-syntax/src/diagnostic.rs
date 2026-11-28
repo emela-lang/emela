@@ -15,7 +15,9 @@ pub struct Diagnostic {
 ///
 /// Bands (spec `[diag.bands]`): E10xx lexical, E11xx syntax of expressions, patterns and types,
 /// E12xx syntax of declarations, E13xx syntax of attributes, E14xx forms that are no longer
-/// written. A code names one kind of mistake; the message tells its forms apart.
+/// written. W14xx are warnings about forms that are deprecated: they are not syntax errors, and
+/// [`crate::Parse`] keeps them apart from the errors. A code names one kind of mistake; the
+/// message tells its forms apart.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiagnosticCode {
@@ -109,6 +111,9 @@ pub enum DiagnosticCode {
     MisplacedTypeParams,
     /// A local fn as the last statement of its block, which nothing can call (`[fn.local]`).
     UnusedLocalFn,
+    /// The guard of a match or escape arm written after `if` instead of `where`
+    /// (`[grammar.expr]`). A warning until 0.30; from 0.30 the same form is the error E1406.
+    GuardAfterIf,
 }
 
 impl DiagnosticCode {
@@ -159,7 +164,14 @@ impl DiagnosticCode {
             Self::MisplacedTypeParams => "E1213",
             Self::UnusedLocalFn => "E1214",
             Self::LeftArrow => "E1113",
+            Self::GuardAfterIf => "W1401",
         }
+    }
+
+    /// Whether the code is a warning (`W` codes). A warning does not stop formatting or
+    /// checking.
+    pub const fn is_warning(self) -> bool {
+        matches!(self, Self::GuardAfterIf)
     }
 }
 

@@ -54,6 +54,9 @@ pub(super) fn quickfixes(
             Some(c) if c == DiagnosticCode::OldUseClause.as_str() => {
                 old_uses_clause(tree.syntax(), span.range)
             }
+            Some(c) if c == DiagnosticCode::GuardAfterIf.as_str() => {
+                guard_after_if(tree.syntax(), span.range)
+            }
             Some(code::DEPRECATED_USE) => deprecated_use(tree.syntax(), diagnostic, span.range),
             Some(code::UNUSED_TYPE_PARAM) => {
                 unused_type_param(program, module, span.range, tree.syntax())
@@ -134,6 +137,19 @@ fn old_uses_clause(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
     Some((
         format!("Rewrite as `{uses}`"),
         vec![(clause.text_range(), uses)],
+    ))
+}
+
+/// `Some(x) if x > 0` -> `Some(x) where x > 0` (W1401, `[lsp.code-action]`). The diagnostic
+/// points at `if`, which is replaced.
+fn guard_after_if(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
+    let keyword = root
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::MATCH_GUARD && n.text_range().contains_range(range))
+        .find_map(|n| rewrite::guard_after_if(&n).filter(|t| t.text_range() == range))?;
+    Some((
+        "Replace `if` with `where`".to_owned(),
+        vec![(keyword.text_range(), "where".to_owned())],
     ))
 }
 

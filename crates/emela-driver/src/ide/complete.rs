@@ -58,8 +58,8 @@ pub enum CompletionKind {
 /// not offered.
 const KEYWORDS: &[&str] = &[
     "fn", "type", "enum", "error", "const", "trait", "impl", "effect", "handler", "layer",
-    "import", "pub", "opaque", "suspend", "if", "else", "match", "fail", "escape", "use", "with",
-    "assert", "self", "Self",
+    "import", "pub", "opaque", "suspend", "if", "else", "match", "where", "fail", "escape", "use",
+    "with", "assert", "self", "Self",
 ];
 
 /// Filtering by the partially typed name is left to the editor.

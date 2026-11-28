@@ -1,0 +1,23 @@
+---
+source: crates/emela-driver/tests/check/diagnostics/types.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+warning[W1401]: a guard written after `if` is deprecated
+   ╭─[ main.emel:5:13 ]
+   │
+ 5 │     Some(x) if x > 0 -> x
+   │             ─┬  
+   │              ╰── 
+───╯
+   = help: write `where` instead of `if`
+
+warning[W1401]: a guard written after `if` is deprecated
+    ╭─[ main.emel:17:17 ]
+    │
+ 17 │     Boom(code:) if code > 0 -> code
+    │                 ─┬  
+    │                  ╰── 
+────╯
+   = help: write `where` instead of `if`
+
+2 warnings

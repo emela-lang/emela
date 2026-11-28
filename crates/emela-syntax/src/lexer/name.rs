@@ -52,6 +52,7 @@ fn keyword(word: &str) -> Option<SyntaxKind> {
         "if" => IF_KW,
         "else" => ELSE_KW,
         "match" => MATCH_KW,
+        "where" => WHERE_KW,
         "fail" => FAIL_KW,
         "escape" => ESCAPE_KW,
         "use" => USE_KW,
@@ -60,8 +61,8 @@ fn keyword(word: &str) -> Option<SyntaxKind> {
         "self" => SELF_KW,
         "Self" => SELF_TYPE_KW,
         "as" => AS_KW,
-        "var" | "return" | "while" | "loop" | "let" | "mut" | "in" | "where" | "do" | "try"
-        | "catch" | "throw" | "async" | "yield" | "defer" | "macro" | "mod" => RESERVED_KW,
+        "var" | "return" | "while" | "loop" | "let" | "mut" | "in" | "do" | "try" | "catch"
+        | "throw" | "async" | "yield" | "defer" | "macro" | "mod" => RESERVED_KW,
         _ => return None,
     };
     Some(kind)
@@ -132,6 +133,7 @@ mod tests {
             ("as", Some(AS_KW)),
             ("self", Some(SELF_KW)),
             ("Self", Some(SELF_TYPE_KW)),
+            ("where", Some(WHERE_KW)),
             ("return", Some(RESERVED_KW)),
             ("mod", Some(RESERVED_KW)),
         ]);

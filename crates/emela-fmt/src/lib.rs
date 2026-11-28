@@ -9,7 +9,8 @@
 //! form of an anonymous function (E1405) are not syntax errors here: the parser reads the old
 //! clause into the tree of a uses clause, which the printer writes in its canonical form, and the
 //! old anonymous function is printed in the new form (`[fmt.io]`, `[fmt.signature]`,
-//! `[fmt.closure]`).
+//! `[fmt.closure]`). A guard written after `if` (W1401) is a warning, kept apart from the errors
+//! by the parser, and is printed with `where` (`[fmt.block]`).
 
 mod comments;
 mod printer;
@@ -165,6 +166,7 @@ fn verify(before: &SyntaxNode, out: &str) -> Result<(), FormatError> {
 ///   change what it means.
 /// - the rewrites of `[fmt.signature]`: the keyword of a uses clause is `uses` (the old `use`
 ///   included), and its set is in braces
+/// - the rewrite of `[fmt.block]`: the keyword of a guard is `where` (the old `if` included)
 #[doc(hidden)]
 pub fn normalized_tokens(root: &SyntaxNode) -> Vec<(SyntaxKind, String)> {
     use SyntaxKind::*;
@@ -277,12 +279,15 @@ fn single_node_tokens(node: &SyntaxNode, out: &mut Vec<(SyntaxKind, String)>) {
 
 /// A token as `normalized_tokens` compares it: `(kind, text)`, with the uses clause in its
 /// canonical form. The keyword becomes `uses`, and a set without braces gets them around its
-/// first and last tokens.
+/// first and last tokens. The keyword of a guard becomes `where`.
 fn uses_clause_tokens(token: &SyntaxToken) -> Vec<(SyntaxKind, String)> {
     use SyntaxKind::*;
     // A `\r\n` inside a multiline string compares equal to `\n`.
     let this = (token.kind(), token.text().replace("\r\n", "\n"));
     let parent = token.parent();
+    if token.kind() == IF_KW && parent.as_ref().is_some_and(|p| p.kind() == MATCH_GUARD) {
+        return vec![(WHERE_KW, "where".to_owned())];
+    }
     if token.kind() == USE_KW && parent.as_ref().is_some_and(|p| p.kind() == USES_CLAUSE) {
         return vec![(LOWER_NAME, "uses".to_owned())];
     }

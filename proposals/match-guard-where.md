@@ -1,7 +1,7 @@
 ---
 title: Write the guard of an arm with where
 authors: [somnicattus]
-status: accepted
+status: implemented
 issue:
 touches: [kw, kw.reserved, kw.future, grammar.expr, fn.match, lib.api-rules, fmt.io, fmt.block, lsp.code-action, diag.list]
 requires: []
@@ -94,10 +94,10 @@ Unchanged.
 | E1406 | From 0.30, the guard of an arm written after `if` (6.5). At `if`. The help is ``= help: write `where` instead of `if` ``. The formatter rewrites it, and the language server offers the rewrite as a quick fix | ``write `where` before a guard, not `if` `` |
 | W1401 | Until 0.30, the guard of an arm written after `if` (6.5). The arm keeps its meaning. At `if`. The help is ``= help: write `where` instead of `if` ``. The formatter rewrites it, and the language server offers the rewrite as a quick fix | ``a guard written after `if` is deprecated`` |
 
-- [ ] W1401 at `if` after the pattern of a match arm and of an escape arm; the program keeps its meaning
-- [ ] `where` as an identifier is still a compile error, with the diagnostics it gets today (E1101 in a declaration; E1102 and E1109 in a binding)
-- [ ] fmt rewrites `if` to `where` and keeps the alignment of `->`
-- [ ] the quick fix of W1401
+- [x] W1401 at `if` after the pattern of a match arm and of an escape arm; the program keeps its meaning
+- [x] `where` as an identifier is still a compile error, with the diagnostics it gets today (E1101 in a declaration; E1102 and E1109 in a binding)
+- [x] fmt rewrites `if` to `where` and keeps the alignment of `->`
+- [x] the quick fix of W1401
 
 E1406 and the switch from W1401 to E1406 are implemented in the pull request that makes 0.30.
 
