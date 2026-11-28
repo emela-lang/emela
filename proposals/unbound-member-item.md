@@ -1,11 +1,13 @@
 ---
 title: Handler members can be opened by items without a name and on the right of `by`
 authors: [somnicattus]
-status: draft
+status: accepted
 issue: 874
 touches: [grammar.expr, module.resolution, effect.decl, effect.use, effect.with, effect.label, type.rules, dyn.with, lsp.hover, diag.list]
 requires: []
 related: [handler-member, handler-member-gaps, handler-init-arguments, named-item-not-by-name]
+pr: 895
+decided: 2026-11-29
 ---
 
 # Handler members can be opened by items without a name and on the right of `by`
@@ -211,3 +213,5 @@ The change only accepts items that were E4105, E2106 or E1101, and the right sid
 ## Open questions
 
 ## Decision
+
+Whether a resource was provided by name, or could be plugged into a label, depended on whether a handler or a handler member opened it, not on its effect or on the with. After `named-item-not-by-name`, whether an item has a name decides how its effect is reached, and this removes the one exception: an item without a name that opens a handler member provides the effects of the member by name, and the right side of `by` takes a handler member as it takes a handler. The reasons `handler-member` gave for requiring a name are costs of labels and a mix of `uses { E }` and `use E` parameters that exists without handler members, so they do not hold against this. A handler member as an item of a layer is left to #904, which lets a layer take parameters. A convention for the standard library on taking resources opened from handler members as capability parameters is left to a separate proposal.
