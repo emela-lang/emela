@@ -64,7 +64,7 @@ fn compose[A, B, C](f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
 | fails clause | "No errors" if there is a return type | Enforces exactly that set |
 | uses clause | R is always inferred (even when a return type is written) | Enforces exactly that set. The effects of calling parameter functions (hidden set variables) are added (as for E in 7.4), and so are the sets of the capabilities in the parameter types (9.4) |
 
-A local fn (6.9) follows the same table. Its E and R are inferred as part of the enclosing body, and its type is not generalized.
+A local fn (6.9) follows the same table. Its E and R are inferred as part of the enclosing body, and its type is not generalized. So does a loop expression (6.8), whose E and R are part of those of the enclosing body. The types of its parameters are inferred from their initial values and the calls to its name, and are not generalized.
 
 E and R usually do not appear in source. The LSP displays them.
 
@@ -107,6 +107,7 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 | `E.M(a)`, `c.M(a)` inside an init | `use F` (F is the effect of M) | Ea ∪ (E of the init of M) | { E } or { c }, ∪ Ra |
 | `\|x\| e` | `fn(..) -> T fails Ee uses { Re }`, where Re also has the capabilities in the types of the captured values | {} | {} |
 | `fn f(x: A) -> T { e }` (local fn, a statement) | Binds f to `fn(A) -> T fails Ee uses { Re }` | {} | {} |
+| `loop f(x: a) { e }` (6.8) | The type of e. In e, x has the type of a, and a call to f has the type, E and R of the loop expression being inferred | Ea ∪ Ee | Ra ∪ Re |
 | `if c { a } else { b }` | The common type of a and b | Ec ∪ Ea ∪ Eb | Rc ∪ Ra ∪ Rb |
 | `e match { pi -> ei }` | The common type of the arms | Ee ∪ Egi ∪ Eei (gi are the guards of the arms) | Re ∪ Rgi ∪ Rei |
 

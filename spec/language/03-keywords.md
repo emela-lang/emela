@@ -8,7 +8,7 @@ There are 26 reserved words, and none of them can be used as an identifier in an
 |---|---|
 | Declarations | `fn` `type` `enum` `error` `const` `trait` `impl` `effect` `handler` `layer` `import` |
 | Modifiers | `pub` `opaque` `suspend` |
-| Expressions | `if` `else` `match` `where` `fail` `escape` `use` `with` `assert` |
+| Expressions | `if` `else` `match` `where` `fail` `escape` `use` `with` `assert` `loop` |
 | Special names | `self` `Self` |
 | Reserved, not used yet | `as` |
 
@@ -31,7 +31,7 @@ The following words act as keywords only in the positions shown. In any other po
 
 The following words have no syntax, but they cannot be used as identifiers either.
 
-`var` `return` `while` `loop` `let` `mut` `in` `do` `try` `catch` `throw` `async` `yield` `defer` `macro` `mod`
+`var` `return` `while` `let` `mut` `in` `do` `try` `catch` `throw` `async` `yield` `defer` `macro` `mod`
 
 ## 3.4 Not keywords `[kw.non-keyword]`
 

@@ -223,6 +223,7 @@ capabilities: x, y
   - E1404 (the old clause): replaces the clause with its canonical form (`use Db` becomes `uses { Db }`).
   - W1401 and E1406 (a guard written after `if`): replaces `if` with `where`.
   - W3002 (a type parameter that does not appear in the type of the fn): removes the type parameter together with its bound and the `,` that separates it from its neighbour. When the list becomes empty, the brackets are removed too (`fn f[A]() -> Int` becomes `fn f() -> Int`). It is not offered when the type parameter appears in a type annotation inside the body, because removing it makes that annotation E2101. The title has the form ``Remove type parameter `A` ``.
+  - W4001 and E4014 (the name of a handler written for its value, `[effect.handler]`): replaces the name with `Self`. For a record update, it also replaces `..x` with the fields that are not written, each read from x (`m: a.m`); for a record update whose expression after `..` is not a name, no fix is offered, since the rewrite would evaluate it more than once. The title has the form ``Write `Self` in place of `PostgresUsers` ``.
 - There is no diagnostic for unused imports, so there is no quickfix that removes them.
 
 ## Inlay hints `[lsp.inlay-hint]`
