@@ -40,7 +40,7 @@ jobs:
       # (oven-sh/bun#43826), which `emela test` relies on to go on after a test left suspended.
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.5
       # `emela test --target wasm` runs the WASI 0.3 component with wasmtime (49 or newer).
       - uses: bytecodealliance/actions/wasmtime/setup@v1
         with:
