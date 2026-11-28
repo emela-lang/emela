@@ -87,6 +87,8 @@ pub enum SyntaxKind {
     ELSE_KW,
     /// `match`
     MATCH_KW,
+    /// `where`, before the guard of an arm (`[grammar.expr]`)
+    WHERE_KW,
     /// `fail`
     FAIL_KW,
     /// `escape`
@@ -105,7 +107,7 @@ pub enum SyntaxKind {
     AS_KW,
     /// Words reserved for the future (spec 3.3). They have no syntax, so they share one kind.
     ///
-    /// `var` `return` `while` `loop` `let` `mut` `in` `where` `do` `try` `catch` `throw`
+    /// `var` `return` `while` `loop` `let` `mut` `in` `do` `try` `catch` `throw`
     /// `async` `yield` `defer` `macro` `mod`
     RESERVED_KW,
 
@@ -380,9 +382,9 @@ pub enum SyntaxKind {
     MATCH_EXPR,
     /// The arms of `match` and `escape`. `{ A -> 1⏎ B -> 2 }`
     MATCH_ARM_LIST,
-    /// `Circle(r) if r > 0.0 -> r`
+    /// `Circle(r) where r > 0.0 -> r`
     MATCH_ARM,
-    /// `if r > 0.0`
+    /// `where r > 0.0`, or `if r > 0.0` (W1401)
     MATCH_GUARD,
     /// `with ConsoleLogger, FixedClock { ... }`
     WITH_EXPR,
@@ -463,6 +465,7 @@ impl SyntaxKind {
             IF_KW => "`if`",
             ELSE_KW => "`else`",
             MATCH_KW => "`match`",
+            WHERE_KW => "`where`",
             FAIL_KW => "`fail`",
             ESCAPE_KW => "`escape`",
             USE_KW => "`use`",
@@ -557,7 +560,7 @@ mod tests {
     fn 記号と予約語は書いたとおりの綴りで呼ぶ() {
         let src = concat!(
             "fn type enum error const trait impl effect handler layer import pub opaque suspend ",
-            "if else match fail escape use with assert self Self as _ ",
+            "if else match where fail escape use with assert self Self as _ ",
             "( ) [ ] { } , . .. : = -> | |> + - * / % ! == != < <= <- > >= && || @ ",
             "\"#{x}\"\n\"\"\"\nt\n\"\"\"\n",
         );

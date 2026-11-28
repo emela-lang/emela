@@ -19,7 +19,7 @@ fn check(id: Int) -> String fails NotFound | Invalid | Empty {
 
 fn describe(id: Int) -> String {
   check(id) escape {
-    NotFound(id:) if id > 5 -> "far #{id}"
+    NotFound(id:) where id > 5 -> "far #{id}"
     NotFound(id:) -> "missing #{id}"
     Invalid(reason:, ..) -> "invalid: #{reason}"
     Empty -> "empty"

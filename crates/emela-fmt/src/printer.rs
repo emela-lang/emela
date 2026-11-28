@@ -397,7 +397,8 @@ impl Printer {
             WITH_BY => self.seq(node, |_, cur| cur != TYPE_ARG_LIST),
             // `Map[K: Eq, V: Eq]` in `impl Map[K: Eq, V: Eq]: Eq`.
             IMPL_TYPE => self.seq(node, |_, cur| cur != TYPE_PARAM_LIST),
-            RET_TYPE | FAILS_CLAUSE | FAIL_EXPR | ASSERT_EXPR | MATCH_GUARD | CAP_TYPE => {
+            MATCH_GUARD => self.guard(node),
+            RET_TYPE | FAILS_CLAUSE | FAIL_EXPR | ASSERT_EXPR | CAP_TYPE => {
                 self.seq(node, |_, _| true)
             }
             USES_CLAUSE => self.uses_clause(node),

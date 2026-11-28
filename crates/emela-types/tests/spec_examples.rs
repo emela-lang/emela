@@ -220,10 +220,10 @@ enum Shape {
 
 fn area(shape: Shape) -> Float {
   shape match {
-    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius
-    Circle(_)                       -> 0.0
-    Rect(w, h)                      -> w * h
-    Empty                           -> 0.0
+    Circle(radius:) where radius > 0.0 -> 3.14 * radius * radius
+    Circle(_)                          -> 0.0
+    Rect(w, h)                         -> w * h
+    Empty                              -> 0.0
   }
 }
 "#
@@ -790,7 +790,7 @@ fn f(shape: Shape, o: Option[Int], u: User) -> Float {
   Some(n) = o
   User(name:) = u
   shape match {
-    Circle(radius:) if radius > 0.0 -> radius
+    Circle(radius:) where radius > 0.0 -> radius
     Rect(w, h) -> w
     _ -> 0.0
     Empty -> 1.0
@@ -1259,7 +1259,7 @@ fn catch_variable() -> Int {
 }
 
 fn catch_all_guarded(c: Bool) -> Int {
-  flaky() escape { _ if c -> 1 }
+  flaky() escape { _ where c -> 1 }
 }
 "#
     ));

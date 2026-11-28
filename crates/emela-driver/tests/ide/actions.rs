@@ -74,7 +74,7 @@ fn assert_clean(text: &str, extra: &[(&str, &str)]) {
 
 #[test]
 fn match_arms_follow_coverage_including_guards_and_nested_patterns() {
-    let text = "enum Shape { Circle(Int), Rect(Int, Int), Empty }\nfn area(s: Shape) -> Int {\n  s match {\n    Circle(_) if False -> 1\n    Rect(_, _) -> 2\n  }\n}\n";
+    let text = "enum Shape { Circle(Int), Rect(Int, Int), Empty }\nfn area(s: Shape) -> Int {\n  s match {\n    Circle(_) where False -> 1\n    Rect(_, _) -> 2\n  }\n}\n";
     let actions = fixes(text, "s match", &[]);
     assert_eq!(actions.len(), 1);
     assert_eq!(
@@ -414,6 +414,32 @@ fn old_lambdas_are_rewritten() {
     let edited = apply(&edited, &actions[0]);
     assert!(edited.contains("(|x| x)(g(1))"), "{edited}");
     assert_clean(&edited, &[]);
+}
+
+/// A guard written after `if` (W1401) gets a quick fix that replaces `if` with `where`
+/// (`[lsp.code-action]`), in a match arm and in an escape arm.
+#[test]
+fn guard_after_if_is_rewritten_as_where() {
+    let text = "error Boom(code: Int)\n\nfn f(o: Option[Int]) -> Int {\n  o match {\n    Some(x) if x > 0 -> x\n    _                -> 0\n  }\n}\n\nfn g() -> Int fails Boom {\n  fail Boom(code: 1)\n}\n\nfn h() -> Int {\n  g() escape {\n    Boom(code:) if code > 0 -> code\n    Boom(_)                 -> 0\n  }\n}\n\nfn main() {\n  dbg(f(Some(1)) + h())\n  ()\n}\n";
+    let actions = fixes(text, "if x", &[]);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].title, "Replace `if` with `where`");
+    assert_eq!(actions[0].diagnostics[0].code, Some("W1401"));
+    let edited = apply(text, &actions[0]);
+    assert!(edited.contains("Some(x) where x > 0 -> x"), "{edited}");
+    let actions = fixes(&edited, "if code", &[]);
+    assert_eq!(actions.len(), 1);
+    let edited = apply(&edited, &actions[0]);
+    assert!(
+        edited.contains("Boom(code:) where code > 0 -> code"),
+        "{edited}"
+    );
+    let (analysis, _, _) = checked(&edited, &[]);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{}",
+        emela_driver::render(&analysis.diagnostics, &analysis.sources, false)
+    );
 }
 
 #[test]

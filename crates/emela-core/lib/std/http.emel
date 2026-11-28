@@ -223,9 +223,9 @@ pub fn serve[E, F](
     host.read(incoming)
   }
   received_request(received) match {
-    None -> answer(incoming, status_only(405).add_header("allow", ALLOW))
-    Some(_) if !host_received_text(received) -> answer(incoming, status_only(400))
-    Some(request) if !well_formed(request) -> answer(incoming, status_only(400))
+    None          -> answer(incoming, status_only(405).add_header("allow", ALLOW))
+    Some(_) where !host_received_text(received) -> answer(incoming, status_only(400))
+    Some(request) where !well_formed(request) -> answer(incoming, status_only(400))
     Some(request) -> launch(app, request, incoming)
   }
 }
@@ -384,7 +384,7 @@ fn normal_headers(pairs: List[(String, String)]) -> List[(String, String)] {
     })
     |> List.fold(from: [], f: |acc, (name, value)| {
       acc match {
-        [(last, joined), ..rest] if last == name && name != "set-cookie" -> [
+        [(last, joined), ..rest] where last == name && name != "set-cookie" -> [
           (name, "#{joined}, #{value}"),
           ..rest,
         ]

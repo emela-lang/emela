@@ -28,11 +28,11 @@ warning[W3101]: unreachable match arm
 ────╯
 
 error[E3203]: a `_` escape arm cannot have a guard
-    ╭─[ main.emel:12:28 ]
+    ╭─[ main.emel:12:31 ]
     │
- 12 │   c = boom() escape { _ if a > 0 -> 0 }
-    │                            ──┬──  
-    │                              ╰──── 
+ 12 │   c = boom() escape { _ where a > 0 -> 0 }
+    │                               ──┬──  
+    │                                 ╰──── 
 ────╯
 
 error[E3203]: escape arms must match an error constructor or `_`

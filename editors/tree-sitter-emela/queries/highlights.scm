@@ -217,6 +217,7 @@
   "if"
   "else"
   "match"
+  "where"
 ] @keyword.conditional
 
 [

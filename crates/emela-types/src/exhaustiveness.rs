@@ -125,7 +125,7 @@ pub trait CtorTable {
 #[derive(Clone, Debug)]
 pub struct Arm {
     pub pat: Pat,
-    /// Whether it has an `if` guard.
+    /// Whether it has a guard.
     pub guarded: bool,
 }
 

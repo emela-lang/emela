@@ -1,0 +1,70 @@
+---
+source: crates/emela-syntax/tests/parser.rs
+expression: parse(&src).debug_dump()
+input_file: crates/emela-syntax/test_data/parser/err/where_as_identifier.emel
+---
+ROOT@0..142
+  COMMENT@0..80 "# where は予約語（3.1）で，宣言の名前にも束縛にも使えない"
+  NEWLINE@80..81 "\n"
+  FN_DECL@81..106
+    FN_KW@81..83 "fn"
+    WHITESPACE@83..84 " "
+    ERROR@84..89
+      WHERE_KW@84..89 "where"
+    PARAM_LIST@89..91
+      L_PAREN@89..90 "("
+      R_PAREN@90..91 ")"
+    WHITESPACE@91..92 " "
+    RET_TYPE@92..98
+      THIN_ARROW@92..94 "->"
+      WHITESPACE@94..95 " "
+      PATH_TYPE@95..98
+        PATH@95..98
+          TYPE_NAME@95..98 "Int"
+    WHITESPACE@98..99 " "
+    BLOCK_EXPR@99..106
+      L_BRACE@99..100 "{"
+      NEWLINE@100..101 "\n"
+      WHITESPACE@101..103 "  "
+      LITERAL@103..104
+        INT@103..104 "1"
+      NEWLINE@104..105 "\n"
+      R_BRACE@105..106 "}"
+  NEWLINE@106..107 "\n"
+  NEWLINE@107..108 "\n"
+  FN_DECL@108..141
+    FN_KW@108..110 "fn"
+    WHITESPACE@110..111 " "
+    LOWER_NAME@111..112 "f"
+    PARAM_LIST@112..114
+      L_PAREN@112..113 "("
+      R_PAREN@113..114 ")"
+    WHITESPACE@114..115 " "
+    RET_TYPE@115..121
+      THIN_ARROW@115..117 "->"
+      WHITESPACE@117..118 " "
+      PATH_TYPE@118..121
+        PATH@118..121
+          TYPE_NAME@118..121 "Int"
+    WHITESPACE@121..122 " "
+    BLOCK_EXPR@122..141
+      L_BRACE@122..123 "{"
+      NEWLINE@123..124 "\n"
+      WHITESPACE@124..126 "  "
+      ERROR@126..131
+        WHERE_KW@126..131 "where"
+      WHITESPACE@131..132 " "
+      ERROR@132..135
+        EQ@132..133 "="
+        WHITESPACE@133..134 " "
+        INT@134..135 "1"
+      NEWLINE@135..136 "\n"
+      WHITESPACE@136..138 "  "
+      LITERAL@138..139
+        INT@138..139 "0"
+      NEWLINE@139..140 "\n"
+      R_BRACE@140..141 "}"
+  NEWLINE@141..142 "\n"
+error[E1101]@84..89: expected lower name
+error[E1102]@126..131: expected expression
+error[E1109]@132..133: expected newline or `}` after statement

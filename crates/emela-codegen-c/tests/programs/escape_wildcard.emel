@@ -18,9 +18,9 @@ fn find(id: Int) -> String fails NotFound | Empty {
 ## The arms above `_` are tried first (`[error.escape]`).
 fn describe(id: Int) -> String {
   find(id) escape {
-    NotFound(id:) if id > 5 -> "far #{id}"
-    NotFound(id: 3)         -> "three"
-    _                       -> "other"
+    NotFound(id:) where id > 5 -> "far #{id}"
+    NotFound(id: 3)            -> "three"
+    _                          -> "other"
   }
 }
 

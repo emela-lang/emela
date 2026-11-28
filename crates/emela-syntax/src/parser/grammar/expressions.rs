@@ -196,7 +196,7 @@ fn block_or_error(p: &mut Parser<'_>) {
     }
 }
 
-/// `"{" { arm NL } "}"`．`arm = pattern [ "if" expr ] "->" expr`
+/// `"{" { arm NL } "}"`．`arm = pattern [ "where" expr ] "->" expr`
 fn arm_list(p: &mut Parser<'_>) {
     let m = p.start();
     if !p.expect(L_BRACE) {
@@ -227,10 +227,12 @@ fn arm_list(p: &mut Parser<'_>) {
     m.complete(p, MATCH_ARM_LIST);
 }
 
+/// A guard written after `if` is read as one written after `where`, with the same meaning; it is
+/// reported by validation (W1401, `[grammar.expr]`).
 fn arm(p: &mut Parser<'_>) {
     let m = p.start();
     pattern(p);
-    if p.at(IF_KW) {
+    if p.at(WHERE_KW) || p.at(IF_KW) {
         let g = p.start();
         p.bump();
         expr(p);

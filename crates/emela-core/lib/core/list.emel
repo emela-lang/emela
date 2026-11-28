@@ -57,9 +57,9 @@ pub fn is_empty[A](xs: List[A]) -> Bool {
 ## Zero-based. `None` if out of range or negative.
 pub fn get[A](xs: List[A], index: Int) -> Option[A] {
   xs match {
-    _ if index < 0 -> None
-    []             -> None
-    [x, ..rest]    -> if index == 0 { Some(x) } else { get(rest, index - 1) }
+    _ where index < 0 -> None
+    []                -> None
+    [x, ..rest]       -> if index == 0 { Some(x) } else { get(rest, index - 1) }
   }
 }
 

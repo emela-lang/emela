@@ -23,6 +23,7 @@ pub use syntax_kind::SyntaxKind;
 pub struct Parse {
     green: GreenNode,
     diagnostics: Vec<Diagnostic>,
+    warnings: Vec<Diagnostic>,
 }
 
 impl Parse {
@@ -34,19 +35,27 @@ impl Parse {
         ast::AstNode::cast(self.syntax()).expect("the root is always ROOT")
     }
 
-    /// Lexer diagnostics come first, then parser diagnostics.
+    /// The syntax errors. Lexer diagnostics come first, then parser diagnostics.
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
 
+    /// The warnings ([`DiagnosticCode::is_warning`]), sorted by position. They are kept apart
+    /// from [`Parse::diagnostics`], so that a file with only warnings has no syntax error.
+    pub fn warnings(&self) -> &[Diagnostic] {
+        &self.warnings
+    }
+
     /// Dumps the tree one element per line, followed by the diagnostics as
-    /// `error[E1001]@start..end: message`.
+    /// `error[E1001]@start..end: message` and the warnings as `warning[W1401]@start..end: message`.
     pub fn debug_dump(&self) -> String {
         let mut out = debug_tree(&self.syntax());
-        for diagnostic in &self.diagnostics {
+        let errors = self.diagnostics.iter().map(|d| ("error", d));
+        let warnings = self.warnings.iter().map(|d| ("warning", d));
+        for (severity, diagnostic) in errors.chain(warnings) {
             writeln!(
                 out,
-                "error[{}]@{:?}: {}",
+                "{severity}[{}]@{:?}: {}",
                 diagnostic.code, diagnostic.range, diagnostic.message
             )
             .unwrap();
@@ -66,9 +75,16 @@ pub fn parse(src: &str) -> Parse {
     parse_diagnostics.extend(validation::validate(&SyntaxNode::new_root(green.clone())));
     // Parser and validation diagnostics are sorted by position, keeping emission order for ties.
     parse_diagnostics.sort_by_key(|d| (d.range.start(), d.range.end()));
+    let (warnings, parse_diagnostics): (Vec<_>, Vec<_>) = parse_diagnostics
+        .into_iter()
+        .partition(|d| d.code.is_warning());
     let mut diagnostics = lexed.diagnostics;
     diagnostics.extend(parse_diagnostics);
-    Parse { green, diagnostics }
+    Parse {
+        green,
+        diagnostics,
+        warnings,
+    }
 }
 
 /// Nodes as `KIND@start..end`, tokens as `KIND@start..end "text"`, indented two spaces per level.

@@ -7,9 +7,9 @@ pub fn messy(x: Int, y: Int) -> Int {
   a = x + y * 2
   b = if a > 0 { a } else { 0 - a }
   b match {
-    0            -> "zero"
-    n if n > 100 -> "big"
-    _            -> "other"
+    0               -> "zero"
+    n where n > 100 -> "big"
+    _               -> "other"
   }
 }
 fn squeezed(xs: List[Int]) -> List[Int] { xs |> List.map(|x| x * 2) |> List.filter(|x| x > 2) }

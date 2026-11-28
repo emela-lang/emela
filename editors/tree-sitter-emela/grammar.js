@@ -26,7 +26,7 @@ const PREC = {
 const RESERVED = [
   'fn', 'type', 'enum', 'error', 'const', 'trait', 'impl', 'effect', 'handler', 'layer', 'import',
   'pub', 'opaque', 'suspend',
-  'if', 'else', 'match', 'fail', 'escape', 'use', 'with', 'assert',
+  'if', 'else', 'match', 'where', 'fail', 'escape', 'use', 'with', 'assert',
   'self',
 ];
 
@@ -529,7 +529,8 @@ module.exports = grammar({
 
     match_arm: $ => seq(
       field('pattern', $._pattern),
-      optional(seq('if', field('guard', $._expression))),
+      // Until 0.30 a guard may also be written after `if` (W1401, [grammar.expr]).
+      optional(seq(choice('where', 'if'), field('guard', $._expression))),
       '->',
       field('value', $._expression),
     ),

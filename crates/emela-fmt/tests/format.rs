@@ -83,6 +83,21 @@ fn すべての幅で冪等で意味を変えない() {
     }
 }
 
+/// A guard written after `if` (W1401) is rewritten as `where`, the `->` of the arms are aligned
+/// after the rewrite, and the output has no W1401 (`[fmt.block]`, `[fmt.io]`).
+#[test]
+fn guard_after_if_is_rewritten_as_where() {
+    let src = "fn f(o: Option[Int]) -> Int {\n  o match {\n    Some(x) if x > 0 -> x\n    _                -> 0\n  }\n}\n";
+    let out = format(src).unwrap();
+    assert_eq!(
+        out,
+        "fn f(o: Option[Int]) -> Int {\n  o match {\n    Some(x) where x > 0 -> x\n    _                   -> 0\n  }\n}\n"
+    );
+    assert!(parse(src).diagnostics().is_empty());
+    assert_eq!(parse(src).warnings().len(), 1);
+    assert!(parse(&out).warnings().is_empty());
+}
+
 #[test]
 fn 構文エラーがあれば整形しない() {
     let err = format("fn f( {\n").unwrap_err();

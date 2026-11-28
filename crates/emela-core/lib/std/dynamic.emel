@@ -300,7 +300,7 @@ pub fn lookup(value: Dynamic, name: String) -> Option[Dynamic] fails DecodeError
 ## The elements of Items that has exactly `n` elements.
 pub fn items(value: Dynamic, n: Int) -> List[Dynamic] fails DecodeError {
   value match {
-    Items(xs) if xs.length() == n -> xs
+    Items(xs) where xs.length() == n -> xs
     Items(_) -> fail DecodeError(expected: "#{n} items", actual: value, path: [])
     _        -> fail DecodeError(expected: "items", actual: value, path: [])
   }

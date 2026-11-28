@@ -154,7 +154,7 @@ fn a_guarded_arm_is_not_reduced() {
         "\
 fn main() {
   dbg(Some(1) match {
-    Some(x) if x > 0 -> 1
+    Some(x) where x > 0 -> 1
     _ -> 0
   })
 }

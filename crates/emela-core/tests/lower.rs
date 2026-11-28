@@ -298,7 +298,7 @@ fn main() {
 fn area(s: Shape) -> Float {
   s match {
     Circle(r) -> r * r * 3.0
-    Rect(width: w, ..) if w > 10.0 -> 0.0
+    Rect(width: w, ..) where w > 10.0 -> 0.0
     Rect(width: w, height: h) -> w * h
     Empty -> 0.0
   }
@@ -429,7 +429,7 @@ fn classify(n: Int) -> String {
   n match {
     LIMIT -> \"limit\"
     0 -> \"zero\"
-    m if m > 100 -> \"big\"
+    m where m > 100 -> \"big\"
     _ -> \"other\"
   }
 }
@@ -471,7 +471,7 @@ fn find(id: Int) -> Int fails NotFound | Unauthorized {
 
 fn main() {
   a = find(1) escape {
-    NotFound(id:) if id > 5 -> id
+    NotFound(id:) where id > 5 -> id
     Unauthorized -> fail NotFound(id: 0)
   }
   b = Some(1) |> Option.or_fail(Unauthorized)

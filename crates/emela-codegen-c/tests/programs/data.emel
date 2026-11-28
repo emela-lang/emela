@@ -34,7 +34,7 @@ fn area(s: Shape) -> Float {
 fn insert(t: Tree, v: Int) -> Tree {
   t match {
     Leaf -> Node(Leaf, v, Leaf)
-    Node(l, x, r) if v < x -> Node(insert(l, v), x, r)
+    Node(l, x, r) where v < x -> Node(insert(l, v), x, r)
     Node(l, x, r) -> Node(l, x, insert(r, v))
   }
 }
@@ -59,7 +59,7 @@ fn classify(xs: List[Int]) -> String {
     [] -> "empty"
     [x] -> "one #{x}"
     [1, 2, ..rest] -> "starts 1 2 then #{rest}"
-    [x, y, ..] if x > y -> "down"
+    [x, y, ..] where x > y -> "down"
     _ -> "other"
   }
 }

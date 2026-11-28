@@ -144,9 +144,9 @@ enum Shape {
 
 fn describe(s: Shape, n: Int) -> String {
   (s, n) match {
-    (Circle(radius:), _) if radius > 10.0 -> \"big circle\"
+    (Circle(radius:), _) where radius > 10.0 -> \"big circle\"
     (Circle(_), 0) -> \"circle zero\"
-    (Group([Rect(w, _), ..rest]), k) if k > 1 -> \"group of rect\"
+    (Group([Rect(w, _), ..rest]), k) where k > 1 -> \"group of rect\"
     (Group([]), _) -> \"empty group\"
     (_, 1) -> \"one\"
     _ -> \"other\"

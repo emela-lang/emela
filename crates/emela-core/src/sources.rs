@@ -181,6 +181,12 @@ mod tests {
                 })
                 .collect();
             assert!(errors.is_empty(), "syntax errors in {module}: {errors:#?}");
+            // The bundled sources are written in the current forms: no deprecated form (W1401).
+            assert!(
+                parse.warnings().is_empty(),
+                "syntax warnings in {module}: {:#?}",
+                parse.warnings()
+            );
             let errors = parse
                 .syntax()
                 .descendants()

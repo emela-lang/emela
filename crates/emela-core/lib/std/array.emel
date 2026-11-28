@@ -155,8 +155,8 @@ fn bisect[A: Ord](a: Array[A], value: A, low: Int, high: Int) -> Int {
   if low < high {
     mid = (low + high) / 2
     get(a, mid) match {
-      Some(x) if x < value -> bisect(a, value, mid + 1, high)
-      _                    -> bisect(a, value, low, mid)
+      Some(x) where x < value -> bisect(a, value, mid + 1, high)
+      _                       -> bisect(a, value, low, mid)
     }
   } else {
     low
@@ -168,8 +168,8 @@ fn bisect[A: Ord](a: Array[A], value: A, low: Int, high: Int) -> Int {
 pub fn binary_search[A: Ord](a: Array[A], value: A) -> Option[Int] {
   i = lower_bound(a, value)
   get(a, i) match {
-    Some(x) if x == value -> Some(i)
-    _                     -> None
+    Some(x) where x == value -> Some(i)
+    _                        -> None
   }
 }
 

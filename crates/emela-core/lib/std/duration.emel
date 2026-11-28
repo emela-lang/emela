@@ -130,7 +130,7 @@ pub fn parse(s: String) -> Duration fails ParseError {
   limit = if negative { least() } else { 0 - greatest() }
   total = body match {
     [48] -> 0
-    [p, t, ..rest] if (p == 80 || p == 112) && (t == 84 || t == 116) -> {
+    [p, t, ..rest] where (p == 80 || p == 112) && (t == 84 || t == 116) -> {
       components(s, rest, True, -1, 0, 0, limit)
     }
     _    -> components(s, body, False, -1, 0, 0, limit)
@@ -230,9 +230,9 @@ fn components(
       last_total
     }
     None -> after_unit match {
-      []                   -> sum_total
-      [32, ..rest] if !iso -> components(s, rest, iso, unit, sum_total, sum_below, limit)
-      _                    -> components(s, after_unit, iso, unit, sum_total, sum_below, limit)
+      []                      -> sum_total
+      [32, ..rest] where !iso -> components(s, rest, iso, unit, sum_total, sum_below, limit)
+      _                       -> components(s, after_unit, iso, unit, sum_total, sum_below, limit)
     }
   }
 }
@@ -244,25 +244,25 @@ fn is_digit(c: Int) -> Bool {
 ## The rest of `cs` after one or more digits.
 fn skip_digits(s: String, cs: List[Int]) -> List[Int] fails ParseError {
   cs match {
-    [c, ..rest] if is_digit(c) -> skip_more_digits(rest)
-    _                          -> fail ParseError(input: s)
+    [c, ..rest] where is_digit(c) -> skip_more_digits(rest)
+    _                             -> fail ParseError(input: s)
   }
 }
 
 fn skip_more_digits(cs: List[Int]) -> List[Int] {
   cs match {
-    [c, ..rest] if is_digit(c) -> skip_more_digits(rest)
-    _                          -> cs
+    [c, ..rest] where is_digit(c) -> skip_more_digits(rest)
+    _                             -> cs
   }
 }
 
 ## The letter of a unit of `iso_form`, in either case.
 fn iso_unit(s: String, cs: List[Int]) -> (Int, List[Int]) fails ParseError {
   cs match {
-    [c, ..rest] if c == 72 || c == 104 -> (0, rest)
-    [c, ..rest] if c == 77 || c == 109 -> (1, rest)
-    [c, ..rest] if c == 83 || c == 115 -> (2, rest)
-    _                                  -> fail ParseError(input: s)
+    [c, ..rest] where c == 72 || c == 104 -> (0, rest)
+    [c, ..rest] where c == 77 || c == 109 -> (1, rest)
+    [c, ..rest] where c == 83 || c == 115 -> (2, rest)
+    _                                     -> fail ParseError(input: s)
   }
 }
 
@@ -313,8 +313,8 @@ fn find_unit(cs: List[Int], names: List[(String, Int)]) -> Option[(Int, List[Int
   names match {
     [] -> None
     [(name, unit), ..others] -> strip_prefix(cs, name.code_points()) match {
-      Some(rest) if ends_a_unit(rest) -> Some((unit, rest))
-      _                               -> find_unit(cs, others)
+      Some(rest) where ends_a_unit(rest) -> Some((unit, rest))
+      _                                  -> find_unit(cs, others)
     }
   }
 }
@@ -330,8 +330,8 @@ fn strip_prefix(cs: List[Int], prefix: List[Int]) -> Option[List[Int]] {
   prefix match {
     [] -> Some(cs)
     [p, ..ps] -> cs match {
-      [c, ..rest] if c == p -> strip_prefix(rest, ps)
-      _                     -> None
+      [c, ..rest] where c == p -> strip_prefix(rest, ps)
+      _                        -> None
     }
   }
 }
@@ -349,7 +349,7 @@ fn add_whole(
   limit: Int64,
 ) -> (Int64, Int64) fails ParseError {
   cs match {
-    [c, ..rest] if is_digit(c) -> {
+    [c, ..rest] where is_digit(c) -> {
       per = units_per_millisecond(unit)
       shifted = remainder * 10 + Int64.from_int(c - 48)
       next = multiply_subtract(s, quotient, 10, shifted / per, limit)
@@ -374,7 +374,7 @@ fn fraction_nanoseconds(
   count: Int,
 ) -> Int64 fails ParseError {
   cs match {
-    [c, ..rest] if is_digit(c) -> {
+    [c, ..rest] where is_digit(c) -> {
       if unit <= 1 && count >= 2 {
         fail ParseError(input: s)
       }

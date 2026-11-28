@@ -1,0 +1,65 @@
+## A guard is written after `where` (`[grammar.expr]`). Until 0.30 it may be written after `if`
+## with the same meaning (W1401), so each function below has a twin written with `if`.
+
+error NotFound(id: Int)
+
+fn find(id: Int) -> Int fails NotFound {
+  if id > 2 { fail NotFound(id:) }
+  id
+}
+
+fn classify(o: Option[Int]) -> String {
+  o match {
+    Some(x) where x > 0 -> "positive"
+    Some(x) where x < 0 -> "negative"
+    Some(_)             -> "zero"
+    None                -> "none"
+  }
+}
+
+fn classify_if(o: Option[Int]) -> String {
+  o match {
+    Some(x) if x > 0 -> "positive"
+    Some(x) if x < 0 -> "negative"
+    Some(_)          -> "zero"
+    None             -> "none"
+  }
+}
+
+## An if expression after `where` is the condition of the guard.
+fn sign(o: Option[Int], b: Bool) -> Int {
+  o match {
+    Some(x) where if b { x > 0 } else { x < 0 } -> 1
+    _                                           -> 0
+  }
+}
+
+fn sign_if(o: Option[Int], b: Bool) -> Int {
+  o match {
+    Some(x) if if b { x > 0 } else { x < 0 } -> 1
+    _                                        -> 0
+  }
+}
+
+fn lookup(id: Int) -> Int {
+  find(id) escape {
+    NotFound(id:) where id > 5 -> id * 10
+    NotFound(_)                -> -1
+  }
+}
+
+fn lookup_if(id: Int) -> Int {
+  find(id) escape {
+    NotFound(id:) if id > 5 -> id * 10
+    NotFound(_)             -> -1
+  }
+}
+
+fn main() {
+  dbg((classify(Some(3)), classify(Some(-3)), classify(Some(0)), classify(None)))
+  dbg((classify_if(Some(3)), classify_if(Some(-3)), classify_if(Some(0)), classify_if(None)))
+  dbg((sign(Some(2), True), sign(Some(2), False), sign(Some(-2), False)))
+  dbg((sign_if(Some(2), True), sign_if(Some(2), False), sign_if(Some(-2), False)))
+  dbg((lookup(1), lookup(4), lookup(9)))
+  dbg((lookup_if(1), lookup_if(4), lookup_if(9)))
+}

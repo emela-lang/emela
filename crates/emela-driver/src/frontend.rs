@@ -56,6 +56,7 @@ impl Frontend for ParseOnly {
         let diagnostics = parse
             .diagnostics()
             .iter()
+            .chain(parse.warnings())
             .map(|d| Diagnostic::from_syntax(file, d))
             .collect();
         let imports = imports(&parse);

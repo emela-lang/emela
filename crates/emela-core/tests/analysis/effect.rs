@@ -559,7 +559,7 @@ fn safe(id: Int) -> Int {
 
 fn partial(id: Int) -> Int fails NotFound {
   find_user(id) escape {
-    NotFound(id:) if id > 5 -> id
+    NotFound(id:) where id > 5 -> id
   }
 }
 
