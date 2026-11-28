@@ -1,0 +1,5 @@
+exit: 0
+--- stdout
+main 1
+fn 2
+--- stderr

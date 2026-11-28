@@ -1,0 +1,32 @@
+# The waiting operations of Semaphore and Queue where R is Immediate (issue #942). Each finds
+# what it waits for, so it does not suspend (`[dyn.suspend]`).
+import Std.Semaphore.{Semaphore}
+import Std.Queue.{Queue, QueueClosed}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+fn held() -> Int {
+  with s = Semaphore(permits: 2) {
+    with p = s.Permits(n: 2) { p.count() }
+  }
+}
+
+fn passed() -> Int fails QueueClosed {
+  with q = Queue(capacity: 1) {
+    q.offer(3)
+    q.take()
+  }
+}
+
+fn main() {
+  with s = Semaphore(permits: 1) {
+    with p = s.Permits(n: 1) {
+      print("main #{p.count()} #{s.available()}")
+    }
+    print("released #{s.available()}")
+  }
+  print("fn #{held()}")
+  print("queue #{passed() escape { QueueClosed -> 0 }}")
+}

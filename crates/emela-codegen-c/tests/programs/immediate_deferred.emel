@@ -1,0 +1,23 @@
+# A Deferred awaited where R is Immediate (issue #942): directly in main, which writes no uses
+# clause, and in a fn without one. The value is already stored, so `await` resumes on the spot
+# (`[dyn.suspend]`).
+import Std.Deferred.{Deferred}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+fn get() -> Int {
+  with d = Deferred {
+    _ = d.complete(2)
+    d.await()
+  }
+}
+
+fn main() {
+  with d = Deferred {
+    _ = d.complete(1)
+    print("main #{d.await()}")
+  }
+  print("fn #{get()}")
+}
