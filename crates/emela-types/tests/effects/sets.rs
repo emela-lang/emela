@@ -514,3 +514,48 @@ fn local() -> String {
 "#
     ));
 }
+
+/// A loop expression is not a function value: its R is part of the R of the enclosing body, the
+/// `with` around it provides its handlers, and a written `uses` is enforced (E4301,
+/// `[fn.loop]`, `[effect.with]`).
+#[test]
+fn loop_effects() {
+    insta::assert_snapshot!(render_effects(
+        r#"
+effect Log {
+  fn info(msg: String) -> ()
+}
+
+handler Quiet: Log {
+  fn info(msg) { () }
+}
+
+fn inferred(n: Int) {
+  loop go(i: n) {
+    log = use Log
+    log.info("x")
+    if i > 0 { go(i - 1) } else { () }
+  }
+}
+
+fn provided(n: Int) {
+  with Quiet {
+    loop go(i: n) {
+      log = use Log
+      log.info("x")
+      if i > 0 { go(i - 1) } else { () }
+    }
+  }
+}
+
+fn undeclared(n: Int) {
+  with Quiet {
+    loop go(i: n) -> () uses {} {
+      log = use Log
+      log.info("x")
+    }
+  }
+}
+"#
+    ));
+}

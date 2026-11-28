@@ -1121,6 +1121,12 @@ impl<'a> BodyInfer<'a> {
     /// `()` if the block ends with a binding or is empty. With an expected type, it is passed to
     /// the last expression and becomes the block's type.
     fn infer_block(&mut self, block: &Block, span: Span, expected: Option<&Ty>) -> Ty {
+        if let [Stmt::LocalFn(f)] = block.stmts.as_slice()
+            && self.program.locals[f.local].kind == emela_resolve::hir::LocalKind::Loop
+            && let Some(call) = block.tail
+        {
+            return self.infer_loop(f, call, expected);
+        }
         for stmt in &block.stmts {
             match stmt {
                 Stmt::Let { pat, ty, value } => {

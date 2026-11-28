@@ -241,6 +241,16 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// The number of diagnostics reported so far, for [`Self::diagnostics_since`].
+    pub(crate) fn diagnostic_count(&self) -> usize {
+        self.diagnostics.len()
+    }
+
+    /// The diagnostics reported since there were `count` of them.
+    pub(crate) fn diagnostics_since(&mut self, count: usize) -> &mut [Diagnostic] {
+        &mut self.diagnostics[count..]
+    }
+
     pub(crate) fn error(&mut self, module: ModuleId, range: TextRange, kind: DiagnosticKind) {
         self.diagnostics.push(Diagnostic {
             file: self.modules[module].file.clone(),

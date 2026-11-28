@@ -34,7 +34,7 @@ impl Lower<'_, '_> {
         self.expr(block.syntax())
     }
 
-    fn expr(&mut self, node: &SyntaxNode) -> ExprId {
+    pub(super) fn expr(&mut self, node: &SyntaxNode) -> ExprId {
         let range = node.text_range();
         let kind = match node.kind() {
             LITERAL => match node.first_token() {
@@ -196,6 +196,10 @@ impl Lower<'_, '_> {
                 self.pop_scope();
                 ExprKind::With { handlers, body }
             }
+            LOOP_EXPR => {
+                let lp = ast::LoopExpr::cast(node.clone()).expect("LOOP_EXPR");
+                return self.loop_expr(&lp);
+            }
             LAMBDA_EXPR => {
                 self.push_scope();
                 let (params, lets) =
@@ -286,7 +290,7 @@ impl Lower<'_, '_> {
     }
 
     /// Starts a new region ([`Lower::region`]) and returns the one to go back to.
-    fn enter_region(&mut self) -> u32 {
+    pub(super) fn enter_region(&mut self) -> u32 {
         self.regions += 1;
         std::mem::replace(&mut self.region, self.regions)
     }
@@ -666,6 +670,19 @@ impl Lower<'_, '_> {
         }
     }
 
+    /// The value of the shorthand `name:` of a named argument, short for `name: name`.
+    pub(super) fn punned_value(&mut self, name: &SmolStr, range: TextRange) -> ExprId {
+        let res = self.value(name, range, LOWER_NAME);
+        let value = match res {
+            Res::Local(local) => {
+                self.note_use_bound(local, false);
+                self.alias_use(local, range, false)
+            }
+            _ => None,
+        };
+        value.unwrap_or_else(|| self.alloc_expr(ExprKind::Path(res), range))
+    }
+
     /// The arguments in an ARG_LIST, and the expression after a trailing `..`.
     fn arg_list(&mut self, list: &SyntaxNode) -> (Vec<Arg>, Option<ExprId>) {
         let mut args = Vec::new();
@@ -690,19 +707,7 @@ impl Lower<'_, '_> {
                 // `NotFound(id:)` is short for `id: id`.
                 let (value, punned) = match arg.children().find(|c| is_expr(c.kind())) {
                     Some(e) => (self.expr(&e), false),
-                    None => {
-                        let res = self.value(&name, range, LOWER_NAME);
-                        let value = match res {
-                            Res::Local(local) => {
-                                self.note_use_bound(local, false);
-                                self.alias_use(local, range, false)
-                            }
-                            _ => None,
-                        };
-                        let value =
-                            value.unwrap_or_else(|| self.alloc_expr(ExprKind::Path(res), range));
-                        (value, true)
-                    }
+                    None => (self.punned_value(&name, range), true),
                 };
                 args.push(Arg {
                     label: Some(label),
@@ -1337,6 +1342,7 @@ fn is_expr(kind: SyntaxKind) -> bool {
             | WITH_EXPR
             | ESCAPE_EXPR
             | LAMBDA_EXPR
+            | LOOP_EXPR
     )
 }
 

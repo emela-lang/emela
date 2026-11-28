@@ -595,7 +595,15 @@ impl Dumper<'_> {
                                 .ret
                                 .map(|t| format!(" -> {}", self.ty(t)))
                                 .unwrap_or_default();
-                            self.line(depth + 1, format!("fn {name}({}){ret}", params.join(", ")));
+                            // A loop expression is lowered to a local fn called in place.
+                            let keyword = match self.program.locals[f.local].kind {
+                                LocalKind::Loop => "loop",
+                                _ => "fn",
+                            };
+                            self.line(
+                                depth + 1,
+                                format!("{keyword} {name}({}){ret}", params.join(", ")),
+                            );
                             self.expr(depth + 2, f.body);
                         }
                         Stmt::Expr(e) => self.expr(depth + 1, *e),

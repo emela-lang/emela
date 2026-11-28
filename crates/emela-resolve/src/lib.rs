@@ -23,7 +23,9 @@ mod source;
 mod suggest;
 
 pub use builtins::{BuiltinKind, BuiltinModules, BuiltinTable, NoBuiltins};
-pub use diagnostic::{DeprecatedRewrite, Diagnostic, DiagnosticKind, Expected, shown_path};
+pub use diagnostic::{
+    DeprecatedRewrite, Diagnostic, DiagnosticKind, Expected, NotTail, shown_path,
+};
 pub use dump::dump_module;
 pub use graph::{Import, ImportEdge, ImportGraph, build_import_graph};
 pub use module_name::ModuleName;

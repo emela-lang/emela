@@ -1,0 +1,94 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "run(&[(\"main.emel\",\nr##\"fn range(from: Int, to: Int) -> List[Int] {\n  loop onto(to:, acc: []) {\n    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }\n  }\n}\n\nfn outer_values(a: Int) -> Int {\n  loop go(a: 1, b: a) { b }\n}\n\nfn hidden(n: Int) -> Int {\n  x = loop go(go: n) { go }\n  y = loop go(i: n) {\n    go = i\n    go\n  }\n  x + y\n}\n\nfn hides_top_level() -> Int {\n  loop range(from: 0) { from }\n}\n\"##,)])"
+---
+== Main (src/main.emel)
+fn Main.range
+  param from#0: Int
+  param to#1: Int
+  ret List[Int]
+  body
+    block
+      block
+        loop onto#2(to#3, acc#4)
+          block
+            if
+              Le
+                to#3
+                from#0
+              block
+                acc#4
+            else
+              block
+                call
+                  onto#2
+                  Sub
+                    to#3
+                    1
+                  list
+                    Sub
+                      to#3
+                      1
+                    ..
+                      acc#4
+        call
+          onto#2
+          to: (punned)
+            to#1
+          acc:
+            list
+fn Main.outer_values
+  param a#5: Int
+  ret Int
+  body
+    block
+      block
+        loop go#6(a#7, b#8)
+          block
+            b#8
+        call
+          go#6
+          a:
+            1
+          b:
+            a#5
+fn Main.hidden
+  param n#9: Int
+  ret Int
+  body
+    block
+      let x#10 =
+        block
+          loop go#11(go#12)
+            block
+              go#12
+          call
+            go#11
+            go:
+              n#9
+      let y#13 =
+        block
+          loop go#14(i#15)
+            block
+              let go#16 =
+                i#15
+              go#16
+          call
+            go#14
+            i:
+              n#9
+      Add
+        x#10
+        y#13
+fn Main.hides_top_level
+  ret Int
+  body
+    block
+      block
+        loop range#17(from#18)
+          block
+            from#18
+        call
+          range#17
+          from:
+            0

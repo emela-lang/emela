@@ -4,6 +4,7 @@
 //! The declarations are lowered here; their types in [`types`], their bodies in [`exprs`].
 
 mod exprs;
+mod loops;
 mod strings;
 mod types;
 

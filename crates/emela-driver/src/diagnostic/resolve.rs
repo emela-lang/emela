@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use emela_resolve::{DiagnosticKind, NameError};
+use emela_resolve::{DiagnosticKind, NameError, NotTail};
 use line_index::TextRange;
 
 use super::{Diagnostic, Location, NAMED_ITEM_SUGGESTION, Severity, Span};
@@ -306,6 +306,43 @@ impl Diagnostic {
                 Severity::Error,
                 code::IMPL_HEAD,
                 format!("impl head must be a type with distinct type parameters: `{head}`"),
+            ),
+            DiagnosticKind::TypeAsLoopInit { name, found, param } => {
+                help = Some(emela_syntax::loop_init_type_help(param));
+                (
+                    Severity::Error,
+                    code::WRONG_KIND_OF_NAME,
+                    format!("expected constructor, found {found} `{name}`"),
+                )
+            }
+            DiagnosticKind::LoopCallNotTail { name, reason, at } => {
+                let why = match reason {
+                    NotTail::Operator(op) => format!("`{op}` is applied to its result"),
+                    NotTail::Argument => "its result is an argument of this call".to_owned(),
+                    NotTail::LoopInit => "its result is an initial value of this loop".to_owned(),
+                    NotTail::Binding => "its result is bound here".to_owned(),
+                    NotTail::LaterStatement => "this statement runs after it".to_owned(),
+                    NotTail::EscapeTarget => {
+                        "the arms of this `escape` can run after it".to_owned()
+                    }
+                    NotTail::EscapeArm => "it is in an arm of this `escape`".to_owned(),
+                    NotTail::WithBody => "the release of this `with` runs after it".to_owned(),
+                    NotTail::Lambda => "it is inside this anonymous function".to_owned(),
+                    NotTail::LocalFn => "it is inside this local function".to_owned(),
+                    NotTail::Loop(inner) => format!("it is inside loop `{inner}`"),
+                    NotTail::Used => "its result is used here".to_owned(),
+                };
+                label = first_here(&Some(*at)).map(|span| (span, why));
+                (
+                    Severity::Error,
+                    code::LOOP_CALL_NOT_TAIL,
+                    format!("call to `{name}` is not in tail position"),
+                )
+            }
+            DiagnosticKind::LoopAsValue { name } => (
+                Severity::Error,
+                code::LOOP_AS_VALUE,
+                format!("loop `{name}` can only be called"),
             ),
             DiagnosticKind::FnNamedLikeField { name, ty } => (
                 Severity::Error,

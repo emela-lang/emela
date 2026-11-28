@@ -935,3 +935,105 @@ fn f(x: Int) -> Int {
 }
 "#));
 }
+
+/// A loop expression is a local fn called in place (`[fn.loop]`): its parameter types are
+/// inference variables that the initial values and the calls in the body determine, the initial
+/// values come before the body (a field access on a parameter needs no written type), the calls
+/// take positional or named arguments, a pipe into the name is a call, the type of the loop is
+/// its return type, and a type that nothing determines is given by the return type or by a
+/// binding with a type before the loop.
+#[test]
+fn loop_exprs() {
+    insta::assert_snapshot!(run(r#"
+type Point(x: Int, y: Int)
+
+pub fn range(from: Int, to: Int) -> List[Int] {
+  loop onto(to:, acc: []) {
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+}
+
+fn sum_x(ps: List[Point]) -> Int {
+  loop go(ps:, total: 0) {
+    ps match {
+      [] -> total
+      [p, ..rest] -> go(total: total + p.x, ps: rest)
+    }
+  }
+}
+
+fn field_of_init(p: Point) -> Int {
+  loop go(q: p, n: 3) {
+    if n == 0 { q.x } else { go(Point(x: q.x + 1, y: q.y), n - 1) }
+  }
+}
+
+fn piped(n: Int) -> Int {
+  loop go(i: n) {
+    if i <= 0 { i } else { i - 1 |> go }
+  }
+}
+
+fn empty_head() -> Int {
+  loop go() { 1 }
+}
+
+fn by_return_type() -> List[Point] {
+  loop go(acc: [], n: 0) -> List[Point] {
+    if n == 0 { acc } else { go(acc, n - 1) }
+  }
+}
+
+fn by_binding() -> Int {
+  empty: List[Point] = []
+  loop go(acc: empty) {
+    acc match {
+      [p, ..] -> p.y
+      [] -> 0
+    }
+  }
+}
+
+fn generic[A](xs: List[A]) -> Int {
+  loop go(ys: xs, n: 0) {
+    ys match {
+      [] -> n
+      [_, ..rest] -> go(rest, n + 1)
+    }
+  }
+}
+"#));
+}
+
+/// The initial values of a loop expression and the arguments of the calls to its name are checked
+/// as arguments of a call to it (`[fn.loop]`, `[fn.args]`): a parameter written twice is an
+/// argument given twice (E3104), a wrong type or label is reported with the loop's name, the
+/// body is checked against a written return type, and a method call does not find the name.
+#[test]
+fn loop_errors() {
+    insta::assert_snapshot!(run(r#"
+fn twice() -> Int {
+  loop go(a: 1, a: 2) { a }
+}
+
+fn mismatch(n: Int) -> Int {
+  loop go(i: n) { if i > 0 { go("a") } else { i } }
+}
+
+fn label(n: Int) -> Int {
+  loop go(i: n) { if i > 0 { go(j: 1) } else { i } }
+}
+
+fn count(n: Int) -> Int {
+  loop go(i: n) { if i > 0 { go(1, 2) } else { i } }
+}
+
+fn ret(n: Int) -> Int {
+  loop go(i: n) -> String { "a" }
+}
+
+fn method(n: Int) -> Int {
+  loop go(i: n) { if i > 0 { i.go() } else { i } }
+}
+"#));
+}

@@ -1,0 +1,31 @@
+---
+source: crates/emela-types/tests/effects/sets.rs
+expression: "render_effects(r#\"\neffect Log {\n  fn info(msg: String) -> ()\n}\n\nhandler Quiet: Log {\n  fn info(msg) { () }\n}\n\nfn inferred(n: Int) {\n  loop go(i: n) {\n    log = use Log\n    log.info(\"x\")\n    if i > 0 { go(i - 1) } else { () }\n  }\n}\n\nfn provided(n: Int) {\n  with Quiet {\n    loop go(i: n) {\n      log = use Log\n      log.info(\"x\")\n      if i > 0 { go(i - 1) } else { () }\n    }\n  }\n}\n\nfn undeclared(n: Int) {\n  with Quiet {\n    loop go(i: n) -> () uses {} {\n      log = use Log\n      log.info(\"x\")\n    }\n  }\n}\n\"#)"
+---
+inferred: fn(Int) -> () uses { Log }
+provided: fn(Int) -> ()
+undeclared: fn(Int) -> ()
+handler Quiet: use {}
+`use Log` unhandled effects Log (Declared)
+--- R
+{   loop go(i: n) {     log = use Log     log.info("x")     if i > 0 { go(i - 1) } else { () }   } }: Log
+loop go(i: n) {     log = use Log     log.info("x")     if i > 0 { go(i - 1) } else { () }   }: Log
+loop go(i: n) {     log = use Log     log.info("x")     if i > 0 { go(i - 1) } else { () }   }: Log
+{     log = use Log     log.info("x")     if i > 0 { go(i - 1) } else { () }   }: Log
+use Log: Log
+log.info("x"): Log
+if i > 0 { go(i - 1) } else { () }: Log
+{ go(i - 1) }: Log
+go(i - 1): Log
+{     loop go(i: n) {       log = use Log       log.info("x")       if i > 0 { go(i - 1) } else { () }     }   }: Log
+loop go(i: n) {       log = use Log       log.info("x")       if i > 0 { go(i - 1) } else { () }     }: Log
+loop go(i: n) {       log = use Log       log.info("x")       if i > 0 { go(i - 1) } else { () }     }: Log
+{       log = use Log       log.info("x")       if i > 0 { go(i - 1) } else { () }     }: Log
+use Log: Log
+log.info("x"): Log
+if i > 0 { go(i - 1) } else { () }: Log
+{ go(i - 1) }: Log
+go(i - 1): Log
+{       log = use Log       log.info("x")     }: Log
+use Log: Log
+log.info("x"): Log

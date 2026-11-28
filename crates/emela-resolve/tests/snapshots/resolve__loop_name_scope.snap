@@ -1,0 +1,6 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: "diagnostics(&[(\"main.emel\",\nr##\"fn f() -> Int {\n  a = loop go(i: go) { i }\n  b = loop again(i: 0) { i }\n  again(1)\n}\n\"##,)])"
+---
+error src/main.emel@33..35 `go`: undefined value `go`
+error src/main.emel@74..79 `again`: undefined value `again`
