@@ -7,6 +7,46 @@ bump may include breaking language changes while the language stabilizes).
 
 ## [Unreleased]
 
+## [0.29.1](https://github.com/emela-lang/emela/compare/v0.29.0...v0.29.1) - 2026-11-28
+
+### Fixed
+
+- *(types)* && や || の式全体が match の対象になったとき，優先順位を伝える診断を1つだけ出す ([#931](https://github.com/emela-lang/emela/pull/931)) ([#951](https://github.com/emela-lang/emela/pull/951)) (by @Allianaab2m)
+- *(lir)* show_list を List.join で一括連結し，O(n²) の連結と WASM の OOM を防ぐ ([#961](https://github.com/emela-lang/emela/pull/961)) (by @somnicattus)
+- *(js)* Immediate な R の中の Deferred，Semaphore，Queue の待ちで panic しないようにする ([#943](https://github.com/emela-lang/emela/pull/943)) (by @Allianaab2m)
+
+### Other
+
+- *(driver)* テストをテーマごとのディレクトリにまとめ，diagnostics.rs と run.rs を分ける ([#919](https://github.com/emela-lang/emela/pull/919)) (by @Allianaab2m)
+- driver と cli のフィールドの漏れと actions の循環を直す ([#912](https://github.com/emela-lang/emela/pull/912)) (by @Allianaab2m)
+- *(syntax)* local fn の文法を grammar に移し，閉包の引数リストの状態を Parser の中に閉じる ([#923](https://github.com/emela-lang/emela/pull/923)) (by @Allianaab2m)
+- *(resolve)* lower を resolve の子モジュールにし，型・式とパターン・文字列のファイルに分ける ([#926](https://github.com/emela-lang/emela/pull/926)) (by @Allianaab2m)
+- *(resolve)* lowering が Resolver のフィールドに直に触らず，HIR を Resolver のメソッドで読み書きするようにする ([#925](https://github.com/emela-lang/emela/pull/925)) (by @Allianaab2m)
+- *(resolve)* HOST_EFFECTS を hir に，shown_path を diagnostic に移し，モジュールの循環をなくす ([#924](https://github.com/emela-lang/emela/pull/924)) (by @Allianaab2m)
+- *(lsp)* 読んだファイルが変わらない間は check の結果を使い回す ([#940](https://github.com/emela-lang/emela/pull/940)) (by @Allianaab2m)
+- *(types)* InferCtx，Hidden，TyTable のフィールドをメソッドの後ろに隠す ([#930](https://github.com/emela-lang/emela/pull/930)) (by @Allianaab2m)
+- *(types)* src のモジュールを層ごとにまとめる ([#929](https://github.com/emela-lang/emela/pull/929)) (by @Allianaab2m)
+- *(types)* 依存の向きを揃えて check と infer の周りの循環を断つ ([#917](https://github.com/emela-lang/emela/pull/917)) (by @Allianaab2m)
+- *(types)* body.rs の推論を主題ごとの子モジュールに分ける ([#915](https://github.com/emela-lang/emela/pull/915)) (by @Allianaab2m)
+- *(types)* effects のテストを主題ごとに分け，handler のテストを一つのディレクトリにまとめる ([#913](https://github.com/emela-lang/emela/pull/913)) (by @Allianaab2m)
+- *(core)* src と tests のファイルをディレクトリにまとめる ([#916](https://github.com/emela-lang/emela/pull/916)) (by @Allianaab2m)
+- *(core)* lower.rs を構文ごとのサブモジュールに分ける ([#914](https://github.com/emela-lang/emela/pull/914)) (by @Allianaab2m)
+- *(core)* フィールドを外から触る箇所と opt の中のモジュールの循環をなくす ([#911](https://github.com/emela-lang/emela/pull/911)) (by @Allianaab2m)
+- *(lir)* from_core のサブモジュールどうしの循環をなくす ([#920](https://github.com/emela-lang/emela/pull/920)) (by @Allianaab2m)
+- *(lir)* 結合テストを analysis と opt のディレクトリに分ける ([#928](https://github.com/emela-lang/emela/pull/928)) (by @Allianaab2m)
+- *(lir)* ir，heap，opt，verify の循環をなくす ([#927](https://github.com/emela-lang/emela/pull/927)) (by @Allianaab2m)
+- *(lir)* フィールドを外から触る箇所をメソッドにする ([#918](https://github.com/emela-lang/emela/pull/918)) (by @Allianaab2m)
+- *(wasm)* emit/mod.rs から imports，statics，bodies，lower のモジュールを分ける ([#938](https://github.com/emela-lang/emela/pull/938)) (by @Allianaab2m)
+- *(wasm)* runtime を wasi，text，number のディレクトリに分け，fs.rs と float.rs を分割する ([#937](https://github.com/emela-lang/emela/pull/937)) (by @Allianaab2m)
+- *(wasm)* fiber.rs をディレクトリにし，sched，line，attempt，async_bridge をその下に移す ([#936](https://github.com/emela-lang/emela/pull/936)) (by @Allianaab2m)
+- *(wasm)* runtime と suspend の循環する依存を Builder の述語と共有の定数に寄せて切る ([#935](https://github.com/emela-lang/emela/pull/935)) (by @Allianaab2m)
+- *(wasm)* 結合テストを values，wasi，programs，module のディレクトリに分ける ([#933](https://github.com/emela-lang/emela/pull/933)) (by @Allianaab2m)
+- *(c)* emit.rs を builtin，value，external，entry のモジュールに分ける ([#934](https://github.com/emela-lang/emela/pull/934)) (by @Allianaab2m)
+- *(fmt)* ノードの種類ごとの振り分けを printer に移し，exprs と items の循環をなくす ([#922](https://github.com/emela-lang/emela/pull/922)) (by @Allianaab2m)
+- *(driver)* src のモジュールを層ごとのディレクトリにまとめ，diagnostic.rs を分ける ([#939](https://github.com/emela-lang/emela/pull/939)) (by @Allianaab2m)
+- *(driver)* pipeline と frontend から型を下の層のモジュールに移し，モジュールの循環をなくす ([#932](https://github.com/emela-lang/emela/pull/932)) (by @Allianaab2m)
+- *(lsp)* server のテストを機能ごとのモジュールに分ける ([#921](https://github.com/emela-lang/emela/pull/921)) (by @Allianaab2m)
+
 ## [0.29.0](https://github.com/emela-lang/emela/compare/v0.28.2...v0.29.0) - 2026-11-26
 
 ### Added
