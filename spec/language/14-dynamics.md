@@ -13,7 +13,7 @@ Evaluation is strict and proceeds from left to right, and the initialization on 
 
 `with H1, ..., Hn { body }` runs in the following order.
 
-1. Evaluate the arguments of the items (`H(arguments)`, 8.3) in the order the items are written. Then sort the handlers by their dependencies, and run their inits in that order. A handler member item `x = E.M(arguments)` or `x = c.M(arguments)` runs the init of M of the innermost handler that provides E by name (or of the handler that provides c), and is ordered with the other items by its requirements (only E or c).
+1. Evaluate the arguments of the items (`H(arguments)`, 8.3) in the order the items are written. Then sort the handlers by their dependencies, and run their inits in that order. An item that opens a handler member (`E.M(arguments)` or `c.M(arguments)`, with or without `x =`, also on the right of `by`) runs the init of M of the innermost handler that provides E by name (or of the handler that provides c), and is ordered with the other items by its requirements (only E or c).
 2. Evaluate the body.
 3. Run the releases in the reverse order of initialization.
 4. The result of the body (a value, an error, a defect or an interruption) is the result of the with.
