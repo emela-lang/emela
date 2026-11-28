@@ -68,6 +68,7 @@ fn literals() {
   waited = ready.await() + d.await()
   awaiting = Deferred.await
   greeting = load(id) match {
+    Some(user) where user.active -> user.name
     Some(user) -> user.name
     None -> "guest"
   }

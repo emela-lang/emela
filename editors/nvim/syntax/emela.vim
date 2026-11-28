@@ -61,7 +61,7 @@ syntax match emelaTypeParamDecl "\%([[,]\s*\)\@<=\<\u\w*\>" contained
 " ---------------------------------------------------------------------------
 " Expressions (spec 3.1)
 
-syntax keyword emelaConditional if else match
+syntax keyword emelaConditional if else match where
 syntax keyword emelaException   fail escape
 syntax keyword emelaEffect      use with
 syntax keyword emelaStatement   assert
@@ -69,7 +69,7 @@ syntax keyword emelaSelf        self Self
 
 " `as` is reserved without syntax in 0.20, and the words of spec 3.3 have no syntax at all.
 " Writing any of them is an error.
-syntax keyword emelaReserved as var return while loop let mut in where do try catch throw async
+syntax keyword emelaReserved as var return while loop let mut in do try catch throw async
       \ yield defer macro mod
 
 " Contextual words (spec 3.2). They are keywords only in the position shown; elsewhere they are

@@ -3224,6 +3224,10 @@
     "named": false
   },
   {
+    "type": "where",
+    "named": false
+  },
+  {
     "type": "wildcard",
     "named": true
   },

@@ -191,6 +191,8 @@ call s:Expect('awaiting = ', 'await', '')
 " Postfix match (spec 6.5)
 call s:Expect('greeting = load(id) match', 'load', 'emelaFunctionCall')
 call s:Expect('greeting = load(id) match', 'match', 'emelaConditional')
+" The guard of an arm is written after `where` (spec 6.5).
+call s:Expect('Some(user) where', 'where', 'emelaConditional')
 call s:Expect('Some(user) ->', 'Some', 'emelaPreludeConstructor')
 call s:Expect('Some(user) ->', '->', 'emelaOperator')
 call s:Expect('None -> "guest"', '"guest"', 'emelaString')

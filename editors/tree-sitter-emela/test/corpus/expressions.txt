@@ -486,3 +486,57 @@ fn f() {
         (identifier)
         (unary_expression
           (integer))))))
+
+==================
+Guards after where and after if
+==================
+fn f(o: Option[Int]) -> Int {
+  o match {
+    Some(x) where x > 0 -> x
+    Some(x) if x < 0 -> -x
+    _ -> 0
+  }
+}
+
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (parameters
+      (parameter
+        (identifier)
+        (generic_type
+          (type_reference
+            (type_identifier))
+          (type_arguments
+            (type_reference
+              (type_identifier))))))
+    (type_reference
+      (type_identifier))
+    (block
+      (match_expression
+        (identifier)
+        (match_arms
+          (match_arm
+            (variant_pattern
+              (type_reference
+                (type_identifier))
+              (identifier))
+            (binary_expression
+              (identifier)
+              (integer))
+            (identifier))
+          (match_arm
+            (variant_pattern
+              (type_reference
+                (type_identifier))
+              (identifier))
+            (binary_expression
+              (identifier)
+              (integer))
+            (unary_expression
+              (identifier)))
+          (match_arm
+            (wildcard)
+            (integer)))))))

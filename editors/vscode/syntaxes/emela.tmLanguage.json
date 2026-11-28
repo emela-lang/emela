@@ -204,7 +204,7 @@
     "keywords": {
       "patterns": [
         {
-          "match": "\\b(if|else|match)\\b",
+          "match": "\\b(if|else|match|where)\\b",
           "name": "keyword.control.conditional.emela"
         },
         {
@@ -246,7 +246,7 @@
         },
         {
           "comment": "Reserved words without syntax ([kw.reserved], [kw.future]).",
-          "match": "\\b(as|var|return|while|loop|let|mut|in|where|do|try|catch|throw|async|yield|defer|macro|mod)\\b",
+          "match": "\\b(as|var|return|while|loop|let|mut|in|do|try|catch|throw|async|yield|defer|macro|mod)\\b",
           "name": "invalid.illegal.reserved.emela"
         }
       ]

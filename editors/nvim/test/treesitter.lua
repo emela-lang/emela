@@ -126,6 +126,7 @@ expect("  r = x escape {", "fail", "keyword.exception")
 expect("  assert self == Self", "assert", "keyword")
 expect("  waited = ready.await()", "await", "function.method.call")
 expect("  greeting = load(id) match {", "match", "keyword.conditional")
+expect("    Some(user) where user.active", "where", "keyword.conditional")
 expect("    Some(user) -> user.name", "Some", "constructor")
 expect("    None ->", "None", "constructor")
 
