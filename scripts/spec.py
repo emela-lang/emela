@@ -59,7 +59,8 @@ def sections():
 
 
 def rel(path):
-    return os.path.relpath(path, ROOT)
+    """The path relative to the repository root, separated with `/` on every OS."""
+    return os.path.relpath(path, ROOT).replace(os.sep, "/")
 
 
 def cmd_index(prefix=""):
@@ -84,8 +85,8 @@ def cmd_show(*names):
 def cmd_refs(name):
     name = name.strip("[]`")
     pattern = r"\[" + re.escape(name) + r"\]"
-    subprocess.run(["rg", "-n", pattern, "spec", "proposals", "crates", "--glob", "*.md", "--glob", "*.rs",
-                    "--glob", "*.emel"], cwd=ROOT)
+    subprocess.run(["rg", "-n", "--path-separator", "/", pattern, "spec", "proposals", "crates",
+                    "--glob", "*.md", "--glob", "*.rs", "--glob", "*.emel"], cwd=ROOT)
 
 
 def read_proposal(path):
@@ -303,6 +304,10 @@ def cmd_reject(source, decision_file, date, pr):
 
 
 def main():
+    # The spec is UTF-8 and has characters that legacy code pages lack (`∖` in `[type.rules]`).
+    # When stdout is not a console (a pipe or a file), Python encodes it with the locale's code
+    # page (cp932 on a Japanese Windows), which fails on those characters.
+    sys.stdout.reconfigure(encoding="utf-8")
     if len(sys.argv) < 2:
         sys.exit(__doc__)
     cmd, args = sys.argv[1], sys.argv[2:]
