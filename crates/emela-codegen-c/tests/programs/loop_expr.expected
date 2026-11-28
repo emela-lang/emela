@@ -1,0 +1,14 @@
+exit: 0
+--- stdout
+[1, 2, 3, 4]
+init a
+init b
+17
+1000000 10 0
+3 8
+3
+-1
+alicealice
+0
+20
+--- stderr

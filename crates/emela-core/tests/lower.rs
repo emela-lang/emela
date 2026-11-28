@@ -202,6 +202,33 @@ fn range(from: Int, to: Int) -> List[Int] {
     insta::assert_snapshot!(dump(&m));
 }
 
+/// A loop expression is lowered as a local fn called in place: it becomes a function of the
+/// module that takes what it captures first, and its calls to itself come out as a loop
+/// (`[fn.loop]`).
+#[test]
+fn loop_exprs_are_lifted() {
+    let m = lower_files(&[(
+        "main.emel",
+        "\
+fn main() -> Int { count(10) }
+
+fn count(limit: Int) -> Int {
+  loop go(n: 0, acc: 0) {
+    if n == limit { acc } else { go(n + 1, acc + 1) }
+  }
+}
+",
+    )]);
+    let (_, go) = m
+        .functions
+        .iter()
+        .find(|(_, f)| f.name == "count$go")
+        .unwrap_or_else(|| panic!("{}", dump(&m)));
+    assert_eq!(go.params.len(), 3, "{}", dump(&m));
+    assert!(matches!(go.body, Expr::Loop { .. }), "{}", dump(&m));
+    insta::assert_snapshot!(dump(&m));
+}
+
 #[test]
 fn ctors_carry_field_names_and_types() {
     let m = lower_files(&[(
