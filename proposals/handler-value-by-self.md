@@ -1,11 +1,13 @@
 ---
 title: The value of a handler is made only with Self
 authors: [somnicattus]
-status: draft
+status: accepted
 issue: 904
 touches: [effect.handler, lsp.code-action, diag.list]
 requires: []
 related: [handler-self-constructor, handler-init-arguments, handler-member, generic-handler]
+pr: 907
+decided: 2026-11-29
 ---
 
 # The value of a handler is made only with Self
@@ -152,3 +154,5 @@ handler ConsoleLogger: Logger {
 ## Open questions
 
 ## Decision
+
+`H(...)` had two meanings with two argument lists: inside the init of H it made the value of H from its fields, and as an item of a with, a layer or on the right of `by` it ran the init of H with the parameters of init. `handler-self-constructor` added `Self(...)` for the first meaning but kept both spellings, and std, the examples and the tests use both. The form inside the init cannot be the form that opens the handler, since that would run init again without end, so `Self(...)` is kept for the value and the name of a handler is written only to open it and to refer to its declaration. Constructor patterns with the name of a handler go as well: a handler has one constructor, so such a pattern only binds fields, which `.` already reads, and it is the one place left where the name stands for the value. The name of an inner handler and a pattern of a handler without parentheses already do not compile, so they become errors at once; the other uses are deprecated until 0.30, following the precedent of `capability-identity`, because std, the examples and user programs write them and the rewrite is mechanical. The constructor and the pattern get different codes because only the constructor has a quick fix.
