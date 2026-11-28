@@ -150,7 +150,44 @@ No prototype has been written.
 
 ## Alternatives
 
-- **A handler per host, chosen by the layer the entry lists** (the current way). No new syntax; it costs a handler for each host when only the lowest call differs, and the program names a handler that the entry already implies.
+- **The calls that differ as an effect, with a handler per host chosen where the host is known** (the current way). Only the lowest call that differs between hosts becomes an operation of an effect, with a thin handler for each host, and the handler of the program's effect is written once on top of that effect:
+
+  ```emel
+  effect StoreIO {
+    suspend fn read(key: String) -> String
+  }
+
+  @external(js, "./store_process.mjs", "read")
+  suspend fn read_process(key: String) -> String uses { ProcessHost }
+
+  @external(js, "./store_page.mjs", "read")
+  suspend fn read_page(key: String) -> String uses { PageHost }
+
+  handler ProcessStoreIO: StoreIO {
+    suspend fn read(key, resume) {
+      resume(read_process(key))
+    }
+  }
+
+  handler PageStoreIO: StoreIO {
+    suspend fn read(key, resume) {
+      resume(read_page(key))
+    }
+  }
+
+  handler Store: KeyValue { ... } # calls the operations of StoreIO
+
+  @entry(Browser.run) # an entry adapter for a page
+  fn app() {
+    with PageStoreIO, Store { ... }
+  }
+  ```
+
+  - requires(Store) is `{ StoreIO }` and has no host effect, so `Store` is written once. requires(PageStoreIO) is `{ Async, PageHost }`. In `with PageStoreIO, Store`, the requirement of `Store` is satisfied by `PageStoreIO` (`[effect.with]`), and `PageHost` remains for the entry.
+  - The handler is chosen where the host is known: in the entry function, in an entry adapter, which can provide the handlers of its host for the effects of std, or by a layer for each host that a Pome provides (`layer Page { PageStoreIO, Store }`). A library that wants to work on several hosts leaves `StoreIO` in its requirements, so that its user chooses, and can replace, the handler.
+  - A wrong choice is E0402 at the entry (`PageStoreIO` in `main`), so `emela check` and the LSP report it. Only the external functions of the chosen handler are reached, so the build has nothing to select by host.
+  - It costs an effect for the lowest calls, public when the user of the Pome chooses the handler (which also lets tests provide their own), a thin handler for each host, and an item in the with of each entry. A Pome would provide by convention a layer for each host and one for tests.
+  - Compared with this proposal: `host:` keeps the choice inside the Pome, so the application does not choose even when the entry adapter does not know the Pome. It costs the requirement in types: an external function with annotations for a process and for a page cannot write either host effect in its uses clause, so it type checks in every launch, and is E0412 at build time in a launch that provides neither. This contradicts `[effect.host]`: "A program whose entry type checks runs on every target that supports that entry."
 - **Annotations named after runtimes** (`@external(nodejs, ...)`, `@external(browser, ...)`). They multiply with the runtimes, name targets in source against `[lib.layers]` ("A platform handler does not expose target names"), and do not match what an entry provides. A host effect is the kind of host the entry gives.
 - **Infer the host effects of an external function from its annotations.** A function with annotations for a process and a page would need "a process or a page", which an effect set cannot say (R lists what is all required). And types would depend on annotations, which depend on the target.
 - **Select at run time.** The launch would ask the host what it is and call the matching function. Every call pays for it, and a missing annotation is found only when the code runs.
@@ -162,6 +199,7 @@ No prototype has been written.
 
 ## Open questions
 
+- A union of host effects. `host:` takes the requirement out of types because a uses clause cannot say "a process or a page": R lists what is all required ("Infer the host effects of an external function from its annotations" in Alternatives). If a uses clause could name a union of host effects, which an entry satisfies by providing one of them (`uses { ProcessHost | PageHost }`), `host:` would keep the requirement in types: for each language with an annotation for a host, every member of the union would have an annotation, or one annotation would have no host. This coverage would be checked at the declaration, so that `emela check` and the LSP report a missing annotation instead of E0412 at build time; a language without any annotation would stay E0412, as now. This proposal would be reconsidered only on top of such a union. If an entry could provide several host effects (an open question of `host-effect-declaration`), several annotations could apply to one launch, and a rule to select among them would be needed, as in "Several hosts for one annotation" below.
 - Launches of different hosts. When an external function is reached from launches with different hosts, the annotation without a host is selected (proposed), or each launch gets its own selection, which needs the code reachable from both to be emitted once per host.
 - Several hosts for one annotation. Repeating the annotation for each host (`host: PageHost` and `host: WebWorker`) already selects it on any of them. A set (`host: { ProcessHost, NodeJsHost }`) would select it only on a launch that provides all of them, as `{ ... }` means in a uses clause: for example a faster host function for a process on Node.js, under an external function whose uses clause has only `ProcessHost`. When several annotations apply, the one whose hosts include the others' would be selected, and two that apply where neither includes the other would be an error. A set has a meaning only when a launch can provide several host effects, which `host-effect-declaration` leaves open (an entry that provides several, or relations between kinds of host).
 
