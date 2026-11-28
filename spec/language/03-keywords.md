@@ -29,9 +29,11 @@ The following words act as keywords only in the positions shown. In any other po
 
 ## 3.3 Reserved for the future `[kw.future]`
 
-The following words have no syntax, but they cannot be used as identifiers either.
+The following words have no syntax, but they cannot be used as identifiers either. A word is kept here so that a later version can give it syntax, or a diagnostic that shows how the same thing is written, without breaking programs. A word can be kept here although no syntax for it is planned.
 
-`var` `return` `while` `loop` `let` `mut` `in` `where` `do` `try` `catch` `throw` `async` `yield` `defer` `macro` `mod`
+`var` `return` `while` `loop` `let` `mut` `in` `where` `do` `try` `catch` `throw` `async` `yield` `defer` `macro` `mod` `finally` `break` `continue` `for` `null` `nil` `typeof`
+
+Until 0.30, `finally`, `break`, `continue`, `for`, `null`, `nil` and `typeof` can be used as identifiers, and each such use is reported with the warning W1001. From 0.30 they are reserved as the other words are.
 
 ## 3.4 Not keywords `[kw.non-keyword]`
 
