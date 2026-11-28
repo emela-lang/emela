@@ -1,0 +1,7 @@
+exit: 0
+--- stdout
+main 1 0
+released 1
+fn 2
+queue 3
+--- stderr
