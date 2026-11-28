@@ -1,11 +1,13 @@
 ---
 title: A sampling profiler for emela build, run and test
 authors: [Alliana]
-status: draft
+status: accepted
 issue:
 touches: [cmd.profile (new), cmd.build, cmd.test.target, target.native.output, target.native.cc, target.native.run, diag.list]
 requires: []
 related: []
+pr: 945
+decided: 2026-11-29
 ---
 
 # A sampling profiler for emela build, run and test
@@ -137,3 +139,7 @@ None.
 - `node --cpu-prof` writes a `.cpuprofile` that source maps map back to the original source.
 
 ## Open questions
+
+## Decision
+
+There was no way to see where an Emela program spends its time: the native executable has no debug information, and its functions appear under C symbols that are not specified and change between builds of the compiler. `--profile` samples the same optimised code that `emela run` runs, so one profile answers both which functions are slow and what the compiler made of them; instrumentation would change the code being measured. The symbols of a profiling build are named after Emela paths with assembler labels, so `emela build --profile` is useful with any profiler the user starts, at the cost of an exception to C11 that applies only to profiling builds. It is an ordinary flag rather than an experimental feature, since it changes neither the language nor the meaning of a program, and the format of the profile file and the layout of the summary are left unspecified so that they can improve. The first version supports only the native target; the JS target needs Emela names on the emitted functions and a rule for stacks cut by suspension, and is left to a later proposal.
