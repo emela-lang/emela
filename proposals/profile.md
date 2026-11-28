@@ -52,7 +52,7 @@ Building:
 
 Running:
 
-- The command starts the program under the profiler of the operating system, which samples the call stack at a fixed interval. The interval is chosen by the implementation, and is not set by a flag.
+- The command starts the program under the profiler of the operating system, which samples the call stack at a fixed interval. The interval is chosen by the implementation, and is not set by a flag. The profile MAY miss the first moments of the program, before the profiler is attached to it.
 - When the program ends, the command writes the profile to the output directory and prints a summary to standard error. It does so however the program ends (with a value, an error, a defect or an interruption), and the exit code is the exit code of the program (`[cmd.build]`, `[cmd.test.exit]`).
 - When the profiler cannot be started or fails, the program's result is not reported as a profile: it is E9101 or E9104, and the exit code is 1.
 - A frame of the profile is an Emela function, named by its path in the program (`Main.fib`) and located at its definition. The profile does not resolve lines inside a function; an implementation MAY add them.
@@ -74,7 +74,7 @@ Running:
 Targets:
 
 - `--profile` is supported for `--target native` only. With another target it is an error in the command-line arguments, and nothing is built.
-- It works on the platforms that the native target supports (`[target]`). The profiler is Time Profiler (`xctrace`) on macOS and `perf` on Linux. A platform that the native target adds later names its profiler in the proposal that adds it.
+- It works on the platforms that the native target supports (`[target]`). The profiler is `sample` on macOS and `perf` on Linux. A platform that the native target adds later names its profiler in the proposal that adds it.
 
 ### Typing rules
 
@@ -93,19 +93,23 @@ None.
 
 ## Implementation
 
-- `emela-codegen-c`: in a profiling build, give each emitted C function an assembler label with the Emela path of the function it comes from (`static int32_t e2_fib(int32_t v0) __asm__("Main.fib");`), with a suffix for copies made by monomorphisation. A prototype with Clang at `-std=c11 -O2` gives the symbol `Main.fib` in `nm`. Also write, next to the executable, the location of the definition of each function, for the frames of the profile. Core IR, LIR and the C backend carry no source locations, so locations are per function.
-- Check which characters the profilers and `c++filt`-style demanglers accept in symbols (`.`, `[`, `,`) before fixing the form of the suffix.
+- `emela-codegen-c`: in a profiling build, give each emitted C function an assembler label with the Emela path of the function it comes from (`static int32_t e2_fib(int32_t v0) __asm__("Main.fib");`), with a suffix for copies made by monomorphisation. The suffix uses `$` (`List.map$Int`): GCC writes labels into the assembly as they are, and its assembler rejects `[`, `]`, `,`, `<`, `>`, `#` and spaces, while `.` and `$` pass (Clang accepts all of them).
+- Also write, next to the executable, a table from the C name of each emitted function (`e2_fib`) to its Emela path and the location of its definition. The locations are for the frames of the profile; Core IR, LIR and the C backend carry no source locations, so they are per function. The C names are for inlined frames: GCC records an inlined function in DWARF under its C name, not its label.
 - `emela-driver` (`c.rs`): add `-g -fno-omit-frame-pointer` to `CC_FLAGS` when profiling.
 - Driver, running:
-  - macOS: `xctrace record --template 'Time Profiler' --launch -- main ...`, then `xctrace export` to read the samples.
+  - macOS: start `main`, attach `sample <pid> <seconds> 1 -mayDie` to it, and read the call graph, which gives an address for each frame. `sample` reports only the frames that are left after inlining, so pass the addresses to `atos -i`, which reports the inlined frames too. Both are part of macOS; `xctrace` (Time Profiler) is not used because it comes only with Xcode, not with the Command Line Tools.
   - Linux: `perf record -g -- main ...`, then `perf script` to read the samples.
   - Fold the stacks, map symbols to Emela paths, group runtime and libc frames, write the profile file, print the summary.
   - The profile file is `profile.folded` in the output directory, in folded stacks: one line per distinct stack, the frames from the outermost joined by `;`, a space, and the number of samples. A frame is the Emela path of the function and the location of its definition (`Main.fib@src/main.emel:3`). An inlined frame ends with `_[i]`, the mark that flame graph tools use for inlined frames. The format is text, so two profiles can be compared with `diff`, and flame graph tools read it.
 - Inlining:
   - Inlining by the C compiler is recorded in DWARF under the symbols of the functions, which are Emela paths, so inlined frames appear as their own frames.
   - Inlining by δ in Core IR (`docs/optimization.md`, layers 1 and 5) leaves no C function behind, so a function unfolded there is counted in its caller.
-- Use the same interval on every operating system (1000 samples per second with both `perf -F 1000` and Time Profiler), so that numbers from macOS and Linux compare.
-- Prototype first: build a program with a small helper whose C function has an assembler label, with `-O2 -g -fno-omit-frame-pointer`, and check that `perf` and `xctrace` report the frame of the helper inlined by the C compiler under the name of its label.
+- Use the same interval on every operating system (1000 samples per second with both `perf -F 1000` and `sample`), so that numbers from macOS and Linux compare.
+- Prototype (C stand-ins for emitted functions, with labels, at `-std=c11 -O2 -g -fno-omit-frame-pointer`):
+  - `nm`, `sample` (macOS, Clang) and `perf` 6.12 (Linux arm64, GCC and Clang) show the frames that are left after inlining under their labels (`Main.work$Int`, `Main.fib`).
+  - Clang records the label of an inlined function in DWARF (`DW_AT_linkage_name`), so `atos -i` and `addr2line -i` report `Main.square`. GCC records only the C name, so `addr2line -i` reports `square`: the table above maps it back.
+  - `xctrace` is not installed with the Command Line Tools, which led to `sample`.
+  - Not yet seen: an inlined frame in the output of `perf script --inline`; the samples of the prototype did not fall in the inlined code.
 - Later work, not part of this proposal and needing no change of the specification:
   - Carry source spans through Core IR, monomorphisation and LIR, and emit `#line` in the C, so that frames resolve to lines. The spans serve other tools too (a debugger, locations of runtime errors), so this is infrastructure of its own.
   - A page for a browser, written next to `profile.folded` (`profile.html`, with the data and the code of the page in the one file): a flame graph of the folded stacks, and a flame chart that lays the samples out in time. The flame chart needs the time of each sample, which `perf script` and `xctrace export` give and folded stacks drop, so the driver keeps them for the page.
@@ -121,7 +125,8 @@ None.
 - Frames by line in the first version. It needs source spans in every IR, which none has; frames by function need only the symbols of the C functions. Lines are left for later work that does not change the specification.
 - Only physical frames (inlined functions counted in their caller), or only logical frames (inlined functions shown as if they were not inlined). Marking inlined frames in one profile serves both uses without a flag.
 - An environment variable that names the profiler (`EMELA_PROFILER`), as `EMELA_CC` names the C compiler. The command reads the output of the profiler, so only the profilers it knows could be named, and PATH already chooses their executables. It can be added later without breaking anything.
-- A table from the C symbols (`e2_fib`) to Emela paths, written next to the executable, instead of assembler labels. It keeps the emitted C within C11, but only the command reads the table: a profiler started by the user would still show `e2_fib`. With labels, `emela build --profile` is useful with any profiler.
+- Only a table from the C symbols (`e2_fib`) to Emela paths, without assembler labels. It keeps the emitted C within C11, but only the command reads the table: a profiler started by the user would still show `e2_fib`. With labels, `emela build --profile` is useful with any profiler. The table is still written, for the inlined frames that GCC records under C names.
+- Time Profiler (`xctrace`) on macOS. It launches the program itself, so it sees the first moments, but it comes only with Xcode. `sample` and `atos` are part of macOS.
 - A flag for the sampling interval. The interval matters for short runs, which the summary detects by the number of samples, and `emela build --profile` lets the user run any profiler with any interval. A flag can be added later without breaking anything.
 - The JS target in this proposal. It needs Emela names on the emitted JS functions, the profiler of each JS host (`--cpu-prof` of Node; whether Bun writes the same format is not checked), and a rule for stacks that are cut by suspension on the event loop, none of which the native target has. It is left for a later proposal. Tier 1 targets receive new features first (`[target]`), but `--profile` is a feature of the commands and does not change the meaning of programs, so the native target can have it first.
 

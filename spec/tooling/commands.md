@@ -87,7 +87,7 @@ emela test --profile [path] [filter]
 Targets:
 
 - `--profile` is supported only with `--target native`. With another build target it is an error in the command-line arguments, reported in the same way as an unknown value of `--target`, and nothing is built.
-- It works on the platforms that the native target supports (`[target]`). The profiler is Time Profiler (`xctrace`) on macOS and `perf` on Linux.
+- It works on the platforms that the native target supports (`[target]`). The profiler is `sample` on macOS and `perf` on Linux.
 
 The profiling build:
 
@@ -100,7 +100,7 @@ The profiling build:
 
 Running:
 
-- The command starts the program under the profiler, which samples the call stack at a fixed interval. The interval is implementation-defined.
+- The command starts the program under the profiler, which samples the call stack at a fixed interval. The interval is implementation-defined. The profile MAY miss the first moments of the program, before the profiler is attached to it.
 - When the program ends, the command writes the profile to the output directory and prints a summary to standard error. It does so however the program ends (with a value, an error, a defect or an interruption), and the exit code is the exit code of the program.
 - When the profiler cannot be started, it is E9101. When it starts but fails, or the operating system does not allow it to sample the program, it is E9104. In both cases the exit code is 1.
 - A frame of the profile is an Emela function, named by its path in the program (`Main.fib`) and located at its definition. The profile does not need to resolve lines inside a function.
