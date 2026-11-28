@@ -553,3 +553,48 @@ fn unused_type_parameter_not_reported_for_a_broken_signature() {
     assert!(!codes.contains(&Some("W3002")), "{codes:?}");
     assert!(codes.contains(&Some("E2101")), "{codes:?}");
 }
+
+/// `match` binds more loosely than `&&` and `||` (`[fn.operator]`), so `a && k match { ... }`
+/// matches on `a && k`. When the right operand is not Bool, one E3001 is reported at it, with a
+/// note naming the scrutinee and a help that encloses the intended `match` in parentheses. The arm
+/// patterns are checked against the right operand, so they report no further E3001 and no W3101
+/// (`[diag.list]`).
+#[test]
+fn match_on_logical_operator() {
+    let mut frontend = Typecheck::default();
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"enum Kind { Aa, Bb }
+
+type Item(cap: Option[Int], res: Option[Int])
+
+fn g(a: Bool, k: Kind) -> Bool {
+  a && k match {
+    Aa -> True
+    Bb -> False
+  }
+}
+
+fn h(item: Item) -> Bool {
+  item.cap.is_some() || item.res match {
+    Some(n) -> n > 0
+    None -> False
+  }
+}
+
+fn both(a: Bool, b: Bool) -> Bool {
+  a && b match {
+    True -> False
+    False -> True
+  }
+}
+
+fn main() {}
+"#,
+        )],
+        "home/main.emel",
+        &mut frontend,
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}

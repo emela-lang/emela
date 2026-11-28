@@ -438,10 +438,17 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
                         .is_some_and(|parse| last_lambda_after_or_line(parse, s.range))
                 });
                 if at_or_line && out.code == Some(crate::code::TYPE_MISMATCH) {
-                    out.with_help(emela_syntax::rewrite::OR_AT_LINE_START_HELP)
-                } else {
-                    out
+                    return out.with_help(emela_syntax::rewrite::OR_AT_LINE_START_HELP);
                 }
+                if let (emela_types::DiagnosticKind::MatchOnLogical(m), Some(rhs)) =
+                    (&d.kind, d.span)
+                {
+                    return match self.parse_of(rhs.module) {
+                        Some(parse) => with_match_on_logical(out, parse, m.op, m.scrutinee, rhs),
+                        None => out,
+                    };
+                }
+                out
             })
             .chain(test_diagnostics)
             .chain(crate::actions::incomplete_impl_diagnostics(
@@ -657,6 +664,43 @@ fn last_lambda_after_or_line(parse: &Parse, range: line_index::TextRange) -> boo
                 == Some(&lambda)
     });
     last_in_block && emela_syntax::rewrite::starts_line_with_or(&lambda)
+}
+
+/// The note and help of E3001 at the right operand of `&&` or `||` that is the scrutinee of a
+/// `match` ([`emela_types::DiagnosticKind::MatchOnLogical`]). `match` binds more loosely than the
+/// operator (`[fn.operator]`), so the note names the whole scrutinee and the help encloses the
+/// right operand and the `match` in parentheses. The source text is quoted only when the
+/// operator expression is on one line; otherwise the operator stands for it.
+fn with_match_on_logical(
+    out: Diagnostic,
+    parse: &Parse,
+    op: &str,
+    scrutinee: emela_resolve::hir::Span,
+    rhs: emela_resolve::hir::Span,
+) -> Diagnostic {
+    let text = parse.syntax().text();
+    let quote = |range: line_index::TextRange| {
+        let source = text.slice(range).to_string();
+        (!source.contains('\n')).then_some(source)
+    };
+    let lhs = line_index::TextRange::new(scrutinee.range.start(), rhs.range.start());
+    let lhs = quote(lhs).map(|s| s.trim_end().trim_end_matches(op).trim_end().to_owned());
+    match (quote(scrutinee.range), lhs, quote(rhs.range)) {
+        (Some(whole), Some(lhs), Some(rhs)) => out
+            .with_note(format!(
+                "the scrutinee of this `match` is `{whole}`, because `match` binds more loosely than `{op}`"
+            ))
+            .with_help(format!(
+                "to match on `{rhs}` only, write `{lhs} {op} ({rhs} match {{ ... }})`"
+            )),
+        _ => out
+            .with_note(format!(
+                "the scrutinee of this `match` is the whole `{op}` expression, because `match` binds more loosely than `{op}`"
+            ))
+            .with_help(format!(
+                "to match on the right operand of `{op}` only, enclose it and the `match` in parentheses"
+            )),
+    }
 }
 
 /// Leaves out the help of W4401 and E4404 that suggests a bound item where the body of the

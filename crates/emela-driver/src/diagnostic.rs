@@ -631,6 +631,14 @@ impl Diagnostic {
                     None => out,
                 };
             }
+            // The note and help quote the source, so the frontend adds them.
+            TypeDiagnosticKind::MatchOnLogical(m) => {
+                let out = Diagnostic::type_error(&m.error, cons);
+                return match span {
+                    Some(span) => out.with_span(span),
+                    None => out,
+                };
+            }
             TypeDiagnosticKind::WrongTypeArgCount {
                 name,
                 expected,

@@ -29,7 +29,7 @@ pub use decl::signature::{InitParams, Signature, Signatures};
 pub use decl::traits::{ImplHead, Traits, Unsatisfied, derivable, head_def, is_capability_type};
 pub use diagnostic::{
     BoundItem, Diagnostic, DiagnosticKind, EffectContext, HandlerArgsReason, ImmediateSource,
-    InnerHandlerMismatch, LabelBaseReason, LayerArg, LeakFrom, SuspendingCall,
+    InnerHandlerMismatch, LabelBaseReason, LayerArg, LeakFrom, MatchOnLogical, SuspendingCall,
 };
 pub use exhaustiveness::{
     Arm, CtorTable, Lit, MatchCheck, Pat, TyShape, VariantShape, WITNESS_LIMIT, Witness,
