@@ -67,10 +67,10 @@ use std::collections::VecDeque;
 use la_arena::ArenaMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::dump::type_name;
 use crate::intrinsics::Builtin;
+use crate::ir::dump::type_name;
+use crate::ir::typing::Typer;
 use crate::ir::*;
-use crate::typing::Typer;
 
 /// Monomorphizes the module from its exported functions, a generic one instantiated at `Any`
 /// ([`monomorphize_traced`]).

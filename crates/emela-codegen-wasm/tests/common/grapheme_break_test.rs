@@ -1,6 +1,6 @@
 //! The cases of the official `GraphemeBreakTest.txt` (Unicode 17.0.0).
 //!
-//! Shared by the unit test of the reference rules (`src/emit/runtime/unicode.rs`) and the e2e
+//! Shared by the unit test of the reference rules (`src/emit/runtime/text/unicode.rs`) and the e2e
 //! test of the runtime (`tests/programs/unicode.rs`), so the file is parsed and counted in one place.
 
 /// Every case of the file, as the graphemes of the line in order.

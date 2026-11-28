@@ -14,7 +14,7 @@
 
 use super::{Mono, Subst, Target};
 use crate::Builtin;
-use crate::dump::type_name;
+use crate::ir::dump::type_name;
 use crate::ir::*;
 
 /// A derived impl function waiting for its body.

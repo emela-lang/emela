@@ -470,7 +470,7 @@ mod tests {
         let stats = iota(&mut m);
         assert_eq!(stats.applied, 0, "{stats:?}");
         assert_eq!(stats.deopt, 1, "{stats:?}");
-        crate::verify::verify(&m).unwrap();
+        crate::ir::verify::verify(&m).unwrap();
     }
 
     /// The same shape with a plain field type still reduces, so the check reads the field's type
@@ -482,7 +482,7 @@ mod tests {
         let stats = iota(&mut m);
         assert_eq!(stats.applied, 1, "{stats:?}");
         assert_eq!(stats.deopt, 0, "{stats:?}");
-        crate::verify::verify(&m).unwrap();
+        crate::ir::verify::verify(&m).unwrap();
     }
 
     /// A tuple is checked like a constructor: a top-level field of a finalizer-bearing type keeps
@@ -510,6 +510,6 @@ mod tests {
         let stats = iota(&mut m);
         assert_eq!(stats.applied, 0, "{stats:?}");
         assert_eq!(stats.deopt, 1, "{stats:?}");
-        crate::verify::verify(&m).unwrap();
+        crate::ir::verify::verify(&m).unwrap();
     }
 }

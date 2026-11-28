@@ -24,7 +24,7 @@
 //! through the runtime's `out_word` resume channel, and the emitter keeps a result of more than
 //! one leaf boxed (see `emit::values`).
 //!
-//! The frames and the scheduler live in `runtime::sched`; this module only reads the Heap IR.
+//! The frames and the scheduler live in `runtime::fiber::sched`; this module only reads the Heap IR.
 
 use super::*;
 
@@ -52,10 +52,10 @@ pub(crate) struct Plan {
     pub(crate) in_word: u32,
     pub(crate) out_mode: u32,
     pub(crate) out_word: u32,
-    /// The outermost operation of the current suspension cascade (see `runtime::async_bridge`).
+    /// The outermost operation of the current suspension cascade (see `runtime::fiber::async_bridge`).
     pub(crate) pending: u32,
     /// The innermost active operation, whose implementation the event resumes (see
-    /// `runtime::async_bridge`).
+    /// `runtime::fiber::async_bridge`).
     pub(crate) sleep_op: u32,
     pub(crate) sync_depth: u32,
     /// The descriptor of a `perform` record (the state of an operation call).
@@ -68,7 +68,7 @@ pub(crate) struct Plan {
     pub(crate) interrupted_desc: u32,
     /// The static piece of the resume diagnostic.
     pub(crate) twice_prefix: u32,
-    /// Whether the run unwinds as interrupted (`runtime::attempt`). Allocated only when the
+    /// Whether the run unwinds as interrupted (`runtime::fiber::attempt`). Allocated only when the
     /// program uses `Exit.attempt` or `Std.Cause`, so other programs keep their bytes.
     pub(crate) unwinding: u32,
     /// The table index of `attempt_resume`, when some attempt's function may suspend.
@@ -249,12 +249,12 @@ pub(crate) fn prepare(b: &mut Builder<'_>) {
         b.table_funcs.push(index);
         resume_table[i] = table;
     }
-    let unwinding = if runtime::attempt::used(b) {
+    let unwinding = if b.uses_attempt() {
         b.alloc_static(4)
     } else {
         0
     };
-    let attempt_table = if runtime::attempt::suspends(b) {
+    let attempt_table = if b.attempt_suspends() {
         let index = b.rt("attempt_resume");
         b.table_funcs.push(index);
         b.table_funcs.len() as u32 - 1
@@ -697,8 +697,8 @@ fn emit_trampoline(b: &mut Builder<'_>, f: &Function, mp: MachinePlan) -> WasmFu
         ins.end();
         // The run already ended: its result lives in `run_word` now, so a strand that finishes
         // afterwards must not take it out of the pending-defect globals.
-        if let Some(fp) = &b.fiber_plan {
-            ins.i32_const(fp.run_over as i32);
+        if let Some(run_over) = b.run_over_cell() {
+            ins.i32_const(run_over as i32);
             ins.i32_load(mem(0, 4));
             ins.if_(BlockType::Empty);
             for global in [G_DEFECT, G_FAILURE] {
@@ -910,14 +910,14 @@ fn compile_stmt(mcx: &mut Mcx<'_, '_>, buf: &mut Chunk, id: StmtId) {
         } => {
             // A fairness yield is a suspension point only when the program uses fibers: without
             // them there is nobody to hand a turn to, and the state machine would double its
-            // states for nothing (`runtime::fiber::used`).
+            // states for nothing (`Builder::uses_fibers`).
             if matches!(
                 &value,
                 Value::Runtime {
                     op: RuntimeOp::Yield | RuntimeOp::YieldPerform,
                     ..
                 }
-            ) && !super::runtime::fiber::used(mcx.b)
+            ) && !mcx.b.uses_fibers()
             {
                 debug_assert!(dst.is_none(), "a fairness yield has no destination");
                 return;

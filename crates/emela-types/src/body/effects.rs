@@ -9,7 +9,7 @@
 //! - A call adds the callee function type's R. A capability operation's type has that effect as
 //!   its R.
 //! - The R of `with H1, ..., Hn { e }` is `e`'s R minus the provided effects, plus each handler's
-//!   dependencies (spec 9.4). Layers expand into their handlers (spec 8.5, `crate::layer`). A
+//!   dependencies (spec 9.4). Layers expand into their handlers (spec 8.5, `crate::decl::layer`). A
 //!   handler dependency met by a handler in the same `with` providing another effect is not
 //!   added (spec 14.2). Effects are removed from set variables by replacing them with fresh set
 //!   variables whose solutions exclude those effects; nothing is removed from set type
@@ -21,7 +21,7 @@
 //!   its function, and a call puts the argument's set in its place by instantiation.
 //! - A closure or a local fn also has in its R the capabilities in the types of the values it
 //!   captures (`[effect.use]`).
-//! - The `self` of a handler ([`crate::row::CapId::SelfOf`]) is removed at the end of the body
+//! - The `self` of a handler ([`crate::ty::CapId::SelfOf`]) is removed at the end of the body
 //!   of its operation, init or release.
 //! - A body's R is contained in the declared R. Without a `uses` clause the declared R is a set
 //!   variable, and the body's R becomes its solution as is (spec 9.3). The bodies of `main` and
@@ -34,11 +34,10 @@
 use emela_resolve::hir::{BinaryOp, DefId, DefModule, ExprId, ExprKind, Item, Res, Stmt, WithItem};
 
 use super::{BodyInfer, fn_parts};
+use crate::decl::layer::{self, PendingWith, Supplier, WithBind, WithInfo};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{Origin, SetKind};
-use crate::layer::{self, PendingWith, Supplier, WithBind, WithInfo};
-use crate::row::{CapElem, CapId, Row, RowElem, Tag};
-use crate::ty::Ty;
+use crate::ty::{CapElem, CapId, Row, RowElem, Tag, Ty};
 
 impl BodyInfer<'_> {
     /// Computes the R of inferred definition bodies and adds constraints that they are contained
@@ -303,7 +302,7 @@ impl BodyInfer<'_> {
     }
 
     /// The R of `with H1, ..., Hn { body }` (spec 8.3, 8.5, 9.4). Layers are expanded, and for
-    /// providers of the same effect the later one is kept (`crate::layer::with_entries`).
+    /// providers of the same effect the later one is kept (`crate::decl::layer::with_entries`).
     ///
     /// A label `L` listed alone provides its base and depends on `L`; `L by P` provides `L` and
     /// depends on what `P` depends on (a handler's dependencies, or the effect `P`). A provider of
@@ -380,10 +379,10 @@ impl BodyInfer<'_> {
         // the way (`[effect.escape]`).
         let mut minus: Vec<RowElem> = for_body.iter().cloned().map(RowElem::Tag).collect();
         // The handler members that an init opened through this `with`'s handlers end with it too
-        // (`[effect.handler]`, [`crate::row::OPENED_IN_INIT`]).
+        // (`[effect.handler]`, [`crate::ty::OPENED_IN_INIT`]).
         minus.extend(
             (0..items.len() as u32)
-                .chain([crate::row::OPENED_IN_INIT])
+                .chain([crate::ty::OPENED_IN_INIT])
                 .map(|i| {
                     RowElem::Cap(CapElem {
                         id: CapId::Item {

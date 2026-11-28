@@ -17,6 +17,8 @@ use std::fmt;
 
 use smol_str::SmolStr;
 
+pub(crate) mod coverage;
+
 /// Assumes name resolution and type checking are done.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pat {

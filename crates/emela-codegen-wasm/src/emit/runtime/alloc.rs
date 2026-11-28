@@ -476,10 +476,10 @@ fn drop_(b: &Builder, ins: &mut InstructionSink) {
     // An array (`array.rs`) holds references in slots 1 to its length when its descriptor's
     // `refs[0]` says so. Only a program with arrays has this branch, so the others keep their
     // bytes.
-    let arrays = super::array::used(b);
+    let arrays = b.uses_arrays();
     if arrays {
         ins.local_get(KIND);
-        ins.i32_const(super::array::KIND as i32);
+        ins.i32_const(DESC_KIND_ARRAY as i32);
         ins.i32_eq();
         ins.if_(BlockType::Empty);
         ins.local_get(D);

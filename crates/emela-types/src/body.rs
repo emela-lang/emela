@@ -8,8 +8,10 @@
 //! ([`crate::check`]). Handlers are definitions in the group too: their operation bodies are
 //! inferred and their dependencies (the R of the operation bodies) computed.
 
-use crate::scheme::substitute;
 use crate::sparse::SparseMap;
+use crate::ty::{
+    CapElem, ParamKind, Prim, Row, RowElem, RowVar, Tag, Ty, TyParam, TyVar, substitute,
+};
 use emela_resolve::hir::{
     Arg, Arm, BinaryOp, Block, DefId, DefKind, DefModule, ExprId, ExprKind, FnSig, Item, Label,
     Literal, LocalId, Param, PatId, PatKind, Program, Res, Span, Stmt, StrPart, TypeId, UnaryOp,
@@ -19,18 +21,16 @@ use la_arena::{ArenaMap, Idx};
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
-use crate::builtin::Builtins;
-use crate::coverage::Shapes;
-use crate::diagnostic::{Diagnostic, DiagnosticKind, EffectContext};
-use crate::exhaustiveness::{Witness, check_match};
-use crate::infer::{InferCtx, Origin, SetKind};
-use crate::lower::{
+use crate::decl::builtin::Builtins;
+use crate::decl::lower::{
     Omitted, Scope, TyTable, effect_params, has_omitted_fails, is_intrinsic_effect,
 };
-use crate::row::{CapElem, Row, RowElem, RowVar, Tag};
-use crate::signature::{FnParams, Signature, Signatures, param_labels};
-use crate::traits::Traits;
-use crate::ty::{ParamKind, Prim, Ty, TyParam, TyVar};
+use crate::decl::signature::{FnParams, Signature, Signatures, param_labels};
+use crate::decl::traits::Traits;
+use crate::diagnostic::{Diagnostic, DiagnosticKind, EffectContext};
+use crate::exhaustiveness::coverage::Shapes;
+use crate::exhaustiveness::{Witness, check_match};
+use crate::infer::{InferCtx, Origin, SetKind};
 
 mod args;
 mod bound;
@@ -96,7 +96,7 @@ pub(crate) struct BodyTypes {
     pub(crate) handler_fails: Vec<(DefId, Row)>,
     /// `with` expressions → handlers in initialization order (layers expanded, later handlers
     /// overriding earlier ones).
-    pub(crate) with_handlers: SparseMap<ExprId, crate::layer::WithInfo>,
+    pub(crate) with_handlers: SparseMap<ExprId, crate::decl::layer::WithInfo>,
     /// `with` expressions → per item, the arguments of init reordered by parameter.
     pub(crate) with_args: SparseMap<ExprId, Vec<Vec<Option<ExprId>>>>,
     /// Arguments whose capability is passed as fewer effects (`[effect.use]`) → the effects of
@@ -268,7 +268,7 @@ pub(crate) struct BodyInfer<'a> {
     /// ends (`[effect.use]`). A tag removes only the same tag, not a capability of that effect.
     row_diffs: Vec<(RowVar, RowVar, Vec<RowElem>)>,
     /// Where each capability first entered each set variable, for E4405 (`[effect.escape]`).
-    cap_provenance: FxHashMap<(RowVar, crate::row::CapId), Option<Span>>,
+    cap_provenance: FxHashMap<(RowVar, crate::ty::CapId), Option<Span>>,
     /// `escape` inner expressions, the errors their arms catch and their arm `_`, for the W3201
     /// check.
     escapes: Vec<errors::Escape>,
@@ -312,9 +312,9 @@ pub(crate) struct BodyInfer<'a> {
     /// `with` expressions with their listed handlers (layers expanded) and dependencies. The
     /// initialization order and dependency cycles are decided after sets are solved
     /// (`body/effects.rs`).
-    withs: Vec<crate::layer::PendingWith>,
+    withs: Vec<crate::decl::layer::PendingWith>,
     /// `with` expressions → providers in initialization order.
-    with_handlers: SparseMap<ExprId, crate::layer::WithInfo>,
+    with_handlers: SparseMap<ExprId, crate::decl::layer::WithInfo>,
     /// `with` expressions → per item, the arguments of init reordered by parameter
     /// ([`Self::infer_supply_args`]). Empty for an item without them.
     with_args: SparseMap<ExprId, Vec<Vec<Option<ExprId>>>>,
@@ -326,7 +326,7 @@ pub(crate) struct BodyInfer<'a> {
     /// The set variables that are the set type arguments of a built-in handler at an item
     /// (`Group[E, R]`), with the `with` and the index of the item. Such a set may have the
     /// capabilities of the items before it in the same `with` (`[task.group]`).
-    item_set_vars: rustc_hash::FxHashMap<crate::row::RowVar, (ExprId, u32)>,
+    item_set_vars: rustc_hash::FxHashMap<crate::ty::RowVar, (ExprId, u32)>,
     /// Layers of this group → per member, the type arguments it gives a handler with type
     /// parameters.
     layer_insts: Vec<(DefId, Vec<items::ItemInst>)>,
@@ -481,7 +481,7 @@ impl<'a> BodyInfer<'a> {
             // The handler's type parameters (`[effect.handler]`), or for an inner handler those
             // of its outer handler.
             Some(Item::Handler(_)) => {
-                let defs = crate::lower::type_param_defs(self.program, def);
+                let defs = crate::decl::lower::type_param_defs(self.program, def);
                 let kinds = vec![ParamKind::Type; defs.len()];
                 (defs, kinds)
             }
@@ -1086,12 +1086,17 @@ impl<'a> BodyInfer<'a> {
             ExprKind::With { handlers, body } => {
                 self.infer_with_args(expr, handlers);
                 let insts = self.item_insts(expr, handlers);
-                let provides =
-                    crate::layer::with_entries(program, self.sigs, self.ty_table, handlers, &insts)
-                        .into_iter()
-                        .filter(|e| e.named)
-                        .map(|e| e.effect)
-                        .collect();
+                let provides = crate::decl::layer::with_entries(
+                    program,
+                    self.sigs,
+                    self.ty_table,
+                    handlers,
+                    &insts,
+                )
+                .into_iter()
+                .filter(|e| e.named)
+                .map(|e| e.effect)
+                .collect();
                 self.name_providers.push(Some((expr, provides)));
                 self.ctx.scopes.enter(expr);
                 let in_init = self.in_init.is_some();

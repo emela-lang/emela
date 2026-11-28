@@ -5,58 +5,38 @@
 //! E and R are computed with set union and difference.
 
 mod body;
-mod builtin;
 mod check;
-mod const_cycle;
-mod coverage;
+mod decl;
 mod diagnostic;
-mod display;
-mod entry_main;
-mod error;
 mod exhaustiveness;
-mod export;
 mod infer;
-mod layer;
-mod lower;
-mod methods;
-mod program_types;
-mod row;
-mod scc;
-mod scheme;
 mod scopes;
-mod signature;
 mod sparse;
-mod traits;
 mod ty;
-mod unused_type_params;
 
 #[cfg(test)]
 mod tests;
 
+pub use check::entry_main::is_exit_code;
+pub use check::export::{
+    HostExports, add_entry_exports, host_exports, is_entry_adapter, is_http_serve, is_http_service,
+};
+pub use check::program_types::{ProgramTypes, methods_of};
 pub use check::{CheckOptions, body_refs, check_program, check_program_with};
+pub use decl::layer::{ArgsSource, LayerInfo, MemberProvider, Supplier, WithBind, WithInfo};
+pub use decl::lower::{TyTable, is_immediate_effect};
+pub use decl::signature::{InitParams, Signature, Signatures};
+pub use decl::traits::{ImplHead, Traits, Unsatisfied, derivable, head_def, is_capability_type};
 pub use diagnostic::{
     BoundItem, Diagnostic, DiagnosticKind, EffectContext, HandlerArgsReason, ImmediateSource,
     InnerHandlerMismatch, LabelBaseReason, LayerArg, LeakFrom, SuspendingCall,
 };
-pub use display::{SchemeDisplay, TyDisplay};
-pub use entry_main::is_exit_code;
-pub use error::{TypeError, TypeErrorKind};
 pub use exhaustiveness::{
     Arm, CtorTable, Lit, MatchCheck, Pat, TyShape, VariantShape, WITNESS_LIMIT, Witness,
     check_match,
 };
-pub use export::{
-    HostExports, add_entry_exports, host_exports, is_entry_adapter, is_http_serve, is_http_service,
-};
-pub use infer::InferCtx;
-pub use layer::{ArgsSource, LayerInfo, MemberProvider, Supplier, WithBind, WithInfo};
-pub use lower::{TyTable, is_immediate_effect};
-pub use methods::methods_of;
-pub use program_types::ProgramTypes;
-pub use scheme::{Scheme, substitute_bound};
-pub use signature::{InitParams, Signature, Signatures};
-pub use traits::{ImplHead, Traits, Unsatisfied, derivable, head_def, is_capability_type};
+pub use infer::{InferCtx, TypeError, TypeErrorKind};
 pub use ty::{
-    CapElem, CapId, FnTy, ParamKind, Prim, Row, RowElem, RowVar, SetKind, Tag, Ty, TyConData,
-    TyConId, TyConKind, TyCons, TyParam, TyVar,
+    CapElem, CapId, FnTy, ParamKind, Prim, Row, RowElem, RowVar, Scheme, SchemeDisplay, SetKind,
+    Tag, Ty, TyConData, TyConId, TyConKind, TyCons, TyDisplay, TyParam, TyVar, substitute_bound,
 };

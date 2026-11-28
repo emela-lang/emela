@@ -9,7 +9,7 @@
 use super::Mono;
 use super::derive::{Parts, ctor_pat, take_apart};
 use crate::Builtin;
-use crate::dump::type_name;
+use crate::ir::dump::type_name;
 use crate::ir::*;
 
 impl Mono<'_> {

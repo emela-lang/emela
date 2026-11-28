@@ -10,8 +10,7 @@ use smol_str::SmolStr;
 
 use super::BodyInfer;
 use crate::infer::{Origin, SetKind};
-use crate::row::{CapElem, CapId, Row, RowElem, Tag};
-use crate::ty::Ty;
+use crate::ty::{CapElem, CapId, Row, RowElem, Tag, Ty};
 
 /// Capability sets (`[type.rules]`).
 impl BodyInfer<'_> {

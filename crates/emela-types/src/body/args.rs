@@ -6,8 +6,7 @@ use smol_str::SmolStr;
 
 use super::{Assigned, BodyInfer};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::row::{CapElem, CapId, Row, RowElem, Tag};
-use crate::ty::Ty;
+use crate::ty::{CapElem, CapId, Row, RowElem, Tag, Ty};
 
 impl BodyInfer<'_> {
     /// Assigns `args` to the parameters `params` ([`Self::assign_args`]), reports a wrong number
