@@ -1,11 +1,13 @@
 ---
 title: Guards, the operand of `!` and the expression of assert are positions with the expected type Bool
 authors: [somnicattus]
-status: draft
+status: accepted
 issue:
 touches: [fn.match, fn.operator, test.assert, type.rules]
 requires: []
 related: []
+pr: 956
+decided: 2026-11-29
 ---
 
 # Guards, the operand of `!` and the expression of assert are positions with the expected type Bool
@@ -112,3 +114,5 @@ None.
 ## Open questions
 
 ## Decision
+
+A guard, the operand of `!` and the expression of assert are given the expected type Bool, which states what the compiler already checks; no program changes meaning. The question left by #908 is answered by keeping a condition of type Never accepted, as it is for the condition of an if.
