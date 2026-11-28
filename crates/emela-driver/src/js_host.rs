@@ -6,8 +6,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::code;
 use crate::diagnostic::Diagnostic;
+use crate::diagnostic::code;
 use crate::version::Version;
 
 /// The environment variable that names the JS host (`[cmd.build]`).

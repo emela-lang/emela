@@ -132,8 +132,8 @@ fn main() {
   dbg(String.from_code_point(65))
 }
 "#,
-        15612,
-        0xd9e6_773e_1818_dd42,
+        15829,
+        0x439e_6a0b_91f6_9f5f,
     ),
     (
         "numeric",
@@ -247,5 +247,5 @@ fn main() {
     );
     wasmparser::validate(&output.module).expect("the inline-array module is valid");
     // The C2 profitability rule changes the borrows of the call sites in this program.
-    check([("inline_array", output.module, 15647, 0x5e37_5b5c_c04d_e736)]);
+    check([("inline_array", output.module, 15866, 0xe47a_adc3_6411_71ed)]);
 }

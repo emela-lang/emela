@@ -228,6 +228,48 @@ fn main() {
     );
 }
 
+#[test]
+fn interpolating_a_list_stays_in_linear_memory() {
+    // Structural `show$List` collects the shown elements and joins them in one pass with
+    // `List.join` instead of concatenating onto an accumulator on every element (#960): repeating
+    // interpolation, `inspect`, and a derived `Show` over a 1000-element list stays within
+    // `LIMIT` and matches `xs.show()`.
+    run_limited(
+        "memory-show-list",
+        r##"
+type Wrap(xs: List[Int])
+  derive Show
+
+type Plain(n: Int)
+
+fn rounds(n: Int, xs: List[Int], total: Int) -> Int {
+  if n == 0 {
+    total
+  } else {
+    a = "#{xs}"
+    b = inspect(xs)
+    c = Wrap(xs:).show()
+    ok = if a == b && c == "Wrap(xs: #{a})" { 1 } else { 0 }
+    rounds(n - 1, xs, total + ok + String.length(a))
+  }
+}
+
+fn main() {
+  xs = List.range(0, 1000)
+  assert "#{[]}" == "[]"
+  assert "#{[42]}" == "[42]"
+  assert "#{[(), ()]}" == "[(), ()]"
+  assert "#{["a", "b\"c"]}" == "[\"a\", \"b\\\"c\"]"
+  assert "#{[[1, 2], [], [3]]}" == "[[1, 2], [], [3]]"
+  assert "#{xs}" == xs.show()
+  dbg([Plain(n: 1), Plain(n: 2)])
+  dbg(rounds(20, xs, 0))
+}
+"##,
+        "[Plain(n: 1), Plain(n: 2)]\n97820\n",
+    );
+}
+
 /// The core module inside the component: its function imports in index order, the operators of
 /// each defined function body, the initial `i32` value of each global, and the static data.
 struct CoreModule<'a> {
