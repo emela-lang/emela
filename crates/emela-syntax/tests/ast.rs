@@ -1,6 +1,6 @@
 //! Uses the typed AST through the public API.
 
-use emela_syntax::ast::{AstNode, Expr, ParamList, Stmt};
+use emela_syntax::ast::{AstNode, Expr, LoopExpr, ParamList, Stmt};
 use emela_syntax::parse;
 
 #[test]
@@ -72,4 +72,35 @@ fn 局所関数は文になる() {
     assert!(matches!(stmts[1], Stmt::Expr(Expr::CallExpr(_))));
     // A local fn is not a declaration of the module.
     assert_eq!(parse.tree().fn_decls().count(), 1);
+}
+
+#[test]
+fn ループ式は名前と初期値と本体を持つ() {
+    let src = "fn f(to: Int) -> Int {\n  loop go(to:, acc: 0) -> Int { acc }\n}";
+    let parse = parse(src);
+    assert!(parse.diagnostics().is_empty(), "{}", parse.debug_dump());
+    let body = parse.tree().fn_decls().next().unwrap().body().unwrap();
+    let Some(Stmt::Expr(Expr::Other(node))) = body.stmts().next() else {
+        panic!("expected an expression");
+    };
+    let lp = LoopExpr::cast(node).unwrap();
+    assert_eq!(lp.name().unwrap().text(), "go");
+    let params: Vec<_> = lp
+        .params()
+        .map(|p| {
+            (
+                p.name().unwrap().text().to_owned(),
+                p.value().map(|v| v.syntax().text().to_string()),
+            )
+        })
+        .collect();
+    assert_eq!(
+        params,
+        [
+            ("to".to_owned(), None),
+            ("acc".to_owned(), Some("0".to_owned()))
+        ]
+    );
+    assert_eq!(lp.ret_type().unwrap().text().to_string(), "Int");
+    assert_eq!(lp.body().unwrap().syntax().text().to_string(), "{ acc }");
 }

@@ -17,6 +17,7 @@ use rowan::{GreenNode, NodeOrToken};
 pub use diagnostic::{Diagnostic, DiagnosticCode};
 pub use lexer::{Lexed, Token, lex};
 pub use syntax_kind::SyntaxKind;
+pub use validation::loop_init_type_help;
 
 /// A tree can be built for any input, and its text always equals the input.
 #[derive(Debug, Clone)]

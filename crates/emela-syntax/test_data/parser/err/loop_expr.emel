@@ -1,0 +1,28 @@
+# E1101: ループ式の頭の要素は名前と `:` で始まる（[grammar.expr]）
+fn positional() -> Int {
+  loop go(0) { 1 }
+}
+
+fn name_without_colon(i: Int) -> Int {
+  loop go(i) { 1 }
+}
+
+fn expression(x: Int) -> Int {
+  loop go(x + 1) { 1 }
+}
+
+fn type_with_args() -> Int {
+  loop go(xs: List[Int]) { 1 }
+}
+
+fn mixed(i: Int) -> Int {
+  loop go(a: 1, i, b:) { 1 }
+}
+
+fn no_name() -> Int {
+  loop (i: 0) { 1 }
+}
+
+fn no_body() -> Int {
+  loop go(i: 0)
+}
