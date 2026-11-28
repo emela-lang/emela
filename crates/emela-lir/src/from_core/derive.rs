@@ -63,6 +63,11 @@ impl Lower<'_> {
                 let name = self.sh.core.enums[*id].variants[0].name.clone();
                 self.term(Term::Return(Some(string(&name))));
             }
+            Derive::ShowListJoin => {
+                self.f.ret = TypeId::STRING;
+                let rev = self.param("rev", ty);
+                self.show_list_join(ty, rev);
+            }
         }
     }
 
@@ -306,17 +311,38 @@ impl Lower<'_> {
         self.term(Term::Return(Some(s)));
     }
 
-    /// `[a, b]`: a loop over the list, joining the shown elements with `, `.
+    /// `[a, b]`: shows each element into a `List[String]` in reverse and finishes with the shared
+    /// `show$ListJoin` helper, so long lists take O(n) time and memory instead of copying an
+    /// accumulator at every step, and empty lists return the static `"[]"` without allocating.
     fn show_list(&mut self, ty: TypeId, elem: TypeId, x: VarId) {
         if elem == TypeId::NEVER {
             // Only the empty list has this type.
             self.term(Term::Return(Some(string("[]"))));
             return;
         }
+        let is_empty = self.assign("empty", TypeId::BOOL, Value::ListIsEmpty(x));
+        self.open();
+        self.term(Term::Return(Some(string("[]"))));
+        let then = self.close();
+        let else_ = self.empty();
+        self.push(Stmt::If {
+            dst: None,
+            cond: Operand::Var(is_empty),
+            then,
+            else_,
+        });
+        let strings = self.intern(Type::List(TypeId::STRING));
+        let nil = self.assign(
+            "nil",
+            strings,
+            Value::List {
+                elems: Vec::new(),
+                tail: None,
+            },
+        );
         let p = self.var("p", ty);
-        let acc = self.var("acc", TypeId::STRING);
-        let sep = self.var("sep", TypeId::STRING);
-        let joined = self.var("joined", TypeId::STRING);
+        let rev = self.var("rev", strings);
+        let reversed = self.var("reversed", strings);
         self.open();
         let empty = self.assign("empty", TypeId::BOOL, Value::ListIsEmpty(p));
         let then = self.empty();
@@ -324,12 +350,73 @@ impl Lower<'_> {
         let h = self.get("h", elem, Value::ListHead(p));
         let t = self.assign("t", ty, Value::ListTail(p));
         let s = self.show(elem, h.map(Operand::Var));
-        let next = self.concat(vec![
-            Piece::Op(Operand::Var(acc)),
-            Piece::Op(Operand::Var(sep)),
-            Piece::Op(s),
-        ]);
-        self.term(Term::Recur(vec![Operand::Var(t), next, string(", ")]));
+        let next = self.assign(
+            "next",
+            strings,
+            Value::List {
+                elems: vec![s],
+                tail: Some(Operand::Var(rev)),
+            },
+        );
+        self.term(Term::Recur(vec![Operand::Var(t), Operand::Var(next)]));
+        let else_ = self.close();
+        self.push(Stmt::If {
+            dst: None,
+            cond: Operand::Var(empty),
+            then,
+            else_,
+        });
+        self.term(Term::Yield(Some(Operand::Var(rev))));
+        let body = self.close();
+        self.push(Stmt::Loop {
+            dst: Some(reversed),
+            vars: vec![p, rev],
+            inits: vec![Operand::Var(x), Operand::Var(nil)],
+            body,
+        });
+        let join = self.sh.derived(Derive::ShowListJoin, strings);
+        let s = self.assign(
+            "s",
+            TypeId::STRING,
+            Value::Call {
+                callee: Callee::Direct(join),
+                args: vec![Operand::Var(reversed)],
+                suspends: false,
+                on_fail: None,
+            },
+        );
+        self.term(Term::Return(Some(Operand::Var(s))));
+    }
+
+    /// Reverses `rev` (a `List[String]` built in reverse by `show_list`), joins the pieces with
+    /// `, ` in one pass (`List.join`), and wraps the result in `[` and `]`.
+    fn show_list_join(&mut self, strings: TypeId, rev: VarId) {
+        let nil = self.assign(
+            "nil",
+            strings,
+            Value::List {
+                elems: Vec::new(),
+                tail: None,
+            },
+        );
+        let q = self.var("q", strings);
+        let acc = self.var("acc", strings);
+        let parts = self.var("parts", strings);
+        self.open();
+        let empty = self.assign("empty", TypeId::BOOL, Value::ListIsEmpty(q));
+        let then = self.empty();
+        self.open();
+        let h = self.assign("h", TypeId::STRING, Value::ListHead(q));
+        let t = self.assign("t", strings, Value::ListTail(q));
+        let next = self.assign(
+            "next",
+            strings,
+            Value::List {
+                elems: vec![Operand::Var(h)],
+                tail: Some(Operand::Var(acc)),
+            },
+        );
+        self.term(Term::Recur(vec![Operand::Var(t), Operand::Var(next)]));
         let else_ = self.close();
         self.push(Stmt::If {
             dst: None,
@@ -340,11 +427,19 @@ impl Lower<'_> {
         self.term(Term::Yield(Some(Operand::Var(acc))));
         let body = self.close();
         self.push(Stmt::Loop {
-            dst: Some(joined),
-            vars: vec![p, acc, sep],
-            inits: vec![Operand::Var(x), string(""), string("")],
+            dst: Some(parts),
+            vars: vec![q, acc],
+            inits: vec![Operand::Var(rev), Operand::Var(nil)],
             body,
         });
+        let joined = self.assign(
+            "joined",
+            TypeId::STRING,
+            Value::Builtin {
+                op: Builtin::StringJoin,
+                args: vec![Operand::Var(parts), string(", ")],
+            },
+        );
         let s = self.concat(vec![
             Piece::Text("[".into()),
             Piece::Op(Operand::Var(joined)),

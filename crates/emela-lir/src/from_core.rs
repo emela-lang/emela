@@ -190,6 +190,9 @@ enum Derive {
     /// `name$E(x: E) -> String`: the name of an error that does not satisfy Show, shown in place
     /// of its value at the entry (`[dyn.error]`).
     ErrorName,
+    /// `show$ListJoin(rev: List[String]) -> String`: reverses the shown elements and formats
+    /// `[a, b]` in one pass with `List.join`. Shared by every `show$List[T]`.
+    ShowListJoin,
 }
 
 /// What all functions share while converting.
@@ -212,12 +215,12 @@ impl Shared {
         if let Some(&f) = self.derived.get(&(kind, ty)) {
             return f;
         }
-        let prefix = match kind {
-            Derive::Show => "show",
-            Derive::Eq => "eq",
-            Derive::ErrorName => "name",
+        let base = match kind {
+            Derive::Show => format!("show${}", core_ty(&self.core, ty)),
+            Derive::Eq => format!("eq${}", core_ty(&self.core, ty)),
+            Derive::ErrorName => format!("name${}", core_ty(&self.core, ty)),
+            Derive::ShowListJoin => "show$ListJoin".to_owned(),
         };
-        let base = format!("{prefix}${}", core_ty(&self.core, ty));
         let mut name = base.clone();
         let mut n = 1;
         while !self.names.insert(name.clone()) {

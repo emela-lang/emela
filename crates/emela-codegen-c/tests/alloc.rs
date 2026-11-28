@@ -390,6 +390,47 @@ fn main() {{
 }
 
 #[test]
+fn showing_a_list_joins_with_em_string_join() {
+    // Structural `show$List` builds a `List[String]` and hands it to the shared `show$ListJoin`
+    // helper (`em_string_join`), rather than calling `em_string_concat` per element (#960).
+    let src = format!(
+        r##"{PRELUDE}
+fn main() {{
+  xs = List.range(0, 100)
+  empty: List[Int] = []
+  print(Int.to_string(String.byte_size("#{{empty}}")))
+  print(Int.to_string(String.byte_size("#{{xs}}")))
+}}
+"##
+    );
+    let out = to_c(&src).expect("the program compiles");
+    assert!(
+        out.main.contains("show_ListJoin(") && out.main.contains("em_string_join("),
+        "expected show$List to use the shared show$ListJoin / em_string_join path"
+    );
+    let body_start = out
+        .main
+        .find("/* show$List[Int] */")
+        .expect("show$List[Int] definition");
+    let body_end = out.main[body_start..]
+        .find("\n}\n")
+        .map(|i| body_start + i)
+        .expect("end of show$List[Int]");
+    assert!(
+        !out.main[body_start..body_end].contains("em_string_concat("),
+        "show$List[Int] should not concatenate strings inside its loop:\n{}",
+        &out.main[body_start..body_end]
+    );
+    if cc().is_none() {
+        return;
+    }
+    let got = build_and_run(&out_dir("show-list-join"), &out, &["-O1"]);
+    assert_eq!(got.code, 0, "{}", got.stderr);
+    // "[]" is 2 bytes; List.range(0, 100) is 10*1 + 90*2 + 99*2 + 2 = 390 bytes.
+    assert_eq!(got.stdout, "2\n390\n");
+}
+
+#[test]
 fn alloc_stats_are_reported_in_a_measurement_build() {
     if cc().is_none() {
         return;
