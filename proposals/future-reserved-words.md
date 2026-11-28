@@ -82,12 +82,12 @@ A diagnostic can recognize the mistaken form, shown in parentheses, without rese
 - Modifiers of declarations (`private`, `override`, `volatile`): there is no inheritance, a declaration is either `pub` or not, every value is immutable, and a function of the host is written with `@external` (`[ext.decl]`). Each modifies a declaration (`override fn show(...)`). Many are common names, and some are usual keys of JSON objects (`private`, `abstract`); the name of a field is its key in a derived Encode and Decode, so a field for such a key would need `@key(...)` (`[trait.derive]`).
 - Words of branching and jumping (`switch`, `unless`, `goto`): `match` and `if` write the branching, and there are no labels to jump to (`switch x { ... }`, as E1401 recognizes the prefix form `match x { ... }`).
 - Other forms of signatures and of the heads of declarations (`throws`, `extends`): `fails` and `trait Ord: Eq` write them (`fn f() -> A throws E`), as E1403 shows `handler H: E` for `implements`.
-- Lower-case names of types (`int`, `char`, `boolean`): the names of types start with an upper-case letter (`x: int`).
+- Lower-case names of types (`int`, `char`, `void`): the names of types start with an upper-case letter, and Unit, the type with a single value, is written `()` (`[data]`; `x: int`, `fn f() -> void`).
 - Logical words (`not`, `and`, `xor`): logical operations are written `!`, `&&` and `||` (`[fn.operator]`; `if not c { ... }`). `and` without `or` (below) is unbalanced.
 
 A later syntax can make the word a contextual keyword (`[kw.contextual]`), because it would come where no name can stand now:
 
-- Right after an expression, right before one, or where a type is written (`is`, `become`, `dyn`): `x is Some(v)`, `become f(x)`, `x: dyn Show`. Testing a value against a pattern is written with `match`, a tail call to the function itself is guaranteed not to consume stack without a marker (`[fn.loop]`), and there is no run-time dynamic dispatch (`[trait.not]`).
+- Right after an expression, right before one, or where a type is written (`is`, `become`, `dyn`): `x is Some(v)`, `become f(x)`, `x: dyn Show`. Testing a value against a pattern is written with `match`, a tail call to the function itself is guaranteed not to consume stack without a marker (`[fn.loop]`), and there is no run-time dynamic dispatch (`[trait.not]`). `void` written before an expression to discard its value (`void f(x)`) is also such a form.
 
 std or core uses the word as a name:
 
