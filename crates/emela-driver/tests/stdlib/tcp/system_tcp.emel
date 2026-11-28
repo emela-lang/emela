@@ -1,0 +1,358 @@
+import Std.Bytes.{Bytes}
+import Std.Clock.{SystemClock}
+import Std.Task
+import Std.Process.{Process}
+import Std.Tcp.{
+  Tcp,
+  SystemTcp,
+  Connection,
+  HostNotFound,
+  ConnectionRefused,
+  ConnectionClosed,
+  TlsFailure,
+  TcpFailure,
+  Verify,
+  VERIFY_FULL,
+  SystemRoots,
+  Pem,
+  Full,
+  ChainOnly,
+  NoVerification,
+}
+
+# tests/stdlib/tcp.rs fills in the ports of its servers and the certificate of the TLS server.
+
+## Echoes what it receives, and closes when the client closes.
+const ECHO: Int = __ECHO__
+## Sends `hello`, then finishes sending.
+const HELLO: Int = __HELLO__
+## Sends `abc`, waits, sends `def`, then finishes sending.
+const SPLIT: Int = __SPLIT__
+## Answers the first byte it receives with `Sx`.
+const EARLY: Int = __EARLY__
+## Tells each later client `closed` once its first client has closed, or `open  ` after 10 seconds.
+const WATCH: Int = __WATCH__
+## Nothing listens there.
+const REFUSED: Int = __REFUSED__
+## A TLS echo server with a self-signed certificate of `localhost` and 127.0.0.1.
+const TLS: Int = __TLS__
+const CERT: String = "__CERT__"
+
+fn main() {}
+
+fn text(b: Bytes) -> String {
+  Bytes.decode_utf8(b).or("<not UTF-8>")
+}
+
+fn send(conn: Connection, s: String) -> () fails ConnectionClosed | TcpFailure uses { Tcp } {
+  tcp <- Tcp
+  tcp.write(conn, Bytes.encode_utf8(s))
+}
+
+## Reads until the end of the stream.
+fn read_all(conn: Connection) -> String fails ConnectionClosed | TcpFailure uses { Tcp } {
+  tcp <- Tcp
+  tcp.read(conn, 1024) match {
+    Some(b) -> "#{text(b)}#{read_all(conn)}"
+    None    -> ""
+  }
+}
+
+@test
+fn writes_and_reads() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", ECHO)
+    send(conn, "ping")
+    assert text(Tcp.read_exact(conn, 4)) == "ping"
+    tcp.close(conn)
+  }
+}
+
+@test
+fn read_returns_at_most_max_bytes() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("localhost", ECHO)
+    send(conn, "abcdef")
+    first = tcp.read(conn, 2).or(Bytes.empty())
+    assert Bytes.size(first) >= 1 && Bytes.size(first) <= 2
+    rest = Tcp.read_exact(conn, 6 - Bytes.size(first))
+    assert text(Bytes.append(first, rest)) == "abcdef"
+  }
+}
+
+@test
+fn read_returns_none_at_the_end_of_the_stream() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", HELLO)
+    assert read_all(conn) == "hello"
+    assert tcp.read(conn, 10) == None
+  }
+}
+
+@test
+fn read_exact_reads_across_pieces() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", SPLIT)
+    assert text(Tcp.read_exact(conn, 0)) == ""
+    assert text(Tcp.read_exact(conn, 5)) == "abcde"
+    outcome = {
+      Tcp.read_exact(conn, 2)
+      "ok"
+    } escape {
+      ConnectionClosed -> "ConnectionClosed"
+    }
+    assert outcome == "ConnectionClosed"
+  }
+}
+
+@test
+fn read_and_write_on_a_closed_connection_fail() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", ECHO)
+    tcp.close(conn)
+    tcp.close(conn)
+    r = {
+      tcp.read(conn, 1)
+      "ok"
+    } escape {
+      ConnectionClosed -> "ConnectionClosed"
+    }
+    w = {
+      send(conn, "x")
+      "ok"
+    } escape {
+      ConnectionClosed -> "ConnectionClosed"
+    }
+    assert r == "ConnectionClosed"
+    assert w == "ConnectionClosed"
+  }
+}
+
+@test
+fn connect_fails_by_kind() {
+  with SystemTcp {
+    tcp <- Tcp
+    refused = {
+      tcp.connect("127.0.0.1", REFUSED)
+      "ok"
+    } escape {
+      ConnectionRefused(host:, port:) -> "ConnectionRefused #{host} #{port == REFUSED}"
+    }
+    assert refused == "ConnectionRefused 127.0.0.1 True"
+    not_found = {
+      tcp.connect("emela-test.invalid", 80)
+      "ok"
+    } escape {
+      HostNotFound(host:) -> "HostNotFound #{host}"
+    }
+    assert not_found == "HostNotFound emela-test.invalid"
+    bad_port = {
+      tcp.connect("127.0.0.1", 65536)
+      "ok"
+    } escape {
+      TcpFailure(..) -> "TcpFailure"
+    }
+    assert bad_port == "TcpFailure"
+    zero = {
+      tcp.connect("127.0.0.1", 0)
+      "ok"
+    } escape {
+      TcpFailure(..) -> "TcpFailure"
+    }
+    assert zero == "TcpFailure"
+  }
+}
+
+@test
+fn the_release_closes_open_connections() {
+  with SystemTcp {
+    tcp <- Tcp
+    tcp.connect("127.0.0.1", WATCH)
+  }
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", WATCH)
+    assert text(Tcp.read_exact(conn, 6)) == "closed"
+  }
+}
+
+@test
+fn process_provides_tcp() {
+  with Process {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", ECHO)
+    send(conn, "p")
+    assert text(Tcp.read_exact(conn, 1)) == "p"
+  }
+}
+
+@test
+fn a_read_and_a_write_run_at_once() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", ECHO)
+    (got, _) = Task.both(|| text(Tcp.read_exact(conn, 3)), || send(conn, "abc"))
+    assert got == "abc"
+  }
+}
+
+@test
+fn an_interrupted_read_leaves_the_connection_open() {
+  with SystemTcp, SystemClock {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", ECHO)
+    assert Task.timeout(50, || tcp.read(conn, 10)) == None
+    send(conn, "after")
+    assert text(Tcp.read_exact(conn, 5)) == "after"
+  }
+}
+
+## TLS from the first byte, checked with `verify`.
+fn tls_echo(server_name: String, verify: Verify) -> String
+  fails ConnectionClosed | TlsFailure | TcpFailure | HostNotFound | ConnectionRefused
+  uses { Tcp } {
+  tcp <- Tcp
+  conn = tcp.connect("127.0.0.1", TLS)
+  tcp.upgrade_tls(conn, server_name, verify)
+  send(conn, "secret")
+  text(Tcp.read_exact(conn, 6))
+}
+
+fn tls_outcome(server_name: String, verify: Verify) -> String
+  fails HostNotFound | ConnectionRefused | ConnectionClosed | TcpFailure
+  uses { Tcp } {
+  tls_echo(server_name, verify) escape {
+    TlsFailure(..) -> "TlsFailure"
+  }
+}
+
+@test
+fn upgrade_tls_verifies_as_asked() {
+  with SystemTcp {
+    assert tls_outcome("localhost", VERIFY_FULL) == "TlsFailure"
+    assert tls_outcome("localhost", Full(roots: Pem(text: CERT))) == "secret"
+    assert tls_outcome("127.0.0.1", Full(roots: Pem(text: CERT))) == "secret"
+    assert tls_outcome("example.com", Full(roots: Pem(text: CERT))) == "TlsFailure"
+    assert tls_outcome("example.com", ChainOnly(roots: Pem(text: CERT))) == "secret"
+    assert tls_outcome("example.com", ChainOnly(roots: SystemRoots)) == "TlsFailure"
+    assert tls_outcome("example.com", NoVerification) == "secret"
+    assert tls_outcome("localhost", Full(roots: Pem(text: "not a certificate"))) == "TlsFailure"
+  }
+}
+
+@test
+fn a_failed_upgrade_closes_the_connection() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", TLS)
+    failed = {
+      tcp.upgrade_tls(conn, "localhost", VERIFY_FULL)
+      "ok"
+    } escape {
+      TlsFailure(..) -> "TlsFailure"
+    }
+    assert failed == "TlsFailure"
+    after = {
+      send(conn, "x")
+      "ok"
+    } escape {
+      ConnectionClosed -> "ConnectionClosed"
+    }
+    assert after == "ConnectionClosed"
+  }
+}
+
+@test
+fn upgrade_tls_refuses_bytes_that_arrived_before_it() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", EARLY)
+    send(conn, "?")
+    # The server sends `Sx` in one write, so `x` has arrived with `S` and is held unread.
+    assert text(Tcp.read_exact(conn, 1)) == "S"
+    outcome = {
+      tcp.upgrade_tls(conn, "localhost", NoVerification)
+      "ok"
+    } escape {
+      TlsFailure(..) -> "TlsFailure"
+    }
+    assert outcome == "TlsFailure"
+  }
+}
+
+# ---- defects (tests/stdlib/tcp.rs checks the messages) ----
+
+@test
+fn defect_read_max() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", ECHO)
+    tcp.read(conn, 0)
+  }
+}
+
+@test
+fn defect_read_exact_negative() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", ECHO)
+    Tcp.read_exact(conn, -1)
+  }
+}
+
+@test
+fn defect_outside_the_with() {
+  conn = with SystemTcp {
+    tcp <- Tcp
+    tcp.connect("127.0.0.1", ECHO)
+  }
+  with SystemTcp {
+    tcp <- Tcp
+    tcp.close(conn)
+  }
+}
+
+@test
+fn defect_another_handler() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", ECHO)
+    with SystemTcp {
+      inner <- Tcp
+      inner.read(conn, 1)
+    }
+  }
+}
+
+@test
+fn defect_two_reads() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", ECHO)
+    Task.both(|| tcp.read(conn, 1), || tcp.read(conn, 1))
+  }
+}
+
+@test
+fn defect_upgrade_twice() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", TLS)
+    tcp.upgrade_tls(conn, "localhost", NoVerification)
+    tcp.upgrade_tls(conn, "localhost", NoVerification)
+  }
+}
+
+@test
+fn defect_upgrade_while_reading() {
+  with SystemTcp {
+    tcp <- Tcp
+    conn = tcp.connect("127.0.0.1", ECHO)
+    Task.both(|| tcp.read(conn, 1), || tcp.upgrade_tls(conn, "localhost", NoVerification))
+  }
+}

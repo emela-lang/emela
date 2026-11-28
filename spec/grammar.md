@@ -183,7 +183,7 @@ with_expr  = "with" with_item { "," with_item } block
 loop_expr  = "loop" lower_name "(" [ loop_param { "," loop_param } ] ")" [ signature ] block   (* 6.8 *)
 loop_param = lower_name ":" [ expr ]
 with_item  = [ lower_name "=" ] supply [ "by" by_right ]                 (* by is in 8.9 *)
-by_right   = type_ref [ "[" type { "," type } "]" ] [ "(" [ args ] ")" ]
+by_right   = supply
 lambda     = ( "||" | "|" [ lambda_param { "," lambda_param } ] "|" ) expr
 lambda_param = pattern [ ":" type ]
 ```
@@ -201,7 +201,7 @@ lambda_param = pattern [ ":" type ]
 - An effect_alias is a statement (8.2). Whether a statement is an effect_alias is decided by whether a lower_name is immediately followed by `<-`.
 - To call an operation of `use X` in place, wrap it in parentheses: `(use X).op(...)`. Writing `.` or `(` directly after `use X` is a compile error (E1108).
 - In an argument list, a positional argument cannot follow a named argument.
-- The type arguments on the right of `by` can be written when it names an effect (`Hits by State[Int]`) or a handler with type parameters (`Hits by Memory[Int](initial: 0)`). Arguments can be written only when it names a handler.
+- The type arguments on the right of `by` can be written when it names an effect (`Hits by State[Int]`) or a handler with type parameters (`Hits by Memory[Int](initial: 0)`). Arguments can be written only when it names a handler or opens a handler member (`Source by Files.Open(p)`, `[effect.label]`).
 - `Self` as an expression is the value of a handler, and can be written only inside the init of a handler, called with its fields or alone (8.4).
 - A trailing `..expr` in an argument list is a record update of a constructor (5.3). Writing it in a function call is a compile error (E2111). Writing an argument after `..` is a compile error (E1104).
 - A `..expr` in a list literal can appear only once, at the end. `[x, y, ..rest]` is the list `rest` with `x` and `y` added in front. What follows `..` is not limited to a name and can be any expression (`[x, ..List.tail(xs)]`). `[..rest]` with no elements, and `..` in the middle or more than once (`[..a, ..b]`), cannot be written.

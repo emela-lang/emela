@@ -37,26 +37,51 @@ fn show$Shape(x%0: ref (Shape)) -> ref (String) {
 }
 
 fn show$List[Option[Int]](x%0: ref (List[Option[Int]])) -> ref (String) {
-  joined%9: ref (String) = loop(p%1: ref (List[Option[Int]]) = x%0, acc%2: ref (String) = "", sep%3: ref (String) = "") {
-    empty%4: i32 (Bool) = list_is_empty p%1
-    if empty%4 {
-      drop p%1
-      drop sep%3
+  empty%1: i32 (Bool) = list_is_empty x%0
+  if empty%1 {
+    drop x%0
+    return "[]"
+  } else {}
+  nil%2: ref (List[String]) = list[]
+  reversed%10: ref (List[String]) = loop(p%3: ref (List[Option[Int]]) = x%0, rev%4: ref (List[String]) = nil%2) {
+    empty%5: i32 (Bool) = list_is_empty p%3
+    if empty%5 {
+      drop p%3
     } else {
-      h%5: ref (Option[Int]) = list_head p%1
-      dup h%5
-      t%6: ref (List[Option[Int]]) = list_tail p%1
-      dup t%6
-      drop p%1
-      s%7: ref (String) = call show$Option[Int](h%5)
-      s%8: ref (String) = runtime concat(acc%2, sep%3, s%7)
-      drop acc%2
-      drop sep%3
-      drop s%7
-      recur(t%6, s%8, ", ")
+      h%6: ref (Option[Int]) = list_head p%3
+      dup h%6
+      t%7: ref (List[Option[Int]]) = list_tail p%3
+      dup t%7
+      drop p%3
+      s%8: ref (String) = call show$Option[Int](h%6)
+      next%9: ref (List[String]) = list[s%8, ..rev%4]
+      recur(t%7, next%9)
     }
-    yield acc%2
+    yield rev%4
   }
+  s%11: ref (String) = call show$ListJoin(reversed%10)
+  return s%11
+}
+
+fn show$ListJoin(rev%0: ref (List[String])) -> ref (String) {
+  nil%1: ref (List[String]) = list[]
+  parts%8: ref (List[String]) = loop(q%2: ref (List[String]) = rev%0, acc%3: ref (List[String]) = nil%1) {
+    empty%4: i32 (Bool) = list_is_empty q%2
+    if empty%4 {
+      drop q%2
+    } else {
+      h%5: ref (String) = list_head q%2
+      dup h%5
+      t%6: ref (List[String]) = list_tail q%2
+      dup t%6
+      drop q%2
+      next%7: ref (List[String]) = list[h%5, ..acc%3]
+      recur(t%6, next%7)
+    }
+    yield acc%3
+  }
+  joined%9: ref (String) = builtin List.join(parts%8, ", ")
+  drop parts%8
   s%10: ref (String) = runtime concat("[", joined%9, "]")
   drop joined%9
   return s%10

@@ -483,7 +483,7 @@ mod tests {
         assert_eq!(**value, Expr::Lit(Lit::Int(2)));
         assert!(matches!(**body, Expr::Binary { .. }));
         assert_eq!(subst::use_count(&m.functions[g].body, x), 1);
-        assert_eq!(crate::verify::verify(&m), Ok(()));
+        assert_eq!(crate::ir::verify::verify(&m), Ok(()));
     }
 
     /// A lambda that captures a value with a finalizer stays bound: expanding it would remove the
@@ -517,7 +517,7 @@ mod tests {
             }
         );
         assert_eq!(m.functions[g].body, before, "a deopt changes nothing");
-        assert_eq!(crate::verify::verify(&m), Ok(()));
+        assert_eq!(crate::ir::verify::verify(&m), Ok(()));
     }
 
     /// A capture whose type has no finalizer still expands: the check is the type, not the fact of
@@ -554,7 +554,7 @@ mod tests {
             }
         );
         assert_eq!(subst::use_count(&m.functions[g].body, base), 1);
-        assert_eq!(crate::verify::verify(&m), Ok(()));
+        assert_eq!(crate::ir::verify::verify(&m), Ok(()));
     }
 
     /// A finalizer-bearing local bound inside the lambda is not a capture: its scope is the whole
@@ -592,7 +592,7 @@ mod tests {
                 deopt: 0
             }
         );
-        assert_eq!(crate::verify::verify(&m), Ok(()));
+        assert_eq!(crate::ir::verify::verify(&m), Ok(()));
     }
 
     /// A call node marked `fails` or `suspends` is left alone, even when its lambda is pure: the

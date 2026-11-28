@@ -83,9 +83,20 @@ pub fn analyze(m: &Module) -> Fact<UseCounts> {
 /// The number of reads of `local` in `e`.
 ///
 /// This is the expression-level transfer function of the analysis, shared with substitution:
-/// [`crate::opt::reduce::subst::use_count`] counts the same reads.
+/// [`crate::opt::reduce::subst::use_count`] is this count.
 pub fn of_expr(e: &Expr, local: Local) -> u32 {
-    crate::opt::reduce::subst::use_count(e, local)
+    let mut count = 0;
+    count_reads_of(e, local, &mut count);
+    count
+}
+
+/// Adds one to `count` for every read of `local` under `e`.
+fn count_reads_of(e: &Expr, local: Local, count: &mut u32) {
+    if matches!(e, Expr::Var(v) if *v == local) {
+        *count += 1;
+        return;
+    }
+    e.for_each_child(&mut |child| count_reads_of(child, local, count));
 }
 
 /// The reads of each local in the body of `f`.

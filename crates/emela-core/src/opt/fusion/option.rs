@@ -23,7 +23,7 @@ use crate::ir::{
 };
 use crate::opt::{CoreFn, CoreFns, PassStats, each_body};
 
-use super::law::LawRun;
+use super::LawRun;
 
 /// Rewrites `Option.or(Array.get(a, i), d)` to `ArrayGetOr(a, i, d)`.
 ///

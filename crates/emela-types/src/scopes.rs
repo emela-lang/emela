@@ -17,8 +17,7 @@
 use emela_resolve::hir::{ExprId, Span};
 use rustc_hash::FxHashMap;
 
-use crate::row::{CapElem, CapId, RowVar};
-use crate::ty::TyVar;
+use crate::ty::{CapElem, CapId, RowVar, TyVar};
 
 /// The index of a scope. `0` is the body of the definition, outside every `with`.
 pub(crate) type ScopeId = u32;
@@ -35,7 +34,7 @@ pub(crate) struct Scopes {
     /// better place is known.
     row_spans: Vec<Option<Span>>,
     /// Capabilities that a binding put into a variable made outside their scope, with where.
-    pub(crate) escapes: Vec<(CapElem, Option<Span>)>,
+    escapes: Vec<(CapElem, Option<Span>)>,
     /// The scope each skolem ([`CapId::Skolem`]) was made in.
     skolems: Vec<ScopeId>,
 }
@@ -115,6 +114,16 @@ impl Scopes {
         if let Some(s) = self.row_spans.get_mut(v.index() as usize) {
             *s = Some(span);
         }
+    }
+
+    /// Records that `cap` left its scope through a binding, at `span`.
+    pub(crate) fn escape(&mut self, cap: CapElem, span: Option<Span>) {
+        self.escapes.push((cap, span));
+    }
+
+    /// The capabilities recorded by [`Self::escape`]. Empties the list.
+    pub(crate) fn take_escapes(&mut self) -> Vec<(CapElem, Option<Span>)> {
+        std::mem::take(&mut self.escapes)
     }
 
     pub(crate) fn ty_var(&self, v: TyVar) -> ScopeId {

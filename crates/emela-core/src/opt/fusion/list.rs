@@ -48,7 +48,7 @@ use crate::ir::{BinOp, Callee, Expr, FnId, Lit, Local, Module, OpTy, Type, TypeI
 use crate::opt::analysis::effect::{self, EffectSummaries, EffectSummary};
 use crate::opt::{CoreFn, CoreFns, PassStats, each_body};
 
-use super::law::LawRun;
+use super::LawRun;
 
 /// Rewrites `List.fold(List.range(lo, hi), init, f)` to a loop over an integer counter.
 ///

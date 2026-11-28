@@ -39,35 +39,15 @@ fn always(_: &Builder) -> bool {
 }
 
 mod alloc;
-mod args;
 pub(crate) mod array;
-mod ascii;
-pub(super) mod async_bridge;
-pub(super) mod attempt;
-mod bytes;
-mod canon;
-mod clock;
-mod console;
 mod constant;
 mod defect;
-mod env;
 pub(super) mod fiber;
-mod float;
-pub(super) mod fs;
-mod host;
-pub(super) mod http;
-mod line;
 mod notes;
-mod numeric;
-mod option;
+pub(super) mod number;
 mod protocol;
-mod random;
-mod sched;
-mod show;
-mod string;
-mod tcp;
-mod unicode;
-mod unicode_tables;
+pub(super) mod text;
+pub(super) mod wasi;
 
 /// Every runtime module, in definition order.
 ///
@@ -83,31 +63,31 @@ const MODULES: &[RuntimeModule] = &[
         used: always,
     },
     RuntimeModule {
-        funcs: string::FUNCS,
-        locals: string::locals,
+        funcs: text::string::FUNCS,
+        locals: text::string::locals,
         setup: no_setup,
-        emit: string::emit,
+        emit: text::string::emit,
         used: always,
     },
     RuntimeModule {
-        funcs: option::FUNCS,
-        locals: option::locals,
+        funcs: number::option::FUNCS,
+        locals: number::option::locals,
         setup: no_setup,
-        emit: option::emit,
+        emit: number::option::emit,
         used: always,
     },
     RuntimeModule {
-        funcs: show::FUNCS,
-        locals: show::locals,
+        funcs: text::show::FUNCS,
+        locals: text::show::locals,
         setup: no_setup,
-        emit: show::emit,
+        emit: text::show::emit,
         used: always,
     },
     RuntimeModule {
-        funcs: host::FUNCS,
-        locals: host::locals,
+        funcs: wasi::host::FUNCS,
+        locals: wasi::host::locals,
         setup: no_setup,
-        emit: host::emit,
+        emit: wasi::host::emit,
         used: always,
     },
     RuntimeModule {
@@ -125,24 +105,24 @@ const MODULES: &[RuntimeModule] = &[
         used: always,
     },
     RuntimeModule {
-        funcs: numeric::FUNCS,
-        locals: numeric::locals,
+        funcs: number::numeric::FUNCS,
+        locals: number::numeric::locals,
         setup: no_setup,
-        emit: numeric::emit,
+        emit: number::numeric::emit,
         used: always,
     },
     RuntimeModule {
-        funcs: float::FUNCS,
-        locals: float::locals,
+        funcs: number::float::FUNCS,
+        locals: number::float::locals,
         setup: no_setup,
-        emit: float::emit,
-        used: float::used,
+        emit: number::float::emit,
+        used: number::float::used,
     },
     RuntimeModule {
-        funcs: unicode::FUNCS,
-        locals: unicode::locals,
-        setup: unicode::setup,
-        emit: unicode::emit,
+        funcs: text::unicode::FUNCS,
+        locals: text::unicode::locals,
+        setup: text::unicode::setup,
+        emit: text::unicode::emit,
         used: always,
     },
     RuntimeModule {
@@ -160,98 +140,98 @@ const MODULES: &[RuntimeModule] = &[
         used: always,
     },
     RuntimeModule {
-        funcs: console::FUNCS,
-        locals: console::locals,
+        funcs: wasi::console::FUNCS,
+        locals: wasi::console::locals,
         setup: no_setup,
-        emit: console::emit,
-        used: console::used,
+        emit: wasi::console::emit,
+        used: wasi::console::used,
     },
     RuntimeModule {
-        funcs: env::FUNCS,
-        locals: env::locals,
+        funcs: wasi::env::FUNCS,
+        locals: wasi::env::locals,
         setup: no_setup,
-        emit: env::emit,
-        used: env::used,
+        emit: wasi::env::emit,
+        used: wasi::env::used,
     },
     RuntimeModule {
-        funcs: args::FUNCS,
-        locals: args::locals,
+        funcs: wasi::args::FUNCS,
+        locals: wasi::args::locals,
         setup: no_setup,
-        emit: args::emit,
-        used: args::used,
+        emit: wasi::args::emit,
+        used: wasi::args::used,
     },
     RuntimeModule {
-        funcs: canon::FUNCS,
-        locals: canon::locals,
+        funcs: wasi::canon::FUNCS,
+        locals: wasi::canon::locals,
         setup: no_setup,
-        emit: canon::emit,
-        used: canon::used,
+        emit: wasi::canon::emit,
+        used: wasi::canon::used,
     },
     RuntimeModule {
-        funcs: random::FUNCS,
-        locals: random::locals,
+        funcs: wasi::random::FUNCS,
+        locals: wasi::random::locals,
         setup: no_setup,
-        emit: random::emit,
-        used: random::used,
+        emit: wasi::random::emit,
+        used: wasi::random::used,
     },
     RuntimeModule {
-        funcs: clock::FUNCS,
-        locals: clock::locals,
+        funcs: wasi::clock::FUNCS,
+        locals: wasi::clock::locals,
         setup: no_setup,
-        emit: clock::emit,
-        used: clock::used,
+        emit: wasi::clock::emit,
+        used: wasi::clock::used,
     },
     RuntimeModule {
-        funcs: sched::FUNCS,
-        locals: sched::locals,
+        funcs: fiber::sched::FUNCS,
+        locals: fiber::sched::locals,
         // The scheduler's cells are allocated by `emit::suspend::prepare`.
         setup: no_setup,
-        emit: sched::emit,
+        emit: fiber::sched::emit,
         used: super::suspend::used,
     },
     RuntimeModule {
-        funcs: async_bridge::FUNCS,
-        locals: async_bridge::locals,
+        funcs: fiber::async_bridge::FUNCS,
+        locals: fiber::async_bridge::locals,
         setup: no_setup,
-        emit: async_bridge::emit,
-        used: async_bridge::used,
+        emit: fiber::async_bridge::emit,
+        used: fiber::async_bridge::used,
     },
     RuntimeModule {
-        funcs: fs::FUNCS,
-        locals: fs::locals,
-        // The plan's cells are allocated by `fs::prepare`, before the index space is assigned.
+        funcs: wasi::fs::FUNCS,
+        locals: wasi::fs::locals,
+        // The plan's cells are allocated by `wasi::fs::prepare`, before the index space is assigned.
         setup: no_setup,
-        emit: fs::emit,
-        used: fs::used,
+        emit: wasi::fs::emit,
+        used: wasi::fs::used,
     },
     RuntimeModule {
-        funcs: tcp::FUNCS,
-        locals: tcp::locals,
+        funcs: wasi::tcp::FUNCS,
+        locals: wasi::tcp::locals,
         setup: no_setup,
-        emit: tcp::emit,
-        used: tcp::used,
+        emit: wasi::tcp::emit,
+        used: wasi::tcp::used,
     },
     RuntimeModule {
-        funcs: attempt::FUNCS,
-        locals: attempt::locals,
+        funcs: fiber::attempt::FUNCS,
+        locals: fiber::attempt::locals,
         setup: no_setup,
-        emit: attempt::emit,
-        used: attempt::used,
+        emit: fiber::attempt::emit,
+        used: |b| b.uses_attempt(),
     },
     RuntimeModule {
-        funcs: http::FUNCS,
-        locals: http::locals,
-        // The plan's cells are allocated by `http::prepare`, before the index space is assigned.
+        funcs: wasi::http::FUNCS,
+        locals: wasi::http::locals,
+        // The plan's cells are allocated by `wasi::http::prepare`, before the index space is assigned.
         setup: no_setup,
-        emit: http::emit,
-        used: http::used,
+        emit: wasi::http::emit,
+        used: wasi::http::used,
     },
     RuntimeModule {
-        funcs: bytes::FUNCS,
-        locals: bytes::locals,
+        funcs: text::bytes::FUNCS,
+        locals: text::bytes::locals,
         setup: no_setup,
-        emit: bytes::emit,
-        used: bytes::used,
+        emit: text::bytes::emit,
+        used: text::bytes::used,
     },
     RuntimeModule {
         funcs: fiber::FUNCS,
@@ -266,23 +246,23 @@ const MODULES: &[RuntimeModule] = &[
         locals: array::locals,
         setup: no_setup,
         emit: array::emit,
-        used: array::used,
+        used: |b| b.uses_arrays(),
     },
     RuntimeModule {
-        funcs: line::FUNCS,
-        locals: line::locals,
+        funcs: fiber::line::FUNCS,
+        locals: fiber::line::locals,
         setup: no_setup,
-        emit: line::emit,
-        used: line::used,
+        emit: fiber::line::emit,
+        used: fiber::line::used,
     },
     // Appended last, so a program that does not change ASCII case keeps every function index (and
     // the bytes) of the modules before this one.
     RuntimeModule {
-        funcs: ascii::FUNCS,
-        locals: ascii::locals,
+        funcs: text::ascii::FUNCS,
+        locals: text::ascii::locals,
         setup: no_setup,
-        emit: ascii::emit,
-        used: ascii::used,
+        emit: text::ascii::emit,
+        used: text::ascii::used,
     },
     // Drop specialisation's block drop (C3/PR-027), also appended last: a program without a
     // specialised drop keeps every function index (and the bytes) of the modules before this one.
@@ -297,12 +277,12 @@ const MODULES: &[RuntimeModule] = &[
 
 /// Reserves the runtime functions in the function index space.
 pub(crate) fn register(b: &mut Builder) {
-    if float::used(b) {
-        float::prepare(b);
+    if number::float::used(b) {
+        number::float::prepare(b);
     }
-    async_bridge::prepare(b);
-    fs::prepare(b);
-    http::prepare(b);
+    fiber::async_bridge::prepare(b);
+    wasi::fs::prepare(b);
+    wasi::http::prepare(b);
     for module in MODULES {
         if !(module.used)(b) {
             continue;
@@ -396,11 +376,11 @@ pub(crate) fn emit(b: &mut Builder) {
 /// or an exported function (`cabi_realloc`).
 fn trimmable(module: &RuntimeModule) -> bool {
     [
-        float::FUNCS,
-        bytes::FUNCS,
+        number::float::FUNCS,
+        text::bytes::FUNCS,
         array::FUNCS,
-        unicode::FUNCS,
-        ascii::FUNCS,
+        text::unicode::FUNCS,
+        text::ascii::FUNCS,
     ]
     .iter()
     .any(|funcs| std::ptr::eq(*funcs, module.funcs))

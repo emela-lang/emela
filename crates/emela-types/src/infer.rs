@@ -4,18 +4,22 @@
 //! collected as inclusion constraints ([`Subset`]). A function placed where a type is expected
 //! only needs its E and R to be contained in the expected E and R (spec 7.4, 9.2). The
 //! constraints are solved after the body is inferred (`body/errors.rs`).
+//!
+//! # Type errors
+//!
+//! Type mismatch reports ([`TypeError`]) carry no span yet; the caller attaches one when
+//! connecting to the syntax tree.
 
 use emela_resolve::hir::{DefId, ExprId, LocalId, Span};
 use ena::unify::InPlaceUnificationTable;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 
-use crate::error::{TypeError, TypeErrorKind};
-use crate::row::{Row, RowElem, RowVar, Tag};
-use crate::scheme::{Scheme, param_name, set_param_name};
-use crate::ty::{ParamKind, Prim, Ty, TyConId, TyParam, TyVar, TyVarValue};
-
-pub use crate::row::SetKind;
+pub use crate::ty::SetKind;
+use crate::ty::{
+    CapElem, ParamKind, Prim, Row, RowElem, RowVar, Scheme, Tag, Ty, TyConId, TyParam, TyVar,
+    TyVarValue, param_name, set_param_name, substitute,
+};
 
 /// An inclusion constraint `sub ⊆ sup`.
 #[derive(Clone, Debug)]
@@ -108,19 +112,20 @@ pub struct InferCtx {
     error_tags: FxHashMap<TyConId, DefId>,
     /// The set variables that receive effect sets (R). The name of an effect in R is the effect,
     /// so a capability of a name there does not leave anything (`[effect.escape]`).
-    pub(crate) effect_vars: rustc_hash::FxHashSet<RowVar>,
+    effect_vars: rustc_hash::FxHashSet<RowVar>,
     /// Solutions of set variables. Present only after solving ([`Self::set_row_solution`]).
     row_solution: Option<FxHashMap<RowVar, Row>>,
-    /// Whether the inclusion constraints are being solved ([`Self::set_solving`]).
+    /// Whether the inclusion constraints are being solved ([`Self::start_solving`]).
     solving: bool,
     /// Where each variable was made (`[effect.escape]`).
-    pub(crate) scopes: crate::scopes::Scopes,
+    scopes: crate::scopes::Scopes,
     /// Bindings and unions of type variables made by a unification not yet committed; their
     /// scopes are adjusted once it succeeds.
     pending_binds: Vec<(TyVar, Ty)>,
     pending_unions: Vec<(TyVar, TyVar)>,
-    /// The span of the expression being inferred, recorded on new set variables.
-    hint: Option<Span>,
+    /// The spans of the expressions being inferred, innermost last. The innermost is recorded on
+    /// new set variables ([`Self::push_hint`]).
+    hints: Vec<Span>,
 }
 
 impl InferCtx {
@@ -137,13 +142,60 @@ impl InferCtx {
         v
     }
 
-    /// The span of the expression being inferred, for set variables made from now on.
-    pub(crate) fn set_hint(&mut self, span: Option<Span>) {
-        self.hint = span;
+    /// With the error type → tag table that turns `RowElem::Of` into tags.
+    pub(crate) fn with_error_tags(error_tags: FxHashMap<TyConId, DefId>) -> Self {
+        InferCtx {
+            error_tags,
+            ..Self::new()
+        }
     }
 
-    pub(crate) fn hint(&self) -> Option<Span> {
-        self.hint
+    /// Starts inferring the expression at `span`: set variables made until [`Self::pop_hint`]
+    /// record it.
+    pub(crate) fn push_hint(&mut self, span: Span) {
+        self.hints.push(span);
+    }
+
+    /// Ends the expression of the last [`Self::push_hint`].
+    pub(crate) fn pop_hint(&mut self) {
+        self.hints.pop();
+    }
+
+    /// The span of the innermost expression being inferred.
+    fn hint(&self) -> Option<Span> {
+        self.hints.last().copied()
+    }
+
+    /// Opens the scope of `owner` (a `with`, a lambda or an operation body) for the variables
+    /// made until [`Self::exit_scope`] (`[effect.escape]`).
+    pub(crate) fn enter_scope(&mut self, owner: ExprId) {
+        self.scopes.enter(owner);
+    }
+
+    pub(crate) fn exit_scope(&mut self) {
+        self.scopes.exit();
+    }
+
+    /// Back to the outermost scope, for the next definition.
+    pub(crate) fn reset_scopes(&mut self) {
+        self.scopes.reset();
+    }
+
+    /// The capabilities that a binding put into a type variable made outside their scope, each
+    /// with where it happened. Empties the list.
+    pub(crate) fn take_escapes(&mut self) -> Vec<(CapElem, Option<Span>)> {
+        self.scopes.take_escapes()
+    }
+
+    /// Whether the set variable `v` may hold the capability `cap`: it was made inside the scope
+    /// of `cap` (`[effect.escape]`).
+    pub(crate) fn may_hold(&self, v: RowVar, cap: &CapElem) -> bool {
+        self.scopes.fits(cap, self.scopes.row_var(v))
+    }
+
+    /// Where the set variable `v` was made.
+    pub(crate) fn row_var_span(&self, v: RowVar) -> Option<Span> {
+        self.scopes.row_span(v)
     }
 
     /// Applies the scopes of the bindings and unions of a unification that succeeded
@@ -175,8 +227,8 @@ impl InferCtx {
                 match e {
                     RowElem::Var(v) => this.scopes.lower_row_var(*v, scope),
                     RowElem::Cap(c) if !this.scopes.fits(c, scope) => {
-                        let span = this.origin.0.or(this.hint);
-                        this.scopes.escapes.push((c.clone(), span));
+                        let span = this.origin.0.or(this.hint());
+                        this.scopes.escape(c.clone(), span);
                     }
                     _ => {}
                 }
@@ -210,12 +262,28 @@ impl InferCtx {
     pub fn new_row_var(&mut self) -> RowVar {
         let v = RowVar(self.next_row_var);
         self.next_row_var += 1;
-        self.scopes.new_row_var(v, self.origin.0.or(self.hint));
+        self.scopes.new_row_var(v, self.origin.0.or(self.hint()));
         v
     }
 
-    pub(crate) fn set_error_tags(&mut self, tags: FxHashMap<TyConId, DefId>) {
-        self.error_tags = tags;
+    /// A new set variable that records `span`, where a capability it cannot have is reported.
+    pub(crate) fn new_row_var_at(&mut self, span: Span) -> RowVar {
+        let v = self.new_row_var();
+        self.scopes.set_row_span(v, span);
+        v
+    }
+
+    /// A new set variable that receives an effect set (R). The name of an effect in R is the
+    /// effect, so a capability of a name there does not leave anything (`[effect.escape]`).
+    pub(crate) fn new_effect_row_var(&mut self) -> RowVar {
+        let v = self.new_row_var();
+        self.effect_vars.insert(v);
+        v
+    }
+
+    /// Whether the set variable `v` receives an effect set ([`Self::new_effect_row_var`]).
+    pub(crate) fn is_effect_var(&self, v: RowVar) -> bool {
+        self.effect_vars.contains(&v)
     }
 
     pub(crate) fn error_tag(&self, con: TyConId) -> Option<DefId> {
@@ -270,16 +338,31 @@ impl InferCtx {
             .unwrap_or_default()
     }
 
-    /// Forgets the solution of a previous round of solving.
-    pub(crate) fn clear_row_solution(&mut self) {
+    /// Starts solving the inclusion constraints: until [`Self::finish_solving`], constraints that
+    /// are already recorded are not added again.
+    pub(crate) fn start_solving(&mut self) {
+        self.solving = true;
+    }
+
+    /// Ends solving, and returns the constraints to check against the solution.
+    pub(crate) fn finish_solving(&mut self) -> Vec<Subset> {
+        self.solving = false;
+        self.subsets.clone()
+    }
+
+    /// Starts a round of solving: forgets the solution of the previous round, and returns the
+    /// constraints collected so far.
+    pub(crate) fn start_round(&mut self) -> Vec<Subset> {
         self.row_solution = None;
+        self.subsets.clone()
     }
 
-    /// While set, constraints that are already recorded are not added again.
-    pub(crate) fn set_solving(&mut self, solving: bool) {
-        self.solving = solving;
+    /// How many inclusion constraints there are. Solving repeats until a round adds none.
+    pub(crate) fn subset_count(&self) -> usize {
+        self.subsets.len()
     }
 
+    #[cfg(test)]
     pub(crate) fn subsets(&self) -> &[Subset] {
         &self.subsets
     }
@@ -365,7 +448,7 @@ impl InferCtx {
                     // As below, the set arguments of the effect of a capability are not
                     // followed.
                     Row::from_elems(row.elems().iter().map(|e| match e {
-                        RowElem::Cap(c) => RowElem::Cap(crate::row::CapElem {
+                        RowElem::Cap(c) => RowElem::Cap(crate::ty::CapElem {
                             tag: c.tag.map_args(|a| match a {
                                 Ty::Set(..) => a.clone(),
                                 a => self.resolve(a),
@@ -383,7 +466,7 @@ impl InferCtx {
             // The set arguments of the effect of a capability are not followed: the R of a task
             // that starts siblings holds the capability of its group, whose effect has that R as
             // an argument (`[task.group]`).
-            RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::row::CapElem {
+            RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::ty::CapElem {
                 tag: c.tag.map_args(|a| match a {
                     Ty::Set(..) => a.clone(),
                     a => self.resolve(a),
@@ -698,13 +781,13 @@ impl InferCtx {
                 if f.params.len() == g.params.len() && f.quantifies() != g.quantifies() =>
             {
                 let (expected, actual) = if f.quantifies() {
-                    let skolem = &mut |_: u32, c: &crate::row::CapElem| {
-                        let id = crate::row::CapId::Skolem(self.scopes.new_skolem());
-                        Row::from_elems([RowElem::Cap(crate::row::CapElem { id, ..c.clone() })])
+                    let skolem = &mut |_: u32, c: &crate::ty::CapElem| {
+                        let id = crate::ty::CapId::Skolem(self.scopes.new_skolem());
+                        Row::from_elems([RowElem::Cap(crate::ty::CapElem { id, ..c.clone() })])
                     };
                     (e.open_quant(skolem), a.clone())
                 } else {
-                    let fresh = &mut |_: u32, _: &crate::row::CapElem| Row::var(self.new_row_var());
+                    let fresh = &mut |_: u32, _: &crate::ty::CapElem| Row::var(self.new_row_var());
                     (e.clone(), a.open_quant(fresh))
                 };
                 self.unify_inner(&expected, &actual, variance)
@@ -883,7 +966,7 @@ impl InferCtx {
             };
             let mut param = TyParam::set(SmolStr::new(name));
             if immediate.contains(&v) {
-                param.bounds.push(SmolStr::new(crate::lower::IMMEDIATE));
+                param.bounds.push(SmolStr::new(crate::ty::IMMEDIATE));
             }
             params.push(param);
         }
@@ -963,7 +1046,7 @@ fn replace_vars(ty: &Ty, map: &FxHashMap<TyVar, u32>, rows: &FxHashMap<RowVar, u
             },
             RowElem::Of(t) => Row::from_elems([RowElem::Of(replace_vars(t, map, rows))]),
             RowElem::Tag(t) => Row::of_tag(t.map_args(|a| replace_vars(a, map, rows))),
-            RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::row::CapElem {
+            RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::ty::CapElem {
                 tag: c.tag.map_args(|a| replace_vars(a, map, rows)),
                 ..c.clone()
             })]),
@@ -992,59 +1075,21 @@ fn replace_vars(ty: &Ty, map: &FxHashMap<TyVar, u32>, rows: &FxHashMap<RowVar, u
     }
 }
 
-/// Replaces `Ty::Bound(i)` with `args[i]`; used to substitute type arguments of named types. Set
-/// type parameters (`RowElem::Bound(i)`) are replaced when `args[i]` is a set (`Ty::Set`), and
-/// left as is otherwise.
-pub fn substitute_bound(ty: &Ty, args: &[Ty]) -> Ty {
-    let rows: Vec<Row> = args
-        .iter()
-        .enumerate()
-        .map(|(i, a)| match a {
-            Ty::Set(_, row) => row.clone(),
-            _ => Row::from_elems([RowElem::Bound(i as u32)]),
-        })
-        .collect();
-    substitute(ty, args, &rows)
+/// A unification failure. `expected` and `actual` are the types passed to unification, with
+/// bindings followed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TypeError {
+    pub expected: Ty,
+    pub actual: Ty,
+    /// Boxed to keep the `Err` of a `Result` small.
+    pub kind: Box<TypeErrorKind>,
 }
 
-/// Replaces `Ty::Bound(i)` with `tys[i]` and `RowElem::Bound(i)` in sets with `rows[i]`.
-/// Out-of-range indices are left as is.
-pub(crate) fn substitute(ty: &Ty, tys: &[Ty], rows: &[Row]) -> Ty {
-    match ty {
-        Ty::Bound(i) => tys.get(*i as usize).cloned().unwrap_or_else(|| ty.clone()),
-        Ty::Fn(f) => Ty::func_sets(
-            f.params
-                .iter()
-                .map(|p| substitute(p, tys, rows))
-                .collect::<Vec<_>>(),
-            substitute(&f.ret, tys, rows),
-            substitute_row(&f.fails, tys, rows),
-            substitute_row(&f.uses, tys, rows),
-        ),
-        Ty::Set(kind, row) => Ty::Set(*kind, substitute_row(row, tys, rows)),
-        Ty::Cap(tags, caps) => Ty::Cap(
-            tags.iter()
-                .map(|t| t.map_args(|a| substitute(a, tys, rows)))
-                .collect(),
-            substitute_row(caps, tys, rows),
-        ),
-        _ => ty.map_children(|child| substitute(child, tys, rows)),
-    }
-}
-
-/// Replaces type parameters inside a set like [`substitute`].
-pub(crate) fn substitute_row(row: &Row, tys: &[Ty], rows: &[Row]) -> Row {
-    row.flat_map(|e| match e {
-        RowElem::Bound(i) => rows
-            .get(*i as usize)
-            .cloned()
-            .unwrap_or_else(|| Row::from_elems([e.clone()])),
-        RowElem::Of(t) => Row::from_elems([RowElem::Of(substitute(t, tys, rows))]),
-        RowElem::Tag(t) => Row::of_tag(t.map_args(|a| substitute(a, tys, rows))),
-        RowElem::Cap(c) => Row::from_elems([RowElem::Cap(crate::row::CapElem {
-            tag: c.tag.map_args(|a| substitute(a, tys, rows)),
-            ..c.clone()
-        })]),
-        e => Row::from_elems([e.clone()]),
-    })
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TypeErrorKind {
+    /// The part that differs. Same as the `TypeError`'s `expected` and `actual` when the whole
+    /// type differs.
+    Mismatch { expected: Ty, actual: Ty },
+    /// Binding `var` to `ty` would create an infinite type (occurs check).
+    InfiniteType { var: TyVar, ty: Ty },
 }

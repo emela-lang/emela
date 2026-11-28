@@ -87,69 +87,9 @@ fn op_class(kind: SyntaxKind) -> u8 {
 }
 
 impl Printer {
-    pub(crate) fn node(&mut self, node: &SyntaxNode) -> Doc {
-        match node.kind() {
-            PAREN_EXPR if paren_or_chain(node).is_some() => self.paren_or_chain(node),
-            PATH | PATH_TYPE | TYPE_VAR | SELF_TYPE | NAME_REF | PATH_EXPR | UNDERSCORE_EXPR
-            | PAREN_EXPR | FIELD_EXPR | PREFIX_EXPR | REST_EXPR | LITERAL | PAREN_TYPE
-            | SPREAD_ARG | WILDCARD_PAT | IDENT_PAT | CONST_PAT | LITERAL_PAT | VARIANT_PAT
-            | REST_PAT | ANNOTATION | ANNOT_PATH | CAP_MEMBER => self.seq(node, |_, _| false),
-            // `src = Files.Open(path)` in `with` (`[effect.with]`).
-            WITH_BIND => self.seq(node, |_, _| true),
-            TYPE_ARG_LIST | PARAM_TYPE_LIST | UNIT_TYPE | TUPLE_TYPE | TYPE_PARAM_LIST
-            | PARAM_LIST | UNIT_EXPR | TUPLE_EXPR | LIST_EXPR | PAT_ARG_LIST | UNIT_PAT
-            | TUPLE_PAT | LIST_PAT | ANNOT_ARG_LIST | FIELD_LIST | TUPLE_FIELD_LIST
-            | IMPORT_LIST => self.list(node, |p, n| p.node(n)),
-            VARIANT => self.variant(node),
-            FIELD => self.seq(node, |_, cur| cur != COLON),
-            DERIVE_CLAUSE => self.seq(node, |_, cur| cur != COMMA),
-            // Effect type arguments (`handler H: State[Int]`, `use State[Int]`, `of State[Int]`)
-            // attach to the name.
-            HANDLER_EFFECT | USE_EXPR | EFFECT_LABEL | EFFECT_ALIAS => {
-                self.seq(node, |_, cur| cur != TYPE_ARG_LIST)
-            }
-            WITH_BY => self.seq(node, |_, cur| cur != TYPE_ARG_LIST),
-            // `Map[K: Eq, V: Eq]` in `impl Map[K: Eq, V: Eq]: Eq`.
-            IMPL_TYPE => self.seq(node, |_, cur| cur != TYPE_PARAM_LIST),
-            RET_TYPE | FAILS_CLAUSE | FAIL_EXPR | ASSERT_EXPR | MATCH_GUARD | CAP_TYPE => {
-                self.seq(node, |_, _| true)
-            }
-            USES_CLAUSE => self.uses_clause(node),
-            // No space before `:`.
-            PARAM | TYPE_PARAM | NAMED_ARG | FIELD_PAT | BINDING | ANNOT_ARG => {
-                self.seq(node, |_, cur| cur != COLON)
-            }
-            FN_TYPE => self.seq(node, |_, cur| cur != PARAM_TYPE_LIST),
-            ERROR_SET => self.seq(node, |prev, cur| prev != L_BRACE && cur != R_BRACE),
-            EFFECT_SET if child_token(node, L_BRACE).is_some() => self.list(node, |p, n| p.node(n)),
-            EFFECT_SET => self.seq(node, |_, _| true),
-            STRING => self.string(node),
-            INTERP => self.interp(node),
-            // `WorkerKv(binding: "KV")` in `with` and `layer` reads as a call.
-            CALL_EXPR | SUPPLY => self.call(node),
-            BIN_EXPR => self.bin_chain(node),
-            BLOCK_EXPR => self.block(node).assemble(false).group(),
-            // A local fn is laid out as a top-level fn, indented in its block (`[fn.local]`).
-            LOCAL_FN => self.decl_seq(node),
-            IF_EXPR => self.if_chain(node).group(),
-            MATCH_EXPR | ESCAPE_EXPR => self.arms_expr(node),
-            MATCH_ARM_LIST => self.arm_list(node),
-            WITH_EXPR => self.with_expr(node),
-            LAMBDA_EXPR => self.lambda(node),
-            _ => self.verbatim(node),
-        }
-    }
-
-    pub(crate) fn element(&mut self, element: &SyntaxElement) -> Doc {
-        match element {
-            rowan::NodeOrToken::Token(t) => self.tok(t),
-            rowan::NodeOrToken::Node(n) => self.node(n),
-        }
-    }
-
     /// `expr match { ... }` and `expr escape { ... }`. When the left side is a pipe that breaks
     /// across lines, the keyword starts the next line so the arms do not hang off the last link.
-    fn arms_expr(&mut self, node: &SyntaxNode) -> Doc {
+    pub(super) fn arms_expr(&mut self, node: &SyntaxNode) -> Doc {
         let mut children = significant_children(node);
         let Some(first) = children.next() else {
             return RcDoc::nil();
@@ -205,7 +145,7 @@ impl Printer {
     }
 
     /// A variant. Each attribute goes on its own line above the name (`@tag("open")⏎Open`).
-    fn variant(&mut self, node: &SyntaxNode) -> Doc {
+    pub(super) fn variant(&mut self, node: &SyntaxNode) -> Doc {
         let mut out = RcDoc::nil();
         for child in significant_children(node) {
             let doc = match &child {
@@ -221,7 +161,11 @@ impl Printer {
     }
 
     /// Puts a space between children when `space(prev, cur)` is true.
-    fn seq(&mut self, node: &SyntaxNode, space: impl Fn(SyntaxKind, SyntaxKind) -> bool) -> Doc {
+    pub(super) fn seq(
+        &mut self,
+        node: &SyntaxNode,
+        space: impl Fn(SyntaxKind, SyntaxKind) -> bool,
+    ) -> Doc {
         let mut out = RcDoc::nil();
         let mut prev = None;
         for child in significant_children(node) {
@@ -323,7 +267,7 @@ impl Printer {
     }
 
     /// Arms of `match` and `escape`. One-line arms get their `->` aligned.
-    fn arm_list(&mut self, node: &SyntaxNode) -> Doc {
+    pub(super) fn arm_list(&mut self, node: &SyntaxNode) -> Doc {
         let multi = has_newline_child(node);
         let open = match child_token(node, L_BRACE) {
             Some(t) => self.tok(&t),
@@ -425,7 +369,7 @@ impl Printer {
 
     /// `if c { a } else if d { b } else { c }`. All blocks share one group for their newlines,
     /// so if one breaks, all break.
-    fn if_chain(&mut self, node: &SyntaxNode) -> Doc {
+    pub(super) fn if_chain(&mut self, node: &SyntaxNode) -> Doc {
         let mut out = RcDoc::nil();
         let mut nodes = 0;
         for child in significant_children(node) {
@@ -458,7 +402,7 @@ impl Printer {
     }
 
     /// `with A, B { ... }`
-    fn with_expr(&mut self, node: &SyntaxNode) -> Doc {
+    pub(super) fn with_expr(&mut self, node: &SyntaxNode) -> Doc {
         let mut out = RcDoc::nil();
         let mut prev = None;
         for child in significant_children(node) {
@@ -481,7 +425,7 @@ impl Printer {
     }
 
     /// An anonymous function (`[fmt.closure]`), in parentheses where it is an operand.
-    fn lambda(&mut self, node: &SyntaxNode) -> Doc {
+    pub(super) fn lambda(&mut self, node: &SyntaxNode) -> Doc {
         let parens = rewrite::needs_parens(node);
         // A trailing comment at the end of the function goes after the closing parenthesis.
         let held = match node.last_token().filter(|_| parens) {
@@ -502,7 +446,7 @@ impl Printer {
     }
 
     /// `(a || b)`, laid out as the parentheses the formatter adds around a chain of `||`.
-    fn paren_or_chain(&mut self, node: &SyntaxNode) -> Doc {
+    pub(super) fn paren_or_chain(&mut self, node: &SyntaxNode) -> Doc {
         let chain = paren_or_chain(node).expect("checked by the caller");
         let open = child_token(node, L_PAREN).map_or_else(RcDoc::nil, |t| self.tok(&t));
         let chain = self.node(&chain);
@@ -605,7 +549,7 @@ impl Printer {
         out
     }
 
-    fn call(&mut self, node: &SyntaxNode) -> Doc {
+    pub(super) fn call(&mut self, node: &SyntaxNode) -> Doc {
         let mut out = RcDoc::nil();
         for child in significant_children(node) {
             let doc = match child {
@@ -690,7 +634,7 @@ impl Printer {
 
     /// String interpolation. The contents never break by width; only forced newlines from
     /// comments and multiline blocks remain.
-    fn interp(&mut self, node: &SyntaxNode) -> Doc {
+    pub(super) fn interp(&mut self, node: &SyntaxNode) -> Doc {
         // Hugging and arm alignment record the width at build time, so build the contents
         // with no width limit.
         let width = std::mem::replace(&mut self.width, HUGE);
@@ -707,7 +651,7 @@ impl Printer {
     }
 
     /// The pieces of a multiline string `"""` are printed verbatim.
-    fn string(&mut self, node: &SyntaxNode) -> Doc {
+    pub(super) fn string(&mut self, node: &SyntaxNode) -> Doc {
         let multiline = child_token(node, TRIPLE_QUOTE).is_some();
         let mut out = RcDoc::nil();
         for child in significant_children(node) {
@@ -731,7 +675,7 @@ impl Printer {
     /// A `||` at the start of a line starts an anonymous function (`[lex.continuation]`), so a
     /// chain of `||` that breaks outside brackets is put in parentheses and broken inside them
     /// (`[fmt.wrap]`).
-    fn bin_chain(&mut self, node: &SyntaxNode) -> Doc {
+    pub(super) fn bin_chain(&mut self, node: &SyntaxNode) -> Doc {
         let class = bin_op(node).map_or(0, |t| op_class(t.kind()));
         // Left-associative, so collect the chain by following left children.
         let mut links = Vec::new();
@@ -829,7 +773,7 @@ fn or_chain_in_parens(open: Doc, chain: Doc, close: Doc, close_breaks: bool, add
 }
 
 /// The chain of `||` that is the only thing in a PAREN_EXPR.
-fn paren_or_chain(node: &SyntaxNode) -> Option<SyntaxNode> {
+pub(super) fn paren_or_chain(node: &SyntaxNode) -> Option<SyntaxNode> {
     let mut inner = node.children();
     let (Some(only), None) = (inner.next(), inner.next()) else {
         return None;
@@ -912,7 +856,7 @@ impl Printer {
     /// The old keyword `use` (E1404) is printed as `uses`, and a bare element gets braces
     /// (`uses Db` becomes `uses { Db }`). The formatter does not resolve names, so an effect and
     /// a set type parameter are treated alike.
-    fn uses_clause(&mut self, node: &SyntaxNode) -> Doc {
+    pub(super) fn uses_clause(&mut self, node: &SyntaxNode) -> Doc {
         let mut out = RcDoc::nil();
         for child in significant_children(node) {
             match child {

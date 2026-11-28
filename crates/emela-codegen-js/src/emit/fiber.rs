@@ -2,13 +2,20 @@
 //!
 //! Each operation is a call of a runtime function. Operations that wait (the run-time scope of a
 //! group or a background, join, `Deferred.await`, acquire, offer, take) are generators or requests
-//! handled by the scheduler, so they only appear in generators:
+//! handled by the scheduler, chained in generators:
 //!
 //! ```js
 //! const $t0 = (yield* $scope((function* (s$1) { … })));   // with tasks = Task.Group
 //! const a$2 = $fork(s$1, (function* () { … }));            // tasks.start(f)
 //! const v$3 = (yield $join(a$2));                          // a.join()
 //! ```
+//!
+//! A request can also appear in a function that does not suspend. The built-in handlers Deferred,
+//! Semaphore and Queue do not require Async, so `with d = Deferred { d.await() }` leaves R
+//! Immediate (`[effect.with]`, `[task.deferred]`) and the function is not a generator (issue
+//! #942). No other fiber can use a capability made there, so the request either is served on the
+//! spot or is never served. `$syncWait` runs it in place and throws `$Interrupted` when it is not
+//! served (`[dyn.suspend]`), as `$syncPerform` does for a suspend fn operation.
 //!
 //! `Exit.attempt` follows the rules of a function value call: `$attempt` returns a generator only
 //! when `f` does.
@@ -78,18 +85,19 @@ impl Emitter<'_> {
             } => format!("{}({vs}, true)", self.rt(f)),
             _ => format!("{}({vs})", self.rt(f)),
         };
-        if waits != Wait::No {
-            // These require Async, so R is never Immediate here.
-            assert!(
-                self.generator,
-                "invalid IR: fiber operation {} outside a suspending function",
-                op.name()
-            );
-        }
         match waits {
             Wait::No => call,
-            Wait::Generator => format!("(yield* {call})"),
-            Wait::Request => format!("(yield {call})"),
+            Wait::Generator => {
+                // A group or a background requires Async, so R is never Immediate here.
+                assert!(
+                    self.generator,
+                    "invalid IR: fiber operation {} outside a suspending function",
+                    op.name()
+                );
+                format!("(yield* {call})")
+            }
+            Wait::Request if self.generator => format!("(yield {call})"),
+            Wait::Request => format!("{}({call})", self.rt("$syncWait")),
         }
     }
 

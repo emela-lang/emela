@@ -1,9 +1,10 @@
 //! Expressions (spec 17.5).
 
-use super::items::{at_local_fn_start, newlines_with_doc};
 use super::patterns::pattern;
 use super::types::{effect_type_args, path, type_};
-use super::{closure_param_list, literal, old_lambda_param_list};
+use super::{
+    at_local_fn_start, closure_param_list, literal, newlines_with_doc, old_lambda_param_list,
+};
 use crate::SyntaxKind::{self, *};
 use crate::diagnostic::DiagnosticCode;
 use crate::parser::{CompletedMarker, Parser};
@@ -116,7 +117,7 @@ pub(crate) fn block(p: &mut Parser<'_>) -> CompletedMarker {
         let before = p.position();
         if local_fn {
             let m = doc.unwrap_or_else(|| p.start());
-            super::items::local_fn(p, m);
+            super::local_fn(p, m);
         } else {
             if let Some(doc) = doc {
                 doc.abandon(p);

@@ -4,6 +4,7 @@
 //! contents of open files are overlaid on the file system, so diagnostics match `emela check` and
 //! formatting matches `emela fmt`.
 
+mod cache;
 mod convert;
 mod overlay;
 mod server;

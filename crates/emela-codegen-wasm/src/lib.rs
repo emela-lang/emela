@@ -10,16 +10,16 @@
 //! strings, the numeric conversions and the runtime operations) and the host is WASI 0.3, so the
 //! output is a component exporting `wasi:cli/run@0.3.0`, run with an external engine
 //! (`wasmtime`). An HTTP service exports `handle` of `wasi:http/handler@0.3.0` instead
-//! (`emit::runtime::http`), run with `wasmtime serve`.
+//! (`emit::runtime::wasi::http`), run with `wasmtime serve`.
 //!
 //! The target supports the WASI hosts the bundled `Std` handlers use (Console, Env, Random,
 //! Clock.now and Clock.sleep), and suspending functions are compiled as state machines with heap
-//! frames (`emit::suspend`) and a FIFO continuation scheduler (`emit::runtime::sched`). A sleep
+//! frames (`emit::suspend`) and a FIFO continuation scheduler (`emit::runtime::fiber::sched`). A sleep
 //! starts `wasi:clocks/monotonic-clock.wait-for` as an asynchronous subtask and the scheduler waits
-//! on its waitable set only when it has no continuation left (`emit::runtime::async_bridge`);
+//! on its waitable set only when it has no continuation left (`emit::runtime::fiber::async_bridge`);
 //! TestClock uses the same suspension without a host timer. Tasks, groups, the fiber operations
 //! and `Deferred` run on the same scheduler (`emit::runtime::fiber`), and `Exit.attempt` and
-//! `Std.Cause` run on the current fiber (`emit::runtime::attempt`). External functions outside the
+//! `Std.Cause` run on the current fiber (`emit::runtime::fiber::attempt`). External functions outside the
 //! bundled `Std` hosts are the unsupported part of the target (spec `[target.wasm.external]`); a
 //! stalling run is unwound as interrupted (spec 14.5). The Unicode tables for grapheme clusters
 //! (UAX #29, Unicode 17.0.0) are part of the runtime.

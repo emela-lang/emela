@@ -1,0 +1,11 @@
+---
+source: crates/emela-driver/tests/check/diagnostics/project.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E2001]: file name `Main` cannot be a module name: not lower snake_case
+   ─[ src/Main.emel ]
+
+error[E2008]: the entry `src/Main.emel` is not a module
+   ─[ src/Main.emel ]
+
+2 errors

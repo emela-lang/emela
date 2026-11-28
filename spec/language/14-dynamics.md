@@ -6,14 +6,14 @@ Evaluation is strict and proceeds from left to right, and the initialization on 
 
 - All arguments are evaluated before the function is called (call by value).
 - Subexpressions are evaluated from left to right, in the order they are written in the source. Named arguments are also evaluated in the order they are written, not in the order of the declaration. The `..expr` of a list literal or a constructor call is evaluated after the other elements and fields.
-- `&&` and `||` do not evaluate the right side when the left side determines the result.
-- match evaluates the scrutinee exactly once and tries the arms from top to bottom. A guard is evaluated after its pattern matches. If no arm matches, it is a defect (type checking guarantees exhaustiveness, so this does not normally happen).
+- match evaluates the scrutinee exactly once and tries the arms from top to bottom. A guard is evaluated after its pattern matches. Only the body of the arm that matches is evaluated. If no arm matches, it is a defect (type checking guarantees exhaustiveness, so this does not normally happen).
+- An if, `&&` and `||` are evaluated as a match (`[fn.if]`, `[fn.operator]`). So `&&` and `||` do not evaluate the right side when the left side determines the result.
 
 ## 14.2 Running a with `[dyn.with]`
 
 `with H1, ..., Hn { body }` runs in the following order.
 
-1. Evaluate the arguments of the items (`H(arguments)`, 8.3) in the order the items are written. Then sort the handlers by their dependencies, and run their inits in that order. A handler member item `x = E.M(arguments)` or `x = c.M(arguments)` runs the init of M of the innermost handler that provides E by name (or of the handler that provides c), and is ordered with the other items by its requirements (only E or c).
+1. Evaluate the arguments of the items (`H(arguments)`, 8.3) in the order the items are written. Then sort the handlers by their dependencies, and run their inits in that order. An item that opens a handler member (`E.M(arguments)` or `c.M(arguments)`, with or without `x =`, also on the right of `by`) runs the init of M of the innermost handler that provides E by name (or of the handler that provides c), and is ordered with the other items by its requirements (only E or c).
 2. Evaluate the body.
 3. Run the releases in the reverse order of initialization.
 4. The result of the body (a value, an error, a defect or an interruption) is the result of the with.

@@ -13,6 +13,9 @@ use smol_str::SmolStr;
 use crate::module_name::ModuleName;
 use crate::source::ModuleId;
 
+/// The host effects (`[effect.host]`): effects without operations whose only handler is the host.
+pub(crate) const HOST_EFFECTS: &[&str] = &["Async", "ProcessHost", "PageHost"];
+
 pub type DefId = Idx<DefData>;
 pub type LocalId = Idx<LocalData>;
 pub type ExprId = Idx<Expr>;
@@ -943,7 +946,7 @@ impl Program {
     pub fn is_host_effect(&self, def: DefId) -> bool {
         self.defs[def].module == DefModule::Prelude
             && self.defs[def].kind == DefKind::Effect
-            && crate::builtins::HOST_EFFECTS.contains(&self.defs[def].name.as_str())
+            && HOST_EFFECTS.contains(&self.defs[def].name.as_str())
     }
 
     pub fn item(&self, def: DefId) -> Option<&Item> {

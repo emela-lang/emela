@@ -9,7 +9,7 @@
 //!
 //! A lambda is a value, so making one has no effect; the call inside it happens only when the value
 //! is called, and the value substituted for it calls the same function with the same arguments.
-//! The wrapper's type must be exactly the value's type: [`crate::verify`] accepts a function type
+//! The wrapper's type must be exactly the value's type: [`crate::ir::verify`] accepts a function type
 //! that is compatible (a narrower parameter, a wider result), but the call still has to follow the
 //! calling convention of the value's type (whether it takes the evidence table, whether it may
 //! fail or suspend). A type that only matches up to compatibility is left alone.
@@ -183,7 +183,7 @@ fn reduction(m: &mut Module, e: &Expr, deopt: &mut u32) -> Option<Expr> {
 /// The function value for a direct call to `f`, if the instantiated function has exactly the
 /// lambda's type `ft` as a value: the same parameters, result and flags, taking the evidence table
 /// exactly when `ft` does. As a value, `f` takes the table whether or not `f` itself does
-/// ([`crate::typing::Typer::fn_value`]); whether its R needs one is not part of how it is called,
+/// ([`crate::ir::typing::Typer::fn_value`]); whether its R needs one is not part of how it is called,
 /// so it is not compared.
 fn reduction_direct(m: &mut Module, f: FnId, ty_args: &[TypeId], ft: &FnType) -> Option<Expr> {
     let (params, ret, fails, suspends, ev, type_params, external, constant, sets) = {

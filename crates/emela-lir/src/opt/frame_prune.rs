@@ -58,9 +58,9 @@
 //! whose variable a frame saves.
 //!
 //! The hand-built LIR fixtures set their saved sets explicitly; the tests in
-//! `tests/frame_prune.rs` scan the shapes that would be stale (a dead saved scalar, a dead saved
-//! reference, and the module `dce` turns into the first one) and the two reasons a stale reference
-//! stays saved (a finalizer, and a kept view of it). The corpus test
+//! `tests/opt/frame_prune.rs` scan the shapes that would be stale (a dead saved scalar, a dead
+//! saved reference, and the module `dce` turns into the first one) and the two reasons a stale
+//! reference stays saved (a finalizer, and a kept view of it). The corpus test
 //! `stale_frame_slots_on_the_c_corpus` asserts the zero, so a future change that makes a slot stale
 //! fails the suite and reopens the pass.
 //!

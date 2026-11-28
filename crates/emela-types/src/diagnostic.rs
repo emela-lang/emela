@@ -6,9 +6,8 @@
 use emela_resolve::hir::Span;
 use smol_str::SmolStr;
 
-use crate::error::TypeError;
-use crate::row::SetKind;
-use crate::ty::Ty;
+use crate::infer::TypeError;
+use crate::ty::{SetKind, Ty};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -91,6 +90,13 @@ pub enum DiagnosticKind {
     Unsupported { what: &'static str },
     /// A unification failure (E3001 type mismatch, E3002 infinite type).
     Mismatch(TypeError),
+    /// E3001 at the right operand of `&&` or `||` that is the scrutinee of a `match`, when the
+    /// right operand is not Bool (`a && k match { ... }`, `[fn.operator]`). `match` binds more
+    /// loosely than the operator, so the scrutinee is the whole operator expression; the driver
+    /// adds a note naming it and a help that encloses the right operand and the `match` in
+    /// parentheses. `op` is `&&` or `||`, and `scrutinee` is the span of the whole operator
+    /// expression.
+    MatchOnLogical(Box<MatchOnLogical>),
     /// E3101. `callee` is the name of the function or constructor called, or `None` when calling
     /// a value not referred to by name (a local variable, a lambda).
     WrongArgCount {
@@ -651,6 +657,16 @@ impl DiagnosticKind {
                 | DiagnosticKind::UnusedTypeParam { .. }
         )
     }
+}
+
+/// The contents of [`DiagnosticKind::MatchOnLogical`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatchOnLogical {
+    pub error: TypeError,
+    /// `&&` or `||`.
+    pub op: &'static str,
+    /// The whole operator expression.
+    pub scrutinee: Span,
 }
 
 /// What a leaking capability leaves (E4405, [`DiagnosticKind::CapabilityLeak`]).

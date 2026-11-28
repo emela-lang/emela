@@ -5,6 +5,8 @@
 #[path = "../../../emela-core/tests/support/mod.rs"]
 pub(crate) mod support;
 
+pub mod grapheme_break_test;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -156,7 +158,7 @@ pub fn compile_tests_checked(src: &str, tests: &[&str]) -> Vec<u8> {
 ///
 /// Locally the run tests are skipped without it. Under CI (`CI` is set) a missing wasmtime is a
 /// failure, so the checks of the emitted code, such as the whole `GraphemeBreakTest.txt` in
-/// `tests/unicode.rs`, cannot pass without running.
+/// `tests/programs/unicode.rs`, cannot pass without running.
 pub fn wasmtime() -> Option<&'static str> {
     static WT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     WT.get_or_init(|| {

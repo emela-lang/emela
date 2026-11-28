@@ -30,7 +30,7 @@ use crate::intrinsics::Builtin;
 use crate::ir::{Expr, Lit, Module, StrPart, TypeId};
 use crate::opt::{CoreFns, PassStats, each_body};
 
-use super::law::LawRun;
+use super::LawRun;
 
 /// Rewrites a chain of three or more `String.append` operands to one `Expr::Concat`.
 ///

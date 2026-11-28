@@ -93,19 +93,10 @@ pub fn size(e: &Expr) -> u32 {
 ///
 /// Locals are unique in a module (`crate::ir`), so a binder of the same [`Local`] cannot occur
 /// inside `e`; every occurrence is free. Binder positions (`let`, `loop`, lambda parameters,
-/// pattern binds, `with`) are not `Expr::Var` nodes, so they are not counted.
+/// pattern binds, `with`) are not `Expr::Var` nodes, so they are not counted. The count is the
+/// use analysis's ([`crate::opt::analysis::uses::of_expr`]), which the reductions build on.
 pub fn use_count(e: &Expr, var: Local) -> u32 {
-    let mut count = 0;
-    count_uses(e, var, &mut count);
-    count
-}
-
-fn count_uses(e: &Expr, var: Local, count: &mut u32) {
-    if matches!(e, Expr::Var(v) if *v == var) {
-        *count += 1;
-        return;
-    }
-    e.for_each_child(&mut |child| count_uses(child, var, count));
+    crate::opt::analysis::uses::of_expr(e, var)
 }
 
 /// A new local with the given hint and type.
@@ -780,7 +771,7 @@ mod tests {
         freshen(&mut m, &mut body);
         let g = m.declare("g", false);
         m.define(g, Vec::new(), TypeId::INT, body);
-        assert_eq!(crate::verify::verify(&m), Ok(()));
+        assert_eq!(crate::ir::verify::verify(&m), Ok(()));
     }
 
     /// `rename` renames reads only; a binder and an unlisted local are left alone.

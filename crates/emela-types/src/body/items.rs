@@ -24,10 +24,9 @@ use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 
 use super::BodyInfer;
+use crate::decl::layer::{Entry, Insts, Supplier, handler_tags};
 use crate::diagnostic::{Diagnostic, DiagnosticKind, HandlerArgsReason};
-use crate::layer::{Entry, Insts, Supplier, handler_tags};
-use crate::row::{Row, RowElem, Tag};
-use crate::ty::{Ty, TyVar};
+use crate::ty::{Row, RowElem, Tag, Ty, TyVar};
 
 /// The type arguments an item gives a handler with type parameters.
 #[derive(Clone, Debug, Default)]
@@ -94,8 +93,7 @@ impl BodyInfer<'_> {
             .map(|i| match self.ty_table.set_kind(def, i) {
                 Some(kind) => {
                     // A capability that a task cannot use is reported at the item.
-                    let v = self.ctx.new_row_var();
-                    self.ctx.scopes.set_row_span(v, span);
+                    let v = self.ctx.new_row_var_at(span);
                     Ty::Set(kind, Row::var(v))
                 }
                 None => self.ctx.new_var(),
@@ -150,7 +148,7 @@ impl BodyInfer<'_> {
         &self,
         handler: DefId,
         ty_args: &[Ty],
-        kind: crate::row::SetKind,
+        kind: crate::ty::SetKind,
     ) -> Option<Row> {
         let program = self.program;
         let Some(Item::Handler(h)) = program.item(handler) else {
@@ -168,7 +166,7 @@ impl BodyInfer<'_> {
             };
             any = true;
             if k == kind
-                && !(kind == crate::row::SetKind::Errors && errors_to_init)
+                && !(kind == crate::ty::SetKind::Errors && errors_to_init)
                 && let Ty::Set(_, r) = arg
             {
                 row.extend(r);
@@ -177,7 +175,7 @@ impl BodyInfer<'_> {
         if !any {
             return None;
         }
-        if kind == crate::row::SetKind::Effects
+        if kind == crate::ty::SetKind::Effects
             && let Some(async_) = program.prelude_def("Async")
         {
             row.insert(RowElem::Tag(Tag::new(async_)));
@@ -203,13 +201,13 @@ impl BodyInfer<'_> {
         &mut self,
         facts: Row,
         ty_args: &[Ty],
-        kind: crate::row::SetKind,
+        kind: crate::ty::SetKind,
     ) -> Row {
         if ty_args.is_empty() {
             return facts;
         }
         if facts.vars().next().is_none() {
-            return crate::layer::instantiate_row(&facts, ty_args);
+            return crate::decl::layer::instantiate_row(&facts, ty_args);
         }
         let v = self.ctx.new_row_var();
         self.instance_sets.push(super::InstanceSet {
@@ -419,7 +417,7 @@ impl BodyInfer<'_> {
 }
 
 /// The type arguments of the items of the `with`s and layers of a group, for
-/// [`crate::layer::with_entries`].
+/// [`crate::decl::layer::with_entries`].
 ///
 /// They are read without following unification: those that the written type arguments, the
 /// arguments of init or the label left of `by` determine are already the types they resolve to
@@ -455,7 +453,7 @@ impl ItemsInsts<'_> {
 /// `Memory[S]`: a handler with its type parameters, for diagnostics.
 pub(crate) fn handler_with_params(
     program: &Program,
-    ty_table: &crate::lower::TyTable,
+    ty_table: &crate::decl::lower::TyTable,
     handler: DefId,
 ) -> SmolStr {
     let name = &program.defs[handler].name;

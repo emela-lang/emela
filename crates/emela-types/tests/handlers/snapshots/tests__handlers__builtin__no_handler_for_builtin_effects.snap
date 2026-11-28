@@ -1,0 +1,13 @@
+---
+source: crates/emela-types/tests/handlers/builtin.rs
+expression: "render(r#\"\nimport Std.Deferred.{Deferred}\nimport Std.Queue.{Queue}\nimport Std.Semaphore.{Semaphore, Permit}\n\nhandler MyDeferred: Deferred[Int] {\n  fn complete(value) { True }\n  suspend fn await(resume) { resume(1) }\n  fn poll() { None }\n}\n\nhandler MyQueue: Queue[Int] {\n  suspend fn offer(value, resume) { resume(()) }\n  suspend fn take(resume) { resume(1) }\n  fn try_offer(value) { True }\n  fn poll() { None }\n  fn size() { 0 }\n  fn close() { () }\n}\n\nhandler MySemaphore: Semaphore {\n  fn available() { 0 }\n}\n\nhandler MyPermit: Permit {\n  fn count() { 1 }\n}\n\"#)"
+---
+handler MyDeferred: use {}
+handler MyQueue: use {}
+handler MySemaphore: use {}
+handler MyPermit: use {}
+`MyDeferred` IntrinsicHandler { handler: "MyDeferred", effect: "Deferred", provider: "Deferred" }
+`MyQueue` IntrinsicHandler { handler: "MyQueue", effect: "Queue", provider: "Queue" }
+`MySemaphore` IntrinsicHandler { handler: "MySemaphore", effect: "Semaphore", provider: "Semaphore" }
+`MyPermit` IntrinsicHandler { handler: "MyPermit", effect: "Permit", provider: "Semaphore" }
+--- R

@@ -1,0 +1,32 @@
+# A Deferred that no one fills, awaited where R is Immediate (issue #942). No other task can
+# fill it, so the continuation is never resumed and unwinds as interrupted (`[dyn.suspend]`).
+import Std.Deferred.{Deferred}
+
+@external(js, "console.log")
+@external(c, "./print.c", "emela_test_print")
+fn print(s: String) -> () uses {}
+
+effect Name {
+  fn name() -> String
+}
+
+handler Res: Name {
+  init {
+    print("init res")
+    Res
+  }
+  fn name() { "res" }
+  release { print("release res") }
+}
+
+fn wait() -> Int {
+  with Res, d = Deferred {
+    d.await()
+  }
+}
+
+fn main() {
+  print("before")
+  print("#{wait()}")
+  print("after")
+}

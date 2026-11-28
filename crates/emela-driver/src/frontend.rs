@@ -1,5 +1,8 @@
 //! Frontends plugging in emela-syntax's parser, name resolution and type checking.
 
+use std::collections::BTreeMap;
+use std::sync::Mutex;
+
 use emela_resolve::hir::{DefId, DefKind, Program};
 use emela_resolve::{BuiltinModules, Import, ModuleId, ModuleName, NoBuiltins};
 use emela_syntax::ast::{self, AstNode};
@@ -7,19 +10,21 @@ use emela_syntax::{Parse, SyntaxKind};
 use emela_types::{CheckOptions, ProgramTypes, check_program_with};
 use la_arena::ArenaMap;
 
-use crate::actions::CodeAction;
-use crate::complete::Completion;
+use crate::check::analysis::Analysis;
+use crate::check::internal::{check_external_in_dependencies, check_internal};
+use crate::check::program::TypedProgram;
+use crate::check::test_fns::{collect_tests, resolve_tests};
 use crate::diagnostic::{Diagnostic, Location, error_count};
-use crate::hints::InlayHint;
-use crate::hover::HoverInfo;
-use crate::internal::{check_external_in_dependencies, check_internal};
-use crate::nav::{NavTarget, RenameError};
-use crate::pipeline::{Analysis, Checked, CoreSource, Frontend, Parsed};
-use crate::signature::SignatureInfo;
+use crate::ide::actions::CodeAction;
+use crate::ide::complete::Completion;
+use crate::ide::hints::InlayHint;
+use crate::ide::hover::HoverInfo;
+use crate::ide::nav::{NavTarget, RenameError};
+use crate::ide::signature::SignatureInfo;
+use crate::ide::tokens::SemanticToken;
+use crate::pipeline::{CORE_DIR, Checked, CoreSource, Frontend, Parsed};
 use crate::source::{FileId, SourceFile};
 use crate::target::Target;
-use crate::testing::{TestDef, collect_tests, resolve_tests};
-use crate::tokens::SemanticToken;
 
 /// A frontend up to parsing. Keeps a syntax tree per module and returns the import list.
 /// [`Frontend::check`] returns `()` without diagnostics.
@@ -43,7 +48,11 @@ impl Frontend for ParseOnly {
     type Program = ();
 
     fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed {
-        let parse = emela_syntax::parse(source.text());
+        let parse = if source.path().starts_with(CORE_DIR) {
+            parse_core(source.text())
+        } else {
+            emela_syntax::parse(source.text())
+        };
         let diagnostics = parse
             .diagnostics()
             .iter()
@@ -63,6 +72,24 @@ impl Frontend for ParseOnly {
             diagnostics: Vec::new(),
         }
     }
+}
+
+/// Parses a module of the core, reusing the tree from an earlier check in the process.
+///
+/// Every check reads the whole bundled core, and the language server checks again after each
+/// edit, so parsing it would otherwise be repeated each time. Keyed by the text, since a parse
+/// depends on nothing else (a frontend may be given other core sources).
+fn parse_core(text: &str) -> Parse {
+    static PARSES: Mutex<BTreeMap<String, Parse>> = Mutex::new(BTreeMap::new());
+    let mut parses = PARSES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(parse) = parses.get(text) {
+        return parse.clone();
+    }
+    let parse = emela_syntax::parse(text);
+    parses.insert(text.to_owned(), parse.clone());
+    parse
 }
 
 /// A frontend that resolves names after parsing ([`ParseOnly`]) and returns the resolver's
@@ -190,14 +217,6 @@ pub struct Typecheck<B = NoBuiltins> {
     http_service: bool,
 }
 
-/// Name resolution and type checking results, which lowering reads (see [`ProgramTypes`]).
-pub struct TypedProgram {
-    pub hir: Program,
-    pub types: ProgramTypes,
-    /// `@test` functions in source, in module order and then declaration order.
-    pub tests: Vec<TestDef>,
-}
-
 impl Default for Typecheck<NoBuiltins> {
     fn default() -> Self {
         Typecheck {
@@ -240,7 +259,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Option<HoverInfo> {
-        crate::hover::hover(program, analysis, file, offset)
+        crate::ide::hover::hover(program, analysis, file, offset)
     }
 
     fn has_entry_main(&self) -> Option<bool> {
@@ -257,7 +276,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Vec<line_index::TextRange> {
-        crate::nav::document_highlights(program, analysis, file, offset)
+        crate::ide::nav::document_highlights(program, analysis, file, offset)
     }
 
     fn type_definition(
@@ -266,7 +285,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Option<NavTarget> {
-        crate::nav::type_definition(program, analysis, file, offset)
+        crate::ide::nav::type_definition(program, analysis, file, offset)
     }
 
     fn implementations(
@@ -275,7 +294,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Vec<NavTarget> {
-        crate::nav::implementations(program, analysis, file, offset)
+        crate::ide::nav::implementations(program, analysis, file, offset)
     }
 
     fn definition(
@@ -284,7 +303,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Option<NavTarget> {
-        crate::nav::definition(program, analysis, file, offset)
+        crate::ide::nav::definition(program, analysis, file, offset)
     }
 
     fn inlay_hints(
@@ -293,7 +312,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         range: line_index::TextRange,
     ) -> Vec<InlayHint> {
-        crate::hints::inlay_hints(program, analysis, file, range)
+        crate::ide::hints::inlay_hints(program, analysis, file, range)
     }
 
     fn semantic_tokens(
@@ -302,7 +321,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         range: line_index::TextRange,
     ) -> Vec<SemanticToken> {
-        crate::tokens::semantic_tokens(program, analysis, file, range)
+        crate::ide::tokens::semantic_tokens(program, analysis, file, range)
     }
 
     fn code_actions(
@@ -311,7 +330,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         range: line_index::TextRange,
     ) -> Vec<CodeAction> {
-        crate::actions::code_actions(program, analysis, file, range)
+        crate::ide::actions::code_actions(program, analysis, file, range)
     }
 
     fn signature_help(
@@ -320,7 +339,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Option<SignatureInfo> {
-        crate::signature::signature_help(program, analysis, file, offset)
+        crate::ide::signature::signature_help(program, analysis, file, offset)
     }
 
     fn prepare_rename(
@@ -329,7 +348,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Option<line_index::TextRange> {
-        crate::nav::prepare_rename(program, analysis, file, offset)
+        crate::ide::nav::prepare_rename(program, analysis, file, offset)
     }
 
     fn rename(
@@ -339,7 +358,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         offset: line_index::TextSize,
         new_name: &str,
     ) -> Result<Vec<(NavTarget, String)>, RenameError> {
-        crate::nav::rename(program, analysis, file, offset, new_name)
+        crate::ide::nav::rename(program, analysis, file, offset, new_name)
     }
 
     fn complete(
@@ -348,7 +367,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         file: FileId,
         offset: line_index::TextSize,
     ) -> Vec<Completion> {
-        crate::complete::complete(program, analysis, file, offset)
+        crate::ide::complete::complete(program, analysis, file, offset)
     }
 
     fn references(
@@ -358,7 +377,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         offset: line_index::TextSize,
         declaration: bool,
     ) -> Vec<NavTarget> {
-        crate::nav::references(program, analysis, file, offset, declaration)
+        crate::ide::nav::references(program, analysis, file, offset, declaration)
     }
 
     fn check(&mut self, analysis: &Analysis, order: &[ModuleId]) -> Checked<TypedProgram> {
@@ -380,7 +399,7 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
         // Placement of `@internal` (E2206) and references from outside core (E2205).
         test_diagnostics.extend(check_internal(analysis, &hir, |m| self.parse_of(m)));
         // Placement and arguments of `@key` and `@tag` (E3310), and repeated keys and tags (E3309).
-        test_diagnostics.extend(crate::attributes::check_key_tag(analysis, |m| {
+        test_diagnostics.extend(crate::check::attributes::check_key_tag(analysis, |m| {
             self.parse_of(m)
         }));
         test_diagnostics.extend(check_external_in_dependencies(analysis, |m| {
@@ -418,14 +437,21 @@ impl<B: BuiltinModules> Frontend for Typecheck<B> {
                     self.parse_of(s.module)
                         .is_some_and(|parse| last_lambda_after_or_line(parse, s.range))
                 });
-                if at_or_line && out.code == Some(crate::code::TYPE_MISMATCH) {
-                    out.with_help(emela_syntax::rewrite::OR_AT_LINE_START_HELP)
-                } else {
-                    out
+                if at_or_line && out.code == Some(crate::diagnostic::code::TYPE_MISMATCH) {
+                    return out.with_help(emela_syntax::rewrite::OR_AT_LINE_START_HELP);
                 }
+                if let (emela_types::DiagnosticKind::MatchOnLogical(m), Some(rhs)) =
+                    (&d.kind, d.span)
+                {
+                    return match self.parse_of(rhs.module) {
+                        Some(parse) => with_match_on_logical(out, parse, m.op, m.scrutinee, rhs),
+                        None => out,
+                    };
+                }
+                out
             })
             .chain(test_diagnostics)
-            .chain(crate::actions::incomplete_impl_diagnostics(
+            .chain(crate::ide::actions::incomplete_impl_diagnostics(
                 &hir,
                 analysis,
                 |m| self.parse_of(m),
@@ -640,6 +666,43 @@ fn last_lambda_after_or_line(parse: &Parse, range: line_index::TextRange) -> boo
     last_in_block && emela_syntax::rewrite::starts_line_with_or(&lambda)
 }
 
+/// The note and help of E3001 at the right operand of `&&` or `||` that is the scrutinee of a
+/// `match` ([`emela_types::DiagnosticKind::MatchOnLogical`]). `match` binds more loosely than the
+/// operator (`[fn.operator]`), so the note names the whole scrutinee and the help encloses the
+/// right operand and the `match` in parentheses. The source text is quoted only when the
+/// operator expression is on one line; otherwise the operator stands for it.
+fn with_match_on_logical(
+    out: Diagnostic,
+    parse: &Parse,
+    op: &str,
+    scrutinee: emela_resolve::hir::Span,
+    rhs: emela_resolve::hir::Span,
+) -> Diagnostic {
+    let text = parse.syntax().text();
+    let quote = |range: line_index::TextRange| {
+        let source = text.slice(range).to_string();
+        (!source.contains('\n')).then_some(source)
+    };
+    let lhs = line_index::TextRange::new(scrutinee.range.start(), rhs.range.start());
+    let lhs = quote(lhs).map(|s| s.trim_end().trim_end_matches(op).trim_end().to_owned());
+    match (quote(scrutinee.range), lhs, quote(rhs.range)) {
+        (Some(whole), Some(lhs), Some(rhs)) => out
+            .with_note(format!(
+                "the scrutinee of this `match` is `{whole}`, because `match` binds more loosely than `{op}`"
+            ))
+            .with_help(format!(
+                "to match on `{rhs}` only, write `{lhs} {op} ({rhs} match {{ ... }})`"
+            )),
+        _ => out
+            .with_note(format!(
+                "the scrutinee of this `match` is the whole `{op}` expression, because `match` binds more loosely than `{op}`"
+            ))
+            .with_help(format!(
+                "to match on the right operand of `{op}` only, enclose it and the `match` in parentheses"
+            )),
+    }
+}
+
 /// Leaves out the help of W4401 and E4404 that suggests a bound item where the body of the
 /// `with` that provides the effect also uses it by name: a bound item provides nothing by name,
 /// so the rewrite would send those uses to an outer handler (`[effect.with]`).
@@ -662,7 +725,10 @@ fn drop_bound_item_helps(
     for d in diagnostics {
         let suggests = matches!(
             d.code,
-            Some(crate::code::DEPRECATED_USE | crate::code::EFFECT_ALIAS_MISUSE)
+            Some(
+                crate::diagnostic::code::DEPRECATED_USE
+                    | crate::diagnostic::code::EFFECT_ALIAS_MISUSE
+            )
         );
         if suggests && matches!(&d.location, Some(Location::Span(s)) if redirects.contains(s)) {
             d.notes.retain(|n| {

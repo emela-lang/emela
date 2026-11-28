@@ -6,9 +6,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::code;
 use crate::diagnostic::Diagnostic;
-use crate::doctor::Version;
+use crate::diagnostic::code;
+use crate::version::Version;
 
 /// The environment variable that names the JS host (`[cmd.build]`).
 pub const JS_HOST_ENV: &str = "EMELA_JS_HOST";
@@ -132,7 +132,7 @@ pub(crate) fn parse(out: &str) -> Option<Probed> {
             .find(|kind| kind.word() == word)?;
         Some(Probed {
             kind,
-            version: crate::doctor::number(version.trim())?,
+            version: crate::version::number(version.trim())?,
         })
     })
 }

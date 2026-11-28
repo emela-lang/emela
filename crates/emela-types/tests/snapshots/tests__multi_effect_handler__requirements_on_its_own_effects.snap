@@ -1,6 +1,0 @@
----
-source: crates/emela-types/tests/multi_effect_handler.rs
-expression: "run(r#\"\nhandler Logged: Query + Audit {\n  fn query(sql) {\n    (use Audit).note(sql)\n    0\n  }\n  fn note(msg) { () }\n}\n\nhandler Notes: Audit {\n  fn note(msg) { () }\n}\n\nfn outer() -> Int uses { Audit } {\n  with Logged { (use Query).query(\"a\") }\n}\n\nfn wired() -> Int {\n  with Notes, Logged { (use Query).query(\"a\") }\n}\n\"#)"
----
-outer: fn() -> Int uses { Audit }
-wired: fn() -> Int uses { Audit }

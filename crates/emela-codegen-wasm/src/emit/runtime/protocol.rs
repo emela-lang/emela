@@ -456,7 +456,7 @@ fn finish(b: &mut Builder, ins: &mut InstructionSink) {
     // writes nothing, however main ended (`[api.std.process]`, `console::stdout_lost`).
     if b.uses_console() {
         ins.global_get(G_STDOUT);
-        ins.i32_const(super::console::STDOUT_LOST);
+        ins.i32_const(STDOUT_LOST);
         ins.i32_eq();
         ins.if_(BlockType::Empty);
         ins.i32_const(141);

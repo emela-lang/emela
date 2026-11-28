@@ -1,0 +1,7 @@
+---
+source: crates/emela-types/tests/handlers/multi_effect.rs
+expression: "run(r#\"\neffect Replica of Query\n\nhandler Plain: Query + Execute {\n  fn query(sql) { 0 }\n  fn execute(sql) { () }\n}\n\nhandler Notes: Audit + Execute {\n  fn note(msg) { () }\n  fn execute(sql) { () }\n}\n\nfn replica() -> Int {\n  with Replica by Plain { (use Replica).query(\"a\") }\n}\n\nfn wrong() -> Int {\n  with Replica by Notes { (use Replica).query(\"a\") }\n}\n\"#)"
+---
+replica: fn() -> Int
+wrong: fn() -> Int uses { Replica }
+`Notes` LabelMismatch { label: "Replica", base: "Query", provider: "Notes", provided: "Audit + Execute" }

@@ -16,7 +16,6 @@ mod diagnostic;
 mod dump;
 mod graph;
 pub mod hir;
-mod lower;
 mod module_name;
 mod naming;
 mod resolve;
@@ -24,16 +23,15 @@ mod source;
 mod suggest;
 
 pub use builtins::{BuiltinKind, BuiltinModules, BuiltinTable, NoBuiltins};
-pub use diagnostic::{DeprecatedRewrite, Diagnostic, DiagnosticKind, Expected};
+pub use diagnostic::{DeprecatedRewrite, Diagnostic, DiagnosticKind, Expected, shown_path};
 pub use dump::dump_module;
 pub use graph::{Import, ImportEdge, ImportGraph, build_import_graph};
-pub use lower::{string_attr, string_attr_value};
 pub use module_name::ModuleName;
 pub use naming::{NameError, is_type_name, to_type_name};
-pub use resolve::{imports, resolve};
+pub use resolve::{imports, resolve, string_attr, string_attr_value};
 pub use source::{
     DirEntry, EXTENSION, MemoryFs, ModuleData, ModuleId, ModuleMap, OsFs, Package, PackageId,
-    SourceFs, collect_modules, shown_path,
+    SourceFs, collect_modules,
 };
 pub use suggest::best_match;
 

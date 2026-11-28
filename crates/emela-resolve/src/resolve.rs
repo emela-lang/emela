@@ -7,11 +7,13 @@
 //!    constructors, values)
 //! 2. Imports: once every module's declarations are in, bring the listed names and modules into
 //!    scope
-//! 3. Lower: turn declaration contents (types, expressions, patterns) into HIR ([`crate::lower`])
+//! 3. Lower: turn declaration contents (types, expressions, patterns) into HIR ([`lower`])
 //!
 //! Namespaces are chosen by position: left of `.` only modules and traits are looked up, in type
 //! positions only types, and for type names in expressions and patterns only constructors. So a
 //! module `Email` and a type `Email` inside it (spec 4.4) do not collide.
+
+mod lower;
 
 use emela_syntax::ast::{self, AstNode, HasAttrs};
 use emela_syntax::{SyntaxNode, SyntaxToken};
@@ -23,11 +25,15 @@ use smol_str::SmolStr;
 use crate::builtins::{BuiltinKind, BuiltinModules, build_prelude};
 use crate::diagnostic::{Diagnostic, DiagnosticKind, Expected};
 use crate::hir::{
-    DefData, DefId, DefKind, DefModule, ModuleItems, NameRef, Program, RefTarget, Span,
+    DefData, DefId, DefKind, DefModule, Expr, ExprId, ExprKind, Fields, Item, LocalData, LocalId,
+    LocalKind, ModuleItems, NameRef, Pat, PatId, Program, RefTarget, Res, Span, Stmt, TypeId,
+    TypeKind, TypeRef,
 };
 use crate::source::{ModuleId, ModuleMap};
 use crate::suggest::best_match;
 use crate::{Import, ModuleName};
+
+pub use lower::{string_attr, string_attr_value};
 
 /// Module names live separately, in [`ModuleScope::modules`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -103,21 +109,21 @@ pub(crate) enum DotLeft {
 }
 
 pub(crate) struct Resolver<'a> {
-    pub(crate) modules: &'a ModuleMap,
+    modules: &'a ModuleMap,
     builtins: &'a dyn BuiltinModules,
     builtin_modules: Vec<SmolStr>,
     builtin_defs: FxHashMap<(SmolStr, SmolStr), DefId>,
-    pub(crate) program: Program,
-    pub(crate) scopes: ArenaMap<ModuleId, ModuleScope>,
+    program: Program,
+    scopes: ArenaMap<ModuleId, ModuleScope>,
     prelude: [FxHashMap<SmolStr, DefId>; 3],
     /// Trait functions and effect operations, looked up by name.
-    pub(crate) members: FxHashMap<DefId, Vec<DefId>>,
+    members: FxHashMap<DefId, Vec<DefId>>,
     /// Effects declared as labels (`effect AuditLog of Console`, issue #255).
-    pub(crate) labels: FxHashSet<DefId>,
+    labels: FxHashSet<DefId>,
     /// The inner handlers of each handler, with their constructors, in declaration order
     /// (`[effect.handler]`).
-    pub(crate) inner_handlers: FxHashMap<DefId, Vec<(DefId, Option<DefId>)>>,
-    pub(crate) diagnostics: Vec<Diagnostic>,
+    inner_handlers: FxHashMap<DefId, Vec<(DefId, Option<DefId>)>>,
+    diagnostics: Vec<Diagnostic>,
 }
 
 /// Modules missing from `files` (files that could not be read) are treated as empty.
@@ -130,17 +136,8 @@ pub fn resolve(
 ) -> (Program, Vec<Diagnostic>) {
     let mut resolver = Resolver::new(modules, builtins);
     let mut pending = Vec::new();
-    for (module, data) in modules.iter() {
-        resolver.scopes.insert(module, ModuleScope::default());
-        resolver.program.modules.insert(
-            module,
-            ModuleItems {
-                name: data.name.clone(),
-                items: Vec::new(),
-                is_core: modules.is_core(module),
-                traits: Vec::new(),
-            },
-        );
+    for (module, _) in modules.iter() {
+        resolver.add_module(module);
         if let Some(file) = files.get(module) {
             pending.extend(resolver.collect(module, file));
         }
@@ -156,8 +153,7 @@ pub fn resolve(
         }
     }
     for (module, _) in modules.iter() {
-        let traits = resolver.visible_traits(module);
-        resolver.program.modules[module].traits = traits;
+        resolver.record_visible_traits(module);
     }
     // Labels first: `L.Open` names a handler member of the base of the label L
     // (`[effect.label]`), which is known once the label is lowered. A label has no body, so this
@@ -166,9 +162,9 @@ pub fn resolve(
         .into_iter()
         .partition(|p| matches!(&p.item, ast::Item::Effect(e) if e.label().is_some()));
     for pending in labels.into_iter().chain(others) {
-        crate::lower::lower_item(&mut resolver, pending);
+        lower::lower_item(&mut resolver, pending);
     }
-    crate::lower::check_fn_field_names(&mut resolver);
+    resolver.check_fn_field_names();
     let Resolver {
         program,
         mut diagnostics,
@@ -282,6 +278,82 @@ impl<'a> Resolver<'a> {
             is_pub,
             is_opaque,
         })
+    }
+
+    /// Reports an fn of the module of a type, whose first parameter has that type at its head and
+    /// whose name is a field of that type (E3109, `[data.type]`). Types with fields are types,
+    /// errors and handlers with fields. Runs after every item is lowered, since it reads the
+    /// resolved type of the first parameter.
+    fn check_fn_field_names(&mut self) {
+        let program = &self.program;
+        let mut found = Vec::new();
+        for (def, item) in program.items.iter() {
+            let Item::Fn(f) = item else { continue };
+            let data = &program.defs[def];
+            let (DefModule::Source(module), Some(span)) = (&data.module, data.span) else {
+                continue;
+            };
+            let Some(ty) = f.sig.params.first().and_then(|p| p.ty) else {
+                continue;
+            };
+            let TypeKind::Path {
+                res: Res::Def(ty_def),
+                ..
+            } = program.types[ty].kind
+            else {
+                continue;
+            };
+            if program.defs[ty_def].module != data.module {
+                continue;
+            }
+            let fields = match program.item(ty_def) {
+                Some(Item::Type(t)) => &t.fields,
+                Some(Item::Error(e)) => &e.fields,
+                Some(Item::Handler(h)) => match h.ctor.and_then(|c| program.item(c)) {
+                    Some(Item::Ctor(c)) => &c.fields,
+                    _ => continue,
+                },
+                _ => continue,
+            };
+            let Fields::Named(fields) = fields else {
+                continue;
+            };
+            if fields.iter().any(|field| field.name == data.name) {
+                found.push((
+                    *module,
+                    span.range,
+                    DiagnosticKind::FnNamedLikeField {
+                        name: data.name.clone(),
+                        ty: program.defs[ty_def].name.clone(),
+                    },
+                ));
+            }
+        }
+        for (module, range, kind) in found {
+            self.error(module, range, kind);
+        }
+    }
+
+    /// Gives `module` an empty scope and an empty list of items, before its declarations are
+    /// collected.
+    fn add_module(&mut self, module: ModuleId) {
+        self.scopes.insert(module, ModuleScope::default());
+        self.program.modules.insert(
+            module,
+            ModuleItems {
+                name: self.modules[module].name.clone(),
+                items: Vec::new(),
+                is_core: self.modules.is_core(module),
+                traits: Vec::new(),
+            },
+        );
+    }
+
+    /// Records the traits visible in `module` into [`ModuleItems::traits`], once its imports are
+    /// resolved.
+    fn record_visible_traits(&mut self, module: ModuleId) {
+        let traits = self.visible_traits(module);
+        self.program.modules[module].traits = traits;
     }
 
     /// If the namespace already has the name, reports a duplicate and keeps the earlier one.
@@ -1021,6 +1093,34 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// Whether `module` is part of the bundled core.
+    pub(crate) fn is_core(&self, module: ModuleId) -> bool {
+        self.modules.is_core(module)
+    }
+
+    /// Whether a module named `name` is in scope in `module`.
+    pub(crate) fn module_in_scope(&self, module: ModuleId, name: &str) -> bool {
+        self.scopes[module].modules.contains_key(name)
+    }
+
+    /// Whether `effect` is declared as a label ([`Resolver::labels`]).
+    pub(crate) fn is_label(&self, effect: DefId) -> bool {
+        self.labels.contains(&effect)
+    }
+
+    /// The inner handlers of `handler` and their constructors ([`Resolver::inner_handlers`]).
+    pub(crate) fn inner_handlers(&self, handler: DefId) -> Vec<(DefId, Option<DefId>)> {
+        self.inner_handlers
+            .get(&handler)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// The trait functions or effect operations of `owner` ([`Resolver::members`]).
+    pub(crate) fn members_of(&self, owner: DefId) -> impl Iterator<Item = DefId> + '_ {
+        self.members.get(&owner).into_iter().flatten().copied()
+    }
+
     pub(crate) fn member(&self, owner: DefId, name: &str) -> Option<DefId> {
         self.members
             .get(&owner)?
@@ -1030,11 +1130,8 @@ impl<'a> Resolver<'a> {
     }
 
     pub(crate) fn member_names(&self, owner: DefId) -> Vec<SmolStr> {
-        self.members
-            .get(&owner)
-            .into_iter()
-            .flatten()
-            .map(|&d| self.program.defs[d].name.clone())
+        self.members_of(owner)
+            .map(|d| self.program.defs[d].name.clone())
             .collect()
     }
 
@@ -1044,6 +1141,85 @@ impl<'a> Resolver<'a> {
             DefModule::Source(m) => self.modules[*m].name.clone(),
             DefModule::Prelude => ModuleName::new([crate::PRELUDE]),
             DefModule::Builtin(name) => ModuleName::new([name.clone()]),
+        }
+    }
+}
+
+/// The HIR while it is built. The resolver owns it; lowering reads it and adds to it only through
+/// these methods.
+impl Resolver<'_> {
+    pub(crate) fn twin_handler(&self, def: DefId) -> Option<DefId> {
+        self.program.twin_handler(def)
+    }
+
+    pub(crate) fn label_base(&self, effect: DefId) -> Option<DefId> {
+        self.program.label_base(effect)
+    }
+
+    /// The entry of [`Program::alias_uses`] for `expr`, if there is one.
+    pub(crate) fn alias_use(&self, expr: ExprId) -> Option<Option<LocalId>> {
+        self.program.alias_uses.get(expr).copied()
+    }
+
+    pub(crate) fn def(&self, def: DefId) -> &DefData {
+        &self.program.defs[def]
+    }
+
+    pub(crate) fn expr(&self, expr: ExprId) -> &Expr {
+        &self.program.exprs[expr]
+    }
+
+    pub(crate) fn pat(&self, pat: PatId) -> &Pat {
+        &self.program.pats[pat]
+    }
+
+    pub(crate) fn local(&self, local: LocalId) -> &LocalData {
+        &self.program.locals[local]
+    }
+
+    pub(crate) fn alloc_expr(&mut self, expr: Expr) -> ExprId {
+        self.program.exprs.alloc(expr)
+    }
+
+    pub(crate) fn alloc_pat(&mut self, pat: Pat) -> PatId {
+        self.program.pats.alloc(pat)
+    }
+
+    pub(crate) fn alloc_type(&mut self, ty: TypeRef) -> TypeId {
+        self.program.types.alloc(ty)
+    }
+
+    pub(crate) fn alloc_local(&mut self, local: LocalData) -> LocalId {
+        self.program.locals.alloc(local)
+    }
+
+    /// The contents of the declaration `def`, once lowered.
+    pub(crate) fn insert_item(&mut self, def: DefId, item: Item) {
+        self.program.items.insert(def, item);
+    }
+
+    pub(crate) fn set_local_kind(&mut self, local: LocalId, kind: LocalKind) {
+        self.program.locals[local].kind = kind;
+    }
+
+    /// Records into [`Program::member_labels`].
+    pub(crate) fn set_member_label(&mut self, expr: ExprId, label: DefId) {
+        self.program.member_labels.insert(expr, label);
+    }
+
+    /// Records into [`Program::alias_uses`].
+    pub(crate) fn set_alias_use(&mut self, expr: ExprId, alias: Option<LocalId>) {
+        self.program.alias_uses.insert(expr, alias);
+    }
+
+    /// Puts `stmts` before the statements of `expr` if it is a block; otherwise hands them back.
+    pub(crate) fn prepend_to_block(&mut self, expr: ExprId, stmts: Vec<Stmt>) -> Option<Vec<Stmt>> {
+        match &mut self.program.exprs[expr].kind {
+            ExprKind::Block(block) => {
+                block.stmts.splice(0..0, stmts);
+                None
+            }
+            _ => Some(stmts),
         }
     }
 }

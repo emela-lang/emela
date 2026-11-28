@@ -13,9 +13,8 @@
 use emela_resolve::hir::{DefId, ExprId, ExprKind, Res, Span};
 
 use super::{BodyInfer, fn_parts};
-use crate::row::{Row, SetKind};
 use crate::sparse::SparseMap;
-use crate::ty::Ty;
+use crate::ty::{Row, SetKind, Ty};
 
 impl BodyInfer<'_> {
     /// Records in [`Self::bound_item_redirects`] the `use E` expressions (W4401, `[effect.use]`)
@@ -24,7 +23,6 @@ impl BodyInfer<'_> {
     /// after sets are solved.
     pub(super) fn find_bound_item_redirects(&mut self) {
         let program = self.program;
-        let rows = self.resolved_rows(SetKind::Effects);
         let bodies: Vec<ExprId> = self
             .defs
             .iter()
@@ -34,6 +32,8 @@ impl BodyInfer<'_> {
         for body in bodies {
             self.collect_use_sites(body, false, &mut Vec::new(), &mut sites);
         }
+        // Resolving every expression's R is only needed when there is a site to look at.
+        let mut rows = None;
         for (site, withs) in sites {
             let ExprKind::Use {
                 effect: Res::Def(effect),
@@ -49,7 +49,8 @@ impl BodyInfer<'_> {
                 Some(local) => program.alias_uses.get(e).copied().flatten() == Some(local),
                 None => e == site,
             };
-            if self.redirects(&rows, &withs, effect, &excluded) {
+            let rows = rows.get_or_insert_with(|| self.resolved_rows(SetKind::Effects));
+            if self.redirects(rows, &withs, effect, &excluded) {
                 self.bound_item_redirects.push(program.exprs[site].span);
             }
         }
@@ -165,8 +166,13 @@ impl BodyInfer<'_> {
                 continue;
             };
             let insts = self.item_insts(with, handlers);
-            let entries =
-                crate::layer::with_entries(program, self.sigs, self.ty_table, handlers, &insts);
+            let entries = crate::decl::layer::with_entries(
+                program,
+                self.sigs,
+                self.ty_table,
+                handlers,
+                &insts,
+            );
             if entries.iter().any(|e| e.named && e.effect.def == effect) {
                 return self.uses_by_name(rows, *body, effect, excluded);
             }

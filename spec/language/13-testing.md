@@ -59,7 +59,7 @@ fn sort_keeps_length() {
 
 ## 13.2 assert `[test.assert]`
 
-- In `assert expr`, the type of the expression is Bool. When it is False, it is a defect. The type of the whole assert expression is `()`.
+- In `assert expr`, the expression is a position with the expected type Bool (`[type.rules]`), so its type is Bool or Never. When it is False, it is a defect. The type of the whole assert expression is `()`.
 - A comparison assert evaluates each side once, from left to right. When it fails, the defect message is `assertion failed: <source text of the expression>`, and if the types of both sides of the comparison satisfy Show, the values of both sides follow, shown as by inspect (10.6). Otherwise only the source text of the expression is shown. assert does not require Show.
 - assert is a keyword, and the compiler looks at the form of the expression.
 - When a comparison assert fails, the message is `assertion failed: <source text of the expression>`, followed by a line break and `  left: <left side shown>`, then a line break and ` right: <right side shown>`. `left` is preceded by two spaces and `right` by one space, so that the colons line up. Both sides are shown the same way as by inspect (`[trait.builtin]`), and a String is enclosed in quotes.

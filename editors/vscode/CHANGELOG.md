@@ -2,6 +2,13 @@
 
 The version of the extension follows the version of the `emela` binary it was released with.
 
+## 0.29.0
+
+Released with `emela` 0.29.0. The features of 0.29.0 come from `emela lsp`.
+
+- `<-` in an effect alias (`console <- Console`) is one operator. It was coloured as `<`
+  followed by `-`.
+
 ## 0.28.0
 
 Released with `emela` 0.28.0. The extension itself has no changes: the features of 0.28.0 come

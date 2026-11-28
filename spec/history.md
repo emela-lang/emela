@@ -2,6 +2,14 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-29 (A sampling profiler for emela build, run and test)
+
+- `[cmd.profile]`, `[cmd.build]`, `[cmd.test.target]`, `[target.native.output]`, `[target.native.cc]`, `[target.native.run]`, `[diag.list]`: `emela run --profile` and `emela test --profile` run the program under a sampling profiler of the operating system and report where its time goes, by Emela function. `emela build --profile` makes the same build without running it, with symbols named after Emela functions, for any profiler the user runs. The first version supports only the native target. The profile is taken from the same optimised code that `emela run` runs, so it answers both "which of my functions is slow" and "what did the compiler make of them". Adopted in the proposal `profile` (#945).
+
+## 2026-11-29 (Guards, the operand of `!` and the expression of assert are positions with the expected type Bool)
+
+- `[fn.match]`, `[fn.operator]`, `[test.assert]`, `[type.rules]`: The guard of a match or escape arm, the operand of `!` and the expression of `assert` are positions with the expected type Bool (`[type.rules]`). This rule already holds for the condition of an if (`[fn.if]`). The type of each of these positions is therefore Bool or Never. The E and R of a guard flow into the match or escape it belongs to. The compiler does all of this already, so no program changes meaning. A question raised in #908, whether a condition whose type is Never should be a compile error so that if, `&&` and `||` are defined by their rewrite into a match alone, this proposal answers no: a condition of type Never stays accepted (Alternatives). Adopted in the proposal `guard-type` (#956).
+
 ## 2026-11-25 (External functions as an effect of their module)
 
 - `[effect.external]`, `[effect.decl]`, `[effect.handler]`, `[ext]`, `[ext.decl]`, `[ext.call]`, `[ext.boundary]`, `[module.pome]`, `[diag.list]`: Calling an external function with host side effects adds `External`, a built-in effect of the module that declares the function, to R, and only the bodies of the handlers of that module remove it: a value that calls an external function can be carried anywhere, but called only inside those handlers, so rule 2 of `[ext.call]` becomes a type rule. E0407 is retired, so private fns can call external functions, and E0237 is retired, so an `@external` fn MAY be pub in every Pome: in another module it keeps the External of the module that declares it. External is never written in the declaration of an external function, and one declared with `uses {}` that is not a `suspend fn` stays pure. Adopted in the proposal `external-effect` (#820).

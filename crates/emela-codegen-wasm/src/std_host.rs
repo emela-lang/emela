@@ -186,7 +186,7 @@ impl StdHost {
         matches!(self, StdHost::ClockSleep)
     }
 
-    /// Whether the host is part of `Std.Http.serve` (`runtime/http.rs`).
+    /// Whether the host is part of `Std.Http.serve` (`runtime/wasi/http.rs`).
     pub(crate) fn is_http(self) -> bool {
         matches!(
             self,
@@ -205,7 +205,7 @@ impl StdHost {
         )
     }
 
-    /// Whether the host is part of `Std.Tcp` (`runtime/tcp.rs`).
+    /// Whether the host is part of `Std.Tcp` (`runtime/wasi/tcp.rs`).
     pub(crate) fn is_tcp(self) -> bool {
         matches!(self, StdHost::TcpOpenRegistry | StdHost::TcpReleaseRegistry)
     }

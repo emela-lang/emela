@@ -1,0 +1,63 @@
+---
+source: crates/emela-driver/tests/check/diagnostics/types.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+warning[W3101]: unreachable match arm
+    ╭─[ main.emel:16:5 ]
+    │
+ 16 │     Empty -> 1.0
+    │     ──┬──  
+    │       ╰──── 
+────╯
+
+error[E3001]: type mismatch: expected `Int`, found `String`
+    ╭─[ main.emel:22:12 ]
+    │
+ 22 │   a: Int = u.name
+    │            ───┬──  
+    │               ╰──── 
+────╯
+
+error[E3103]: no parameter named `prot` in `connect`
+    ╭─[ main.emel:23:20 ]
+    │
+ 23 │   b = connect("x", prot: 1)
+    │                    ──┬─  
+    │                      ╰─── 
+────╯
+
+error[E3004]: integer literal `3000000000` is out of range for `Int`
+    ╭─[ main.emel:24:12 ]
+    │
+ 24 │   c: Int = 3000000000
+    │            ─────┬────  
+    │                 ╰────── 
+────╯
+
+error[E3108]: refutable pattern in binding: pattern `None` not covered
+    ╭─[ main.emel:25:3 ]
+    │
+ 25 │   Some(x) = Some(1)
+    │   ───┬───  
+    │      ╰───── 
+────╯
+   = help: use `match` to handle the other cases
+
+error[E3105]: pattern `User` does not mention field `id`
+    ╭─[ main.emel:26:3 ]
+    │
+ 26 │   User(name:) = u
+    │   ─────┬─────  
+    │        ╰─────── 
+────╯
+   = help: add `..` to ignore the remaining fields
+
+error[E3106]: no field or function `nmae` for type `User`
+    ╭─[ main.emel:27:9 ]
+    │
+ 27 │   d = u.nmae
+    │         ──┬─  
+    │           ╰─── 
+────╯
+
+6 errors, 1 warning

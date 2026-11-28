@@ -26,6 +26,7 @@
 //! together. E and R get separate set variables, so they never mix.
 
 use crate::sparse::SparseMap;
+use crate::ty::{CapElem, CapId, Row, RowElem, RowVar, Tag, Ty, TyParam, substitute_row};
 use emela_resolve::hir::{
     Arm, Block, DefId, DefKind, DefModule, ExprId, ExprKind, Item, LocalId, PatId, PatKind,
     Program, Res, Span, Stmt, StrPart,
@@ -34,13 +35,11 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
 use super::{BodyInfer, FnParts, fn_parts};
-use crate::coverage::Shapes;
 use crate::diagnostic::LeakFrom;
 use crate::diagnostic::{BoundItem, EffectContext, LayerArg};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
-use crate::infer::{Origin, SetKind, Subset, substitute_row};
-use crate::row::{CapElem, CapId, Row, RowElem, RowVar, Tag};
-use crate::ty::{Ty, TyParam};
+use crate::exhaustiveness::coverage::Shapes;
+use crate::infer::{Origin, SetKind, Subset};
 
 /// One lower bound of a set variable: the elements of `elem` minus the elements in `minus`.
 struct Lower {
@@ -189,7 +188,7 @@ impl BodyInfer<'_> {
                 let mut row = Row::empty();
                 for part in parts {
                     if let StrPart::Interp(e) = part {
-                        row.extend(&self.expr_row(*e));
+                        row.append(self.expr_row(*e));
                     }
                 }
                 row
@@ -198,9 +197,9 @@ impl BodyInfer<'_> {
             ExprKind::Call { callee, args } => {
                 let mut row = self.expr_row(*callee);
                 for arg in args {
-                    row.extend(&self.expr_row(arg.value));
+                    row.append(self.expr_row(arg.value));
                 }
-                row.extend(&self.callee_fails(*callee, e.span));
+                row.append(self.callee_fails(*callee, e.span));
                 row
             }
             ExprKind::Unary { operand, .. } => self.expr_row(*operand),
@@ -216,15 +215,15 @@ impl BodyInfer<'_> {
                     ExprKind::Call { callee, args } => {
                         let mut r = self.expr_row(*callee);
                         for arg in args {
-                            r.extend(&self.expr_row(arg.value));
+                            r.append(self.expr_row(arg.value));
                         }
-                        r.extend(&self.callee_fails(*callee, e.span));
+                        r.append(self.callee_fails(*callee, e.span));
                         self.expr_rows.insert(*rhs, r.clone());
                         r
                     }
                     _ => {
                         let mut r = self.expr_row(*rhs);
-                        r.extend(&self.callee_fails(*rhs, e.span));
+                        r.append(self.callee_fails(*rhs, e.span));
                         r
                     }
                 };
@@ -236,7 +235,7 @@ impl BodyInfer<'_> {
             ExprKind::List { elems, rest } => {
                 let mut row = self.rows_of(elems);
                 if let Some(rest) = rest {
-                    row.extend(&self.expr_row(*rest));
+                    row.append(self.expr_row(*rest));
                 }
                 row
             }
@@ -247,9 +246,9 @@ impl BodyInfer<'_> {
                 else_branch,
             } => {
                 let mut row = self.expr_row(*cond);
-                row.extend(&self.expr_row(*then_branch));
+                row.append(self.expr_row(*then_branch));
                 if let Some(e) = else_branch {
-                    row.extend(&self.expr_row(*e));
+                    row.append(self.expr_row(*e));
                 }
                 row
             }
@@ -257,9 +256,9 @@ impl BodyInfer<'_> {
                 let mut row = self.expr_row(*scrutinee);
                 for arm in arms {
                     if let Some(guard) = arm.guard {
-                        row.extend(&self.expr_row(guard));
+                        row.append(self.expr_row(guard));
                     }
-                    row.extend(&self.expr_row(arm.body));
+                    row.append(self.expr_row(arm.body));
                 }
                 row
             }
@@ -330,9 +329,9 @@ impl BodyInfer<'_> {
                 }
                 for arm in arms {
                     if let Some(guard) = arm.guard {
-                        row.extend(&self.expr_row(guard));
+                        row.append(self.expr_row(guard));
                     }
-                    row.extend(&self.expr_row(arm.body));
+                    row.append(self.expr_row(arm.body));
                 }
                 let wildcard = wildcard.map(|i| arms[i].pat);
                 self.escapes.push(Escape {
@@ -360,9 +359,9 @@ impl BodyInfer<'_> {
             ExprKind::Update { ctor, fields, base } => {
                 let mut row = self.expr_row(*ctor);
                 for field in fields {
-                    row.extend(&self.expr_row(field.value));
+                    row.append(self.expr_row(field.value));
                 }
-                row.extend(&self.expr_row(*base));
+                row.append(self.expr_row(*base));
                 row
             }
             // The E of `with` is the body's E plus the init E of the listed handlers and the E of
@@ -370,27 +369,31 @@ impl BodyInfer<'_> {
             // overrides are not evaluated (`[effect.with]`).
             ExprKind::With { handlers, body } => {
                 let insts = self.item_insts(expr, handlers);
-                let entries =
-                    crate::layer::with_entries(program, self.sigs, self.ty_table, handlers, &insts);
+                let entries = crate::decl::layer::with_entries(
+                    program,
+                    self.sigs,
+                    self.ty_table,
+                    handlers,
+                    &insts,
+                );
                 let mut row = Row::empty();
                 for (i, item) in handlers.iter().enumerate() {
-                    let initialized = crate::layer::item_evaluated(program, &entries, handlers, i);
-                    for arg in crate::layer::item_args(item) {
+                    let initialized =
+                        crate::decl::layer::item_evaluated(program, &entries, handlers, i);
+                    for arg in crate::decl::layer::item_args(item) {
                         let arg_row = self.expr_row(arg);
                         if initialized {
                             row.extend(&arg_row);
                         }
                     }
                 }
-                row.extend(&self.expr_row(*body));
+                row.append(self.expr_row(*body));
                 for entry in entries {
                     if let Some(h) = entry.handler() {
                         // The tasks of a built-in handler fail the `with` (`[task.group]`).
-                        if let Some(fails) = self.builtin_handler_sets(
-                            h,
-                            &entry.ty_args,
-                            crate::row::SetKind::Errors,
-                        ) {
+                        if let Some(fails) =
+                            self.builtin_handler_sets(h, &entry.ty_args, crate::ty::SetKind::Errors)
+                        {
                             row.extend(&fails);
                             continue;
                         }
@@ -398,7 +401,7 @@ impl BodyInfer<'_> {
                         let fails = self.instantiate_facts(
                             fails,
                             &entry.ty_args,
-                            crate::row::SetKind::Errors,
+                            crate::ty::SetKind::Errors,
                         );
                         row.extend(&fails);
                     }
@@ -426,7 +429,7 @@ impl BodyInfer<'_> {
     fn rows_of(&mut self, exprs: &[ExprId]) -> Row {
         let mut row = Row::empty();
         for &e in exprs {
-            row.extend(&self.expr_row(e));
+            row.append(self.expr_row(e));
         }
         row
     }
@@ -435,13 +438,13 @@ impl BodyInfer<'_> {
         let mut row = Row::empty();
         for stmt in &block.stmts {
             match stmt {
-                Stmt::Let { value, .. } => row.extend(&self.expr_row(*value)),
+                Stmt::Let { value, .. } => row.append(self.expr_row(*value)),
                 Stmt::LocalFn(f) => self.local_fn_errors(f.local),
-                Stmt::Expr(e) => row.extend(&self.expr_row(*e)),
+                Stmt::Expr(e) => row.append(self.expr_row(*e)),
             }
         }
         if let Some(tail) = block.tail {
-            row.extend(&self.expr_row(tail));
+            row.append(self.expr_row(tail));
         }
         row
     }
@@ -591,18 +594,17 @@ impl BodyInfer<'_> {
         // solved E and R of the group's definitions at their references
         // ([`Self::place_instance_sets`]) add constraints while solving, so solve again until no
         // new constraint appears.
-        self.ctx.set_solving(true);
+        self.ctx.start_solving();
         let row_diffs = std::mem::take(&mut self.row_diffs);
         loop {
-            let count = self.ctx.subsets().len();
+            let count = self.ctx.subset_count();
             self.solve_round(&row_diffs);
             self.place_instance_sets();
-            if self.ctx.subsets().len() == count {
+            if self.ctx.subset_count() == count {
                 break;
             }
         }
-        self.ctx.set_solving(false);
-        let subsets = self.ctx.subsets().to_vec();
+        let subsets = self.ctx.finish_solving();
 
         self.check_subsets(&subsets);
     }
@@ -627,8 +629,7 @@ impl BodyInfer<'_> {
     /// capability first entered each set variable ([`BodyInfer::cap_provenance`]).
     fn solve_round(&mut self, row_diffs: &[(RowVar, RowVar, Vec<RowElem>)]) {
         // Start from the set variables, not from the previous round's solution.
-        self.ctx.clear_row_solution();
-        let subsets = self.ctx.subsets().to_vec();
+        let subsets = self.ctx.start_round();
 
         // Lower bounds of set variables.
         let mut lowers: FxHashMap<RowVar, Vec<Lower>> = FxHashMap::default();
@@ -1144,7 +1145,7 @@ impl BodyInfer<'_> {
             };
             let builtin = program.defs[op]
                 .parent
-                .is_some_and(|e| crate::lower::is_intrinsic_effect(program, e));
+                .is_some_and(|e| crate::decl::lower::is_intrinsic_effect(program, e));
             if !builtin || program.defs[op].name != "start" {
                 continue;
             }
@@ -1272,8 +1273,13 @@ impl BodyInfer<'_> {
         loop {
             if let ExprKind::With { handlers, .. } = &program.exprs[current].kind {
                 let insts = self.item_insts(current, handlers);
-                let entries =
-                    crate::layer::with_entries(program, self.sigs, self.ty_table, handlers, &insts);
+                let entries = crate::decl::layer::with_entries(
+                    program,
+                    self.sigs,
+                    self.ty_table,
+                    handlers,
+                    &insts,
+                );
                 let found = entries.iter().find_map(|e| {
                     let item = &handlers[e.origin];
                     let local = item.bind?;
@@ -1364,7 +1370,7 @@ impl BodyInfer<'_> {
             // The arguments of a handler a later item overrides are not evaluated
             // (`[effect.with]`), so no error or call in them is reported.
             ExprKind::With { handlers, body } => {
-                out.extend(crate::layer::evaluated_args(
+                out.extend(crate::decl::layer::evaluated_args(
                     self.program,
                     self.sigs,
                     self.ty_table,
@@ -1528,7 +1534,7 @@ impl BodyInfer<'_> {
             CapId::Item { with, item } => {
                 let made_at = match &program.exprs[with].kind {
                     // A handler member opened through the `with`'s handlers: the items.
-                    ExprKind::With { handlers, .. } if item == crate::row::OPENED_IN_INIT => {
+                    ExprKind::With { handlers, .. } if item == crate::ty::OPENED_IN_INIT => {
                         handlers.first().zip(handlers.last()).map(|(a, b)| Span {
                             module: a.span.module,
                             range: a.span.range.cover(b.span.range),
@@ -1597,7 +1603,7 @@ impl BodyInfer<'_> {
                 _ => continue,
             };
             if let ExprKind::Path(Res::Def(def)) = program.exprs[callee].kind {
-                return crate::builtin::qualified_name(program, def);
+                return crate::decl::builtin::qualified_name(program, def);
             }
         }
         SmolStr::new("the function")
@@ -1612,12 +1618,11 @@ impl BodyInfer<'_> {
     pub(super) fn check_leaks(&mut self) {
         self.check_task_items();
         self.check_with_values();
-        for (cap, span) in std::mem::take(&mut self.ctx.scopes.escapes) {
+        for (cap, span) in self.ctx.take_escapes() {
             self.push_leak(&cap, span);
         }
         for (v, row) in self.ctx.solution_entries() {
-            let scope = self.ctx.scopes.row_var(v);
-            let effects = self.ctx.effect_vars.contains(&v);
+            let effects = self.ctx.is_effect_var(v);
             // The sets an error tag records (`[type.rules]`).
             let mut in_tags: Vec<CapElem> = Vec::new();
             for t in row.tags() {
@@ -1642,13 +1647,13 @@ impl BodyInfer<'_> {
                 {
                     continue;
                 }
-                if !self.ctx.scopes.fits(c, scope) {
+                if !self.ctx.may_hold(v, c) {
                     let span = self
                         .cap_provenance
                         .get(&(v, c.id))
                         .copied()
                         .flatten()
-                        .or(self.ctx.scopes.row_span(v));
+                        .or(self.ctx.row_var_span(v));
                     self.push_leak(c, span);
                 }
             }
@@ -1661,19 +1666,18 @@ impl BodyInfer<'_> {
     /// same leak is found where the R of the with flows.
     fn check_task_items(&mut self) {
         let program = self.program;
-        let vars: Vec<(crate::row::RowVar, (ExprId, u32))> =
+        let vars: Vec<(crate::ty::RowVar, (ExprId, u32))> =
             self.item_set_vars.iter().map(|(v, w)| (*v, *w)).collect();
         for (v, (with, i)) in vars {
             let ExprKind::With { handlers, .. } = &program.exprs[with].kind else {
                 continue;
             };
             let span = handlers.get(i as usize).map(|h| h.span);
-            let scope = self.ctx.scopes.row_var(v);
             let row = self.ctx.resolve_row(&Row::var(v));
             for c in row.caps() {
                 let allowed =
                     matches!(c.id, CapId::Item { with: w, item } if w == with && item <= i);
-                if !allowed && !self.ctx.scopes.fits(c, scope) {
+                if !allowed && !self.ctx.may_hold(v, c) {
                     self.push_leak(c, span);
                 }
             }
@@ -1695,12 +1699,17 @@ impl BodyInfer<'_> {
             };
             let ty = self.ctx.resolve(&ty);
             let insts = self.item_insts(with, handlers);
-            let provides: Vec<Tag> =
-                crate::layer::with_entries(program, self.sigs, self.ty_table, handlers, &insts)
-                    .into_iter()
-                    .filter(|e| e.named)
-                    .map(|e| e.effect.map_args(|a| self.ctx.resolve(a)))
-                    .collect();
+            let provides: Vec<Tag> = crate::decl::layer::with_entries(
+                program,
+                self.sigs,
+                self.ty_table,
+                handlers,
+                &insts,
+            )
+            .into_iter()
+            .filter(|e| e.named)
+            .map(|e| e.effect.map_args(|a| self.ctx.resolve(a)))
+            .collect();
             let mut found = Vec::new();
             caps_of(&ty, &mut found);
             // The E of the `with`: the capabilities an error records (`[type.rules]`).

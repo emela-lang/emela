@@ -13,6 +13,12 @@ use rustc_hash::FxHashMap;
 
 use crate::intrinsics::Builtin;
 
+pub(crate) mod dump;
+pub(crate) mod typing;
+pub(crate) mod verify;
+
+pub use verify::{VerifyError, verify, verify_monomorphic};
+
 pub type FnId = Idx<Function>;
 pub type EnumId = Idx<EnumDef>;
 pub type Local = Idx<LocalData>;
@@ -701,7 +707,7 @@ pub enum Type {
     /// representation. A handler's implementation of a generic operation sees the operation's own
     /// type parameters as `Any` too (`OpDef`).
     ///
-    /// [`crate::verify`] accepts `Any` where any type is expected and the other way round.
+    /// [`crate::ir::verify`] accepts `Any` where any type is expected and the other way round.
     Any,
     /// What decides calling conventions about an error or effect set: the argument of a set type
     /// parameter (`R(f)` of `List.map`) in `ty_args` and in enum type arguments, and the E and R
@@ -970,7 +976,7 @@ impl TypeStore for TypeTable {
 }
 
 /// Replaces `Type::Param(i)` with `args[i]` in `ty`. A parameter without an argument is left as
-/// is (only in malformed IR, which [`crate::verify`] reports).
+/// is (only in malformed IR, which [`crate::ir::verify`] reports).
 ///
 /// Set type parameters are replaced inside [`Type::Set`]s: a parameter whose argument is a set
 /// summary is merged into it, and one whose argument is something else (the `()` placeholder) is

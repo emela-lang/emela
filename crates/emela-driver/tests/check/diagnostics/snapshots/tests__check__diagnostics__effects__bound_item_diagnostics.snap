@@ -1,0 +1,87 @@
+---
+source: crates/emela-driver/tests/check/diagnostics/effects.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+warning[W4401]: `use Db` as an expression is deprecated
+    ╭─[ main.emel:39:9 ]
+    │
+ 39 │     x = use Db
+    │         ───┬──  
+    │            ╰──── 
+────╯
+
+warning[W4401]: `use Db` as an expression is deprecated
+    ╭─[ main.emel:46:9 ]
+    │
+ 46 │     x = use Db
+    │         ───┬──  
+    │            ╰──── 
+────╯
+   = help: write `x <- Db`, or a named item `with x = H`
+
+error[E4404]: `d` is an effect alias, not a value: only `d.op(...)` and `d.op` can be written
+    ╭─[ main.emel:54:13 ]
+    │
+ 54 │     "#{show(d)} #{write_side()}"
+    │             ┬  
+    │             ╰── 
+────╯
+
+error[E4404]: `d` is an effect alias, not a value: only `d.op(...)` and `d.op` can be written
+    ╭─[ main.emel:61:13 ]
+    │
+ 61 │     "#{show(d)} #{d.name()}"
+    │             ┬  
+    │             ╰── 
+────╯
+   = help: for a fixed value, use a named item `with x = H`
+
+error[E4301]: effect `Db` is not provided in `main`
+    ╭─[ main.emel:27:30 ]
+    │
+ 26 │   with replica = ReplicaDb {
+    │                  ────┬────  
+    │                      ╰────── `replica` is bound here
+ 27 │     _ = "#{replica.name()} #{write_side()}"
+    │                              ──────┬─────  
+    │                                    ╰─────── 
+────╯
+   = note: `replica` is a bound item, so it does not provide `Db` by name
+   = help: remove `replica =` to provide it by name, or call through `replica`
+
+error[E4105]: label item `Side by Db` cannot be bound to a name: it makes no handler
+    ╭─[ main.emel:33:17 ]
+    │
+ 33 │     with side = Side by Db, db = Side { "#{side.name()} #{db.name()}" }
+    │                 ─────┬────  
+    │                      ╰────── 
+────╯
+   = help: list it without a name, and write `side <- Side` in the body
+
+error[E4105]: label item `Side` cannot be bound to a name: it makes no handler
+    ╭─[ main.emel:33:34 ]
+    │
+ 33 │     with side = Side by Db, db = Side { "#{side.name()} #{db.name()}" }
+    │                                  ──┬─  
+    │                                    ╰─── 
+────╯
+   = help: list it without a name, and write `db <- Db` in the body
+
+error[E5003]: effect `Db` cannot be used by a callback of external function `later`: the host calls it without handlers
+    ╭─[ main.emel:68:5 ]
+    │
+ 68 │     later(|| {
+    │     ──┬──  
+    │       ╰──── 
+────╯
+
+error[E5003]: effect `Db` cannot be used by a callback of external function `later`: the host calls it without handlers
+    ╭─[ main.emel:76:5 ]
+    │
+ 76 │     later(|| {
+    │     ──┬──  
+    │       ╰──── 
+────╯
+   = help: capture the capability of a named item (`with g = H { ... }`) and call its operations
+
+7 errors, 2 warnings

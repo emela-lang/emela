@@ -3,7 +3,7 @@
   "displayName": "Emela",
   "icon": "./icons/emela-logo.png",
   "description": "Emela language support: diagnostics, completion and the other features of `emela lsp`, plus syntax highlighting.",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "publisher": "Emela",
   "license": "Apache-2.0",
   "repository": {
@@ -74,7 +74,7 @@
   "devDependencies": {
     "@types/node": "^26.0.0",
     "@types/vscode": "^1.85.0",
-    "@vscode/vsce": "4.1.0",
+    "@vscode/vsce": "4.1.1",
     "esbuild": "^0.28.0",
     "typescript": "^5.4.0"
   }

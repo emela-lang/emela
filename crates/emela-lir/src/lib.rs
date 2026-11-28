@@ -21,6 +21,7 @@ mod from_core;
 mod heap;
 mod ir;
 pub mod opt;
+mod pipeline;
 mod repr;
 mod verify;
 
@@ -28,10 +29,11 @@ pub use build::FnBuilder;
 pub use dump::{core_ty, dump, dump_function};
 pub use from_core::{FromCoreError, from_core};
 pub use heap::{
-    BorrowReport, builtin_may_defect, convert_closures, explicit_defects, fiber_may_defect,
-    insert_borrow_signature, insert_rc, may_suspend, state_machines, to_heap, to_heap_with,
-    to_heap_with_options,
+    builtin_may_defect, convert_closures, explicit_defects, fiber_may_defect, insert_rc,
+    may_suspend, state_machines,
 };
 pub use ir::*;
+pub use opt::borrow_signature::{BorrowReport, insert_borrow_signature};
+pub use pipeline::{to_heap, to_heap_with, to_heap_with_options};
 pub use repr::{Repr, enum_repr, repr_of, repr_of_subst};
 pub use verify::{ErrorKind, VerifyError, verify, verify_function};

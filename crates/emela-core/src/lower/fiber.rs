@@ -40,7 +40,7 @@
 //! taken out in an outer group starts into that outer group. Since a task's table holds the
 //! capability value that started it, the tasks of an inner group start their siblings into it.
 
-use emela_resolve::hir::{DefId, DefModule, ExprId, Item, Span};
+use emela_resolve::hir::{DefId, DefModule, ExprId, Span};
 use emela_types::{FnTy, Tag, Ty};
 
 use super::{Call, Lowerer, Target};
@@ -220,11 +220,6 @@ impl AttemptCall {
 }
 
 impl Lowerer<'_> {
-    /// Whether it is a builtin effect (`@intrinsic effect`).
-    pub(super) fn is_intrinsic_effect(&self, effect: DefId) -> bool {
-        matches!(self.hir.item(effect), Some(Item::Effect(e)) if e.is_intrinsic)
-    }
-
     /// If the `@intrinsic` fn `def` is a chapter 11 function, its callee. `callee` is the
     /// referencing expression.
     pub(super) fn fiber_target(

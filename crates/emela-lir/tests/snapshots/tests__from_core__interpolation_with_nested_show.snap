@@ -58,33 +58,60 @@ fn show$(Bool, Float, String)(x%0: ref ((Bool, Float, String))) -> ref (String) 
 }
 
 fn show$List[()](x%0: ref (List[()])) -> ref (String) {
-  joined%4: ref (String) = loop(p%1: ref (List[()]) = x%0, acc%2: ref (String) = "", sep%3: ref (String) = "") {
-    empty%5: i32 (Bool) = list_is_empty p%1
-    if empty%5 {} else {
-      t%6: ref (List[()]) = list_tail p%1
-      s%7: ref (String) = runtime concat(acc%2, sep%3, "()")
-      recur(t%6, s%7, ", ")
+  empty%1: i32 (Bool) = list_is_empty x%0
+  if empty%1 {
+    return "[]"
+  } else {}
+  nil%2: ref (List[String]) = list[]
+  reversed%5: ref (List[String]) = loop(p%3: ref (List[()]) = x%0, rev%4: ref (List[String]) = nil%2) {
+    empty%6: i32 (Bool) = list_is_empty p%3
+    if empty%6 {} else {
+      t%7: ref (List[()]) = list_tail p%3
+      next%8: ref (List[String]) = list["()", ..rev%4]
+      recur(t%7, next%8)
     }
-    yield acc%2
+    yield rev%4
   }
-  s%8: ref (String) = runtime concat("[", joined%4, "]")
-  return s%8
+  s%9: ref (String) = call show$ListJoin(reversed%5)
+  return s%9
+}
+
+fn show$ListJoin(rev%0: ref (List[String])) -> ref (String) {
+  nil%1: ref (List[String]) = list[]
+  parts%4: ref (List[String]) = loop(q%2: ref (List[String]) = rev%0, acc%3: ref (List[String]) = nil%1) {
+    empty%5: i32 (Bool) = list_is_empty q%2
+    if empty%5 {} else {
+      h%6: ref (String) = list_head q%2
+      t%7: ref (List[String]) = list_tail q%2
+      next%8: ref (List[String]) = list[h%6, ..acc%3]
+      recur(t%7, next%8)
+    }
+    yield acc%3
+  }
+  joined%9: ref (String) = builtin List.join(parts%4, ", ")
+  s%10: ref (String) = runtime concat("[", joined%9, "]")
+  return s%10
 }
 
 fn show$List[Option[Int]](x%0: ref (List[Option[Int]])) -> ref (String) {
-  joined%4: ref (String) = loop(p%1: ref (List[Option[Int]]) = x%0, acc%2: ref (String) = "", sep%3: ref (String) = "") {
-    empty%5: i32 (Bool) = list_is_empty p%1
-    if empty%5 {} else {
-      h%6: ref (Option[Int]) = list_head p%1
-      t%7: ref (List[Option[Int]]) = list_tail p%1
-      s%8: ref (String) = call show$Option[Int](h%6)
-      s%9: ref (String) = runtime concat(acc%2, sep%3, s%8)
-      recur(t%7, s%9, ", ")
+  empty%1: i32 (Bool) = list_is_empty x%0
+  if empty%1 {
+    return "[]"
+  } else {}
+  nil%2: ref (List[String]) = list[]
+  reversed%5: ref (List[String]) = loop(p%3: ref (List[Option[Int]]) = x%0, rev%4: ref (List[String]) = nil%2) {
+    empty%6: i32 (Bool) = list_is_empty p%3
+    if empty%6 {} else {
+      h%7: ref (Option[Int]) = list_head p%3
+      t%8: ref (List[Option[Int]]) = list_tail p%3
+      s%9: ref (String) = call show$Option[Int](h%7)
+      next%10: ref (List[String]) = list[s%9, ..rev%4]
+      recur(t%8, next%10)
     }
-    yield acc%2
+    yield rev%4
   }
-  s%10: ref (String) = runtime concat("[", joined%4, "]")
-  return s%10
+  s%11: ref (String) = call show$ListJoin(reversed%5)
+  return s%11
 }
 
 fn show$Option[Int](x%0: ref (Option[Int])) -> ref (String) {

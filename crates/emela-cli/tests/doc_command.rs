@@ -1,7 +1,7 @@
 //! Integration tests that run `emela doc` as a process.
 //!
 //! Covers the arguments, where the files go, and refusing to write when there are errors. What
-//! the pages contain is tested in emela-driver's tests/doc.rs.
+//! the pages contain is tested in emela-driver's tests/project/doc.rs.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

@@ -9,7 +9,7 @@
 //! - A call adds the callee function type's R. A capability operation's type has that effect as
 //!   its R.
 //! - The R of `with H1, ..., Hn { e }` is `e`'s R minus the provided effects, plus each handler's
-//!   dependencies (spec 9.4). Layers expand into their handlers (spec 8.5, `crate::layer`). A
+//!   dependencies (spec 9.4). Layers expand into their handlers (spec 8.5, `crate::decl::layer`). A
 //!   handler dependency met by a handler in the same `with` providing another effect is not
 //!   added (spec 14.2). Effects are removed from set variables by replacing them with fresh set
 //!   variables whose solutions exclude those effects; nothing is removed from set type
@@ -21,7 +21,7 @@
 //!   its function, and a call puts the argument's set in its place by instantiation.
 //! - A closure or a local fn also has in its R the capabilities in the types of the values it
 //!   captures (`[effect.use]`).
-//! - The `self` of a handler ([`crate::row::CapId::SelfOf`]) is removed at the end of the body
+//! - The `self` of a handler ([`crate::ty::CapId::SelfOf`]) is removed at the end of the body
 //!   of its operation, init or release.
 //! - A body's R is contained in the declared R. Without a `uses` clause the declared R is a set
 //!   variable, and the body's R becomes its solution as is (spec 9.3). The bodies of `main` and
@@ -34,11 +34,10 @@
 use emela_resolve::hir::{BinaryOp, DefId, DefModule, ExprId, ExprKind, Item, Res, Stmt, WithItem};
 
 use super::{BodyInfer, fn_parts};
+use crate::decl::layer::{self, PendingWith, Supplier, WithBind, WithInfo};
 use crate::diagnostic::{Diagnostic, DiagnosticKind};
 use crate::infer::{Origin, SetKind};
-use crate::layer::{self, PendingWith, Supplier, WithBind, WithInfo};
-use crate::row::{CapElem, CapId, Row, RowElem, Tag};
-use crate::ty::Ty;
+use crate::ty::{CapElem, CapId, Row, RowElem, Tag, Ty};
 
 impl BodyInfer<'_> {
     /// Computes the R of inferred definition bodies and adds constraints that they are contained
@@ -47,7 +46,7 @@ impl BodyInfer<'_> {
         let program = self.program;
         for def in self.defs.clone() {
             self.current = Some(def);
-            self.ctx.scopes.reset();
+            self.ctx.reset_scopes();
             match program.item(def) {
                 Some(Item::Fn(_) | Item::TraitFn(_)) | None => {
                     let Some(parts) = fn_parts(program, def) else {
@@ -116,9 +115,9 @@ impl BodyInfer<'_> {
                         .map(|b| (b.index, b.body, b.resume_later))
                         .collect();
                     for (index, body, resume_later) in bodies {
-                        self.ctx.scopes.enter(body);
+                        self.ctx.enter_scope(body);
                         let row = self.expr_effects(body);
-                        self.ctx.scopes.exit();
+                        self.ctx.exit_scope();
                         let mut row = self.end_self(&row, def, true);
                         // The capability parameters end with the body (`[effect.handler]`).
                         if let Some(rigid) = self.quantified_lambdas.get(&body).cloned() {
@@ -199,9 +198,9 @@ impl BodyInfer<'_> {
             ExprKind::Lambda { body, .. } => {
                 let outer = self.binder.replace(expr);
                 let withs = std::mem::take(&mut self.with_stack);
-                self.ctx.scopes.enter(expr);
+                self.ctx.enter_scope(expr);
                 let mut body_row = self.expr_effects(*body);
-                self.ctx.scopes.exit();
+                self.ctx.exit_scope();
                 self.with_stack = withs;
                 self.binder = outer;
                 body_row.extend(&self.captured_caps(expr));
@@ -227,9 +226,9 @@ impl BodyInfer<'_> {
                         let (body, uses) = (info.body, info.uses.clone());
                         let outer = self.binder.replace(body);
                         let withs = std::mem::take(&mut self.with_stack);
-                        self.ctx.scopes.enter(body);
+                        self.ctx.enter_scope(body);
                         let mut body_row = self.expr_effects(body);
-                        self.ctx.scopes.exit();
+                        self.ctx.exit_scope();
                         self.with_stack = withs;
                         self.binder = outer;
                         body_row.extend(&self.captured_caps(body));
@@ -289,7 +288,7 @@ impl BodyInfer<'_> {
     fn sub_effects(&mut self, expr: ExprId) -> Row {
         let mut row = Row::empty();
         for e in self.sub_exprs(expr) {
-            row.extend(&self.expr_effects(e));
+            row.append(self.expr_effects(e));
         }
         row
     }
@@ -303,7 +302,7 @@ impl BodyInfer<'_> {
     }
 
     /// The R of `with H1, ..., Hn { body }` (spec 8.3, 8.5, 9.4). Layers are expanded, and for
-    /// providers of the same effect the later one is kept (`crate::layer::with_entries`).
+    /// providers of the same effect the later one is kept (`crate::decl::layer::with_entries`).
     ///
     /// A label `L` listed alone provides its base and depends on `L`; `L by P` provides `L` and
     /// depends on what `P` depends on (a handler's dependencies, or the effect `P`). A provider of
@@ -332,9 +331,9 @@ impl BodyInfer<'_> {
             .map(|e| e.effect.clone())
             .collect();
         self.with_stack.push((expr, provides.clone()));
-        self.ctx.scopes.enter(expr);
+        self.ctx.enter_scope(expr);
         let body_row = self.expr_effects(body);
-        self.ctx.scopes.exit();
+        self.ctx.exit_scope();
         self.with_stack.pop();
         layer::check_with_items(
             program,
@@ -380,10 +379,10 @@ impl BodyInfer<'_> {
         // the way (`[effect.escape]`).
         let mut minus: Vec<RowElem> = for_body.iter().cloned().map(RowElem::Tag).collect();
         // The handler members that an init opened through this `with`'s handlers end with it too
-        // (`[effect.handler]`, [`crate::row::OPENED_IN_INIT`]).
+        // (`[effect.handler]`, [`crate::ty::OPENED_IN_INIT`]).
         minus.extend(
             (0..items.len() as u32)
-                .chain([crate::row::OPENED_IN_INIT])
+                .chain([crate::ty::OPENED_IN_INIT])
                 .map(|i| {
                     RowElem::Cap(CapElem {
                         id: CapId::Item {
@@ -427,10 +426,9 @@ impl BodyInfer<'_> {
                     })
                 }));
                 // A capability the tasks cannot have is reported at the item.
-                let hint = self.ctx.hint();
-                self.ctx.set_hint(Some(entry.span));
+                self.ctx.push_hint(entry.span);
                 let deps = self.subtract_elems(deps, &minus);
-                self.ctx.set_hint(hint);
+                self.ctx.pop_hint();
                 row.extend(&deps);
                 continue;
             }
@@ -578,8 +576,7 @@ impl BodyInfer<'_> {
                 }),
                 RowElem::Bound(_) => minus.contains(e),
                 RowElem::Var(v) => {
-                    let d = self.ctx.new_row_var();
-                    self.ctx.effect_vars.insert(d);
+                    let d = self.ctx.new_effect_row_var();
                     self.row_diffs.push((d, *v, minus.to_vec()));
                     out.insert(RowElem::Var(d));
                     continue;
@@ -607,8 +604,7 @@ impl BodyInfer<'_> {
                     if matches!(c.id, CapId::Named { .. })
                         && tags.iter().any(|p| self.ctx.same_tag(p, &c.tag)) => {}
                 RowElem::Var(v) if !tags.is_empty() => {
-                    let d = self.ctx.new_row_var();
-                    self.ctx.effect_vars.insert(d);
+                    let d = self.ctx.new_effect_row_var();
                     let minus = tags.iter().map(|t| RowElem::Tag(t.clone())).collect();
                     self.row_diffs.push((d, *v, minus));
                     out.insert(RowElem::Var(d));

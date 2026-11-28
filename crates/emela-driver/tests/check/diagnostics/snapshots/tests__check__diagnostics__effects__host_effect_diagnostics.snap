@@ -1,0 +1,65 @@
+---
+source: crates/emela-driver/tests/check/diagnostics/effects.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E4010]: effect `Marker` has no operations
+   ╭─[ main.emel:4:8 ]
+   │
+ 4 │ effect Marker {}
+   │        ───┬──  
+   │           ╰──── 
+───╯
+   = help: an effect needs at least one operation; only host effects have none
+
+error[E5002]: the uses of external function `write_host` can contain only `ProcessHost` and `PageHost`
+    ╭─[ main.emel:11:42 ]
+    │
+ 11 │ fn write_host(text: String) -> () uses { Files }
+    │                                          ──┬──  
+    │                                            ╰──── 
+────╯
+
+error[E4003]: handler `Host` cannot implement `ProcessHost`: only the host provides it
+    ╭─[ main.emel:20:9 ]
+    │
+ 20 │ handler Host: ProcessHost {
+    │         ──┬─  
+    │           ╰─── 
+────╯
+
+error[E4402]: `ProcessHost` is a host effect and cannot be used with `use`
+    ╭─[ main.emel:23:13 ]
+    │
+ 23 │ fn grab() { use ProcessHost }
+    │             ───────┬───────  
+    │                    ╰───────── 
+────╯
+
+error[E4301]: effect `PageHost` is not provided in exported function `f`
+    ╭─[ main.emel:26:24 ]
+    │
+ 26 │ pub fn f() -> String { with PageFiles { (use Files).title() } }
+    │                        ───────────────────┬──────────────────  
+    │                                           ╰──────────────────── 
+────╯
+   = note: the host of an exported function provides only `Async`, not `PageHost`
+
+error[E4301]: effect `PageHost` is not provided in `main`
+    ╭─[ main.emel:29:3 ]
+    │
+ 29 │   with PageFiles { (use Files).title() }
+    │   ───────────────────┬──────────────────  
+    │                      ╰──────────────────── 
+────╯
+   = note: `main` provides `Async` and `ProcessHost`, not `PageHost`
+
+error[E4301]: effect `FileSystem` is not provided in `main`
+    ╭─[ main.emel:30:20 ]
+    │
+ 30 │   with Platform { (use FileSystem).exists("x") }
+    │                    ───────┬──────  
+    │                           ╰──────── 
+────╯
+   = help: `Platform` has only the handlers every host has; use `Process` for the ones that need a process
+
+7 errors

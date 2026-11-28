@@ -1,0 +1,25 @@
+---
+source: crates/emela-driver/tests/check/diagnostics/types.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E3001]: type mismatch: expected `Bool`, found `Kind`
+   ╭─[ main.emel:6:8 ]
+   │
+ 6 │   a && k match {
+   │        ┬  
+   │        ╰── 
+───╯
+   = note: the scrutinee of this `match` is `a && k`, because `match` binds more loosely than `&&`
+   = help: to match on `k` only, write `a && (k match { ... })`
+
+error[E3001]: type mismatch: expected `Bool`, found `Option[Int]`
+    ╭─[ main.emel:13:25 ]
+    │
+ 13 │   item.cap.is_some() || item.res match {
+    │                         ────┬───  
+    │                             ╰───── 
+────╯
+   = note: the scrutinee of this `match` is `item.cap.is_some() || item.res`, because `match` binds more loosely than `||`
+   = help: to match on `item.res` only, write `item.cap.is_some() || (item.res match { ... })`
+
+2 errors

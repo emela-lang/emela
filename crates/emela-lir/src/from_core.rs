@@ -47,9 +47,13 @@
 //!
 //! # Modules
 //!
+//! - This module: [`Lower`] and the methods every submodule calls, which build the function (open
+//!   and close sequences, push statements, assign variables, convert an expression with
+//!   `Lower::expr`, bind a local). A submodule calls back into them, so the submodules do not use
+//!   each other in a circle.
 //! - [`expr`]: the traversal of expressions and the statements for each kind.
 //! - [`value`]: values, their types, calls, closures and concurrency operations.
-//! - [`control`]: sequences, `if` / loops / `protect`, failures and releases.
+//! - [`control`]: `if` / loops / `protect`, failures and releases.
 //! - [`concat`], [`pat`], [`derive`], [`captures`]: the lowerings of one syntax each.
 
 mod captures;
@@ -60,12 +64,16 @@ mod expr;
 mod pat;
 mod value;
 
-use emela_core::{Expr, Lit, Local, TypeId};
+use emela_core::{Expr, Lit, Local, Type, TypeId};
 use la_arena::Arena;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::dump::core_ty;
-use crate::ir::{FnId, Function, LabelId, Module, Operand, StmtId, Term, VarId};
+use crate::ir::{
+    Const, FnId, Function, LabelId, Module, OnFail, Operand, Seq, SeqId, Stmt, StmtId, Term, Value,
+    VarData, VarId,
+};
+use crate::repr::Repr;
 
 /// Something the conversion could not make sense of; a bug in the input.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -182,6 +190,9 @@ enum Derive {
     /// `name$E(x: E) -> String`: the name of an error that does not satisfy Show, shown in place
     /// of its value at the entry (`[dyn.error]`).
     ErrorName,
+    /// `show$ListJoin(rev: List[String]) -> String`: reverses the shown elements and formats
+    /// `[a, b]` in one pass with `List.join`. Shared by every `show$List[T]`.
+    ShowListJoin,
 }
 
 /// What all functions share while converting.
@@ -204,12 +215,12 @@ impl Shared {
         if let Some(&f) = self.derived.get(&(kind, ty)) {
             return f;
         }
-        let prefix = match kind {
-            Derive::Show => "show",
-            Derive::Eq => "eq",
-            Derive::ErrorName => "name",
+        let base = match kind {
+            Derive::Show => format!("show${}", core_ty(&self.core, ty)),
+            Derive::Eq => format!("eq${}", core_ty(&self.core, ty)),
+            Derive::ErrorName => format!("name${}", core_ty(&self.core, ty)),
+            Derive::ShowListJoin => "show$ListJoin".to_owned(),
         };
-        let base = format!("{prefix}${}", core_ty(&self.core, ty));
         let mut name = base.clone();
         let mut n = 1;
         while !self.names.insert(name.clone()) {
@@ -321,6 +332,193 @@ impl<'s> Lower<'s> {
         self.f
     }
 
+    fn open(&mut self) {
+        self.open.push(Open {
+            stmts: Vec::new(),
+            term: None,
+            cache_mark: self.cache.len(),
+        });
+    }
+
+    /// Ends the innermost open sequence (with `yield` without value unless it has a terminator).
+    fn close(&mut self) -> SeqId {
+        let open = self.open.pop().expect("no open sequence");
+        self.cache.truncate(open.cache_mark);
+        self.f.seqs.alloc(Seq {
+            stmts: open.stmts,
+            term: open.term.unwrap_or(Term::Yield(None)),
+        })
+    }
+
+    fn push(&mut self, stmt: Stmt) {
+        let id = self.f.stmts.alloc(stmt);
+        let open = self.open.last_mut().expect("no open sequence");
+        debug_assert!(open.term.is_none(), "a statement after a terminator");
+        open.stmts.push(id);
+    }
+
+    /// An empty sequence (`{}`).
+    fn empty(&mut self) -> SeqId {
+        self.open();
+        self.close()
+    }
+
+    fn term(&mut self, term: Term) {
+        let open = self.open.last_mut().expect("no open sequence");
+        debug_assert!(open.term.is_none(), "a second terminator");
+        open.term = Some(term);
+    }
+
+    /// Where a failure goes from here.
+    fn on_fail(&self) -> OnFail {
+        match self.fail.last() {
+            Some(&l) => OnFail::Break(l),
+            None => OnFail::Propagate,
+        }
+    }
+
+    /// The terminator passing the error value to where failures go from here.
+    fn fail_term(&self, error: Operand) -> Term {
+        match self.fail.last() {
+            Some(&label) => Term::Break {
+                label,
+                value: Some(error),
+            },
+            None => Term::Fail(error),
+        }
+    }
+
+    /// Converts `e`, appending its statements to the current sequence.
+    fn expr(&mut self, e: &Expr) -> R {
+        // `let` chains are walked in a loop, not by recursion.
+        let mut e = e;
+        loop {
+            match e {
+                Expr::Let { var, value, body } => {
+                    self.bind(*var, value)?;
+                    e = body;
+                }
+                Expr::With { binds, body } if binds.iter().all(|b| b.release.is_none()) => {
+                    for b in binds {
+                        self.bind(b.var, &b.value)?;
+                    }
+                    e = body;
+                }
+                _ => return self.node(e),
+            }
+        }
+    }
+
+    /// The value of a compound statement just pushed: `dst` of type `ty`, or `unreachable` if no
+    /// branch reaches its end.
+    ///
+    /// `dst` is made after the arms, since its type is that of the first arm that gives a value;
+    /// so in the dump its number is larger than those of the variables inside the arms.
+    fn joined(&mut self, dst: Option<VarId>, ty: Option<TypeId>) -> R {
+        match ty {
+            Some(ty) => Ok(Val {
+                op: dst.map(Operand::Var),
+                ty,
+            }),
+            None => {
+                self.term(Term::Unreachable);
+                Err(Div)
+            }
+        }
+    }
+
+    /// Binds the local to the value. A temporary the value ends in takes the local's name.
+    fn bind(&mut self, var: Local, value: &Expr) -> Result<(), Div> {
+        let mark = self.f.vars.len();
+        let v = self.expr(value)?;
+        let local = &self.sh.core.locals[var];
+        let (hint, ty) = (local.hint.clone(), local.ty);
+        let op = match v.op {
+            // A value of another type (a function value with a smaller E or R) is coerced, so
+            // that the variable has the local's type.
+            Some(Operand::Var(x)) if self.differs(self.f.vars[x].ty, ty) => {
+                Some(Operand::Var(self.assign(&hint, ty, Value::Coerce(x))))
+            }
+            Some(Operand::Var(x)) => {
+                if ix(x) >= mark && self.f.vars[x].hint == TMP {
+                    self.f.vars[x].hint = hint;
+                }
+                Some(Operand::Var(x))
+            }
+            op => op,
+        };
+        self.locals.insert(var, op);
+        Ok(())
+    }
+
+    /// Converts `e` into a new sequence that yields its value. Also returns its type, `None` if
+    /// control does not reach the end.
+    fn branch(&mut self, e: &Expr) -> (SeqId, Option<TypeId>) {
+        self.open();
+        let ty = match self.expr(e) {
+            Ok(v) => {
+                self.term(Term::Yield(v.op));
+                Some(v.ty)
+            }
+            Err(Div) => None,
+        };
+        (self.close(), ty)
+    }
+
+    /// Values for container slots: `()` gets the placeholder.
+    fn slots(&mut self, es: &[Expr]) -> Result<Vec<Operand>, Div> {
+        let mut ops = Vec::with_capacity(es.len());
+        for e in es {
+            ops.push(self.expr(e)?.op.unwrap_or(Operand::Const(Const::Unit)));
+        }
+        Ok(ops)
+    }
+
+    /// A new variable; the type must have a representation.
+    fn var(&mut self, hint: &str, ty: TypeId) -> VarId {
+        let repr = self.repr(ty);
+        debug_assert!(repr != Repr::Void, "a variable without representation");
+        self.f.vars.alloc(VarData {
+            hint: if hint.is_empty() { "v" } else { hint }.to_owned(),
+            repr,
+            ty,
+        })
+    }
+
+    /// A read (a field, an element, a list head) that has no effect: nothing for a type without
+    /// representation.
+    fn get(&mut self, hint: &str, ty: TypeId, value: Value) -> Option<VarId> {
+        (self.repr(ty) != Repr::Void).then(|| self.assign(hint, ty, value))
+    }
+
+    fn param(&mut self, hint: &str, ty: TypeId) -> VarId {
+        let v = self.var(hint, ty);
+        self.f.params.push(v);
+        v
+    }
+
+    fn subst(&mut self, ty: TypeId, args: &[TypeId]) -> TypeId {
+        if args.is_empty() {
+            return ty;
+        }
+        self.sh.core.types.subst(ty, args)
+    }
+
+    /// `let_` for a type with a representation.
+    fn assign(&mut self, hint: &str, ty: TypeId, value: Value) -> VarId {
+        let v = self.var(hint, ty);
+        self.push(Stmt::Let {
+            dst: Some(v),
+            value,
+            on_defect: None,
+            on_suspend: None,
+        });
+        v
+    }
+
+    fn ty(&self, ty: TypeId) -> &Type {
+        self.sh.core.ty(ty)
+    }
     fn error(&mut self, message: String) {
         self.sh.errors.push(FromCoreError {
             function: self.f.name.clone(),
