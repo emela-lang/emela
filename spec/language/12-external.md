@@ -51,19 +51,19 @@ suspend fn fetch_text(url: String) -> String
 |---|---|---|
 | `uses {}` written explicitly | Declares that the function is pure | Nothing |
 | `uses` omitted | Has host side effects | The External of its module (`[effect.external]`) |
-| host effects in `uses` (`uses { ProcessHost }`) | Has host side effects, and works only on that host (`[effect.host]`) | The External of its module, and those host effects |
-| `suspend fn` | Needs to wait for completion | Async, the External of its module (even with `uses {}`), and the host effects in its uses |
+| host kinds in `uses` (`uses { ProcessHost }`) | Has host side effects, and works only on that kind of host (`[effect.host-kind]`) | The External of its module, and those host kinds |
+| `suspend fn` | Needs to wait for completion | Async, the External of its module (even with `uses {}`), and the host kinds in its uses |
 
 - The compiler cannot verify that a `uses {}` declaration is correct. The person who declares it is responsible for it.
 - Every external function, except one declared with `uses {}` that is not a `suspend fn`, has in its type the External of the module that declares it (`[effect.external]`). External is not written in its uses clause.
-- An external function can be called and referred to anywhere. What it requires is in R: External, which only the bodies of the handlers of the module remove, and the host effects and Async, which only the entry provides. A function value that refers to it can be carried wherever its type allows, and called only where its R is provided, so only inside the handlers of the module when it adds External (`[effect.external]`).
+- An external function can be called and referred to anywhere. What it requires is in R: External, which only the bodies of the handlers of the module remove, and the host effect Async and the host kinds, which only the entry provides. A function value that refers to it can be carried wherever its type allows, and called only where its R is provided, so only inside the handlers of the module when it adds External (`[effect.external]`).
 - An external function declared with `uses {}` that is not a `suspend fn` adds nothing, and can be called anywhere.
 - An external function declared as `suspend fn` adds External and Async even when `uses {}` is written.
 - An external function declared as `suspend fn` corresponds to a function that returns a Promise in JS, and to an async import in WASI. The calling fiber suspends until completion.
 - In JS, the runtime adds an `AbortSignal` as the last argument of an external function declared as `suspend fn`. It aborts when the waiting fiber is interrupted. When an implementation of a suspend fn operation is waiting on an external function and the caller is interrupted before resume, the runtime also unwinds the implementation and aborts. After resume, the implementation does not wait (E4305). This is for stopping network requests and timers (without it, even if the result is discarded, the requests and timers stay in the host event loop and the process does not exit). A function that does not use the signal MAY ignore it. Interruption stops only waits of this form. A handler that resumes later from a callback is not stopped (discarded continuations in 14.5). The bundled handlers (including `sleep` of SystemClock) are written in this form.
 - In JS, a returned value that is not a Promise is treated as a resolved value. A rejected Promise is a defect, the same as an exception thrown by the call (12.5).
 - In C, an external function declared as `suspend fn` is written so that it reports completion later (12.6).
-- The uses clause of an external function contains only ProcessHost and PageHost, or nothing. Any other effect, including Async and a set type parameter, is a compile error (E5002). Suspension is declared with `suspend fn`, not with Async.
+- The uses clause of an external function contains only host kinds (`[effect.host-kind]`), or nothing. Anything else, including Async, another effect and a set type parameter, is a compile error (E5002). Suspension is declared with `suspend fn`, not with Async.
 
 ## 12.3 Host types `[ext.host-type]`
 
@@ -88,7 +88,7 @@ Only the following types can be used for the parameters and the return value of 
 
 List and user-defined types cannot be passed directly. They are converted inside a handler.
 
-- The R of a function type in a boundary type (a callback) MUST NOT contain an effect other than the host effects (`[effect.host]`) and, for a function passed at a call of the external function, the External of the module of the external function (`[effect.external]`). A hidden set variable is taken as empty. Passing a function whose R contains an effect is a compile error (E5003). The R MUST NOT contain a capability either, since the host may keep the callback and call it after the with of the capability has ended (E5003). A parameter of an external function marked `@borrowed` (the host holds the callback only during the call) may take a callback whose R contains capabilities. `@borrowed` can be written only on a parameter of function type of an external function (E5004).
+- The R of a function type in a boundary type (a callback) MUST NOT contain anything other than the host effect Async (`[effect.host]`), host kinds (`[effect.host-kind]`) and, for a function passed at a call of the external function, the External of the module of the external function (`[effect.external]`). A hidden set variable is taken as empty. Passing a function whose R contains an effect is a compile error (E5003). The R MUST NOT contain a capability either, since the host may keep the callback and call it after the with of the capability has ended (E5003). A parameter of an external function marked `@borrowed` (the host holds the callback only during the call) may take a callback whose R contains capabilities. `@borrowed` can be written only on a parameter of function type of an external function (E5004).
 - The parameters and return value of a function passed as a callback are treated the same as the parameters and return value of an external function (a String received from the host is normalized as in 12.5).
 - An external function that returns `()` discards the host's return value and returns `()`.
 - A Bytes received from the host is copied when it crosses the boundary, so a later change to the host's buffer does not change the Bytes, and the Bytes does not keep the rest of a larger host buffer alive. A Bytes passed to the host MUST NOT be modified by the host; if it is, the behavior is unspecified. Whether the runtime passes its own buffer or a copy is implementation-defined.
@@ -197,7 +197,7 @@ pub fn add(a: Int, b: Int) -> Int { a + b }
 
 - `@export` is written on a top-level fn with a body. Writing it on any other declaration, or on a fn without a body, is E1301. Its arguments have the form `(language, "name")` or `(language, "interface", "name")`, as for `@external` (12.1). A fn MAY have several `@export` for the same language. Malformed arguments are E1301, and an unknown language is E1303. An `@export` takes effect when its language is the language of the build target.
 - An `@export` fn exposes itself to the host under each name. Each call by the host is one launch, as main is.
-- The parameters and the return value of an `@export` fn are boundary types (12.4) (E5101). Its E MUST be empty and its R MUST be empty except for Async (E4301). An exported fn is called by a host of a kind the program does not know, so it is given no other host effect (`[effect.host]`).
+- The parameters and the return value of an `@export` fn are boundary types (12.4) (E5101). Its E MUST be empty and its R MUST be empty except for Async (E4301). An exported fn is called by a host of a kind the program does not know, so it is given no host kind (`[effect.host]`).
 - A hidden set variable of a parameter's function type is part of the fn's E and R (9.4), so a callback parameter of an `@export` fn is written with `fails {} uses {}` (`f: fn(Int) -> String fails {} uses {}`). Otherwise its E and R are not empty (E4301).
 - An `@export` fn that is not an entry adapter is allowed only in the entry module (E5102).
 - Two exports with the same name for the same language, from `@export`, `@entry` or the launcher of `main.mjs` (`[target.js.module]`), are a compile error (E5103).
@@ -209,4 +209,4 @@ pub fn add(a: Int, b: Int) -> Int { a + b }
 - `@entry(T)` is written on a top-level fn `f` of the entry module. Writing it outside the entry module is E5102. Its one argument is a lower name (`serve`, a fn of the same module) or a `qualified` path (`Http.serve`) that names an entry adapter; anything else is E5104. `f` MUST be accepted as the first argument of `T` (E5105).
 - For each `@export` of `T`, the program exposes under the same name a fn that takes the remaining parameters of `T` and returns `T(f, ...)`. Each call is one launch.
 - `f` remains an ordinary fn. It can be called, including from tests.
-- The function type of the first parameter of an entry adapter MAY have one host effect other than Async in its uses (`[effect.host]`), and the R of the adapter MAY contain it. The host provides it for each launch through the adapter.
+- The function type of the first parameter of an entry adapter MAY have one host kind in its uses (`[effect.host-kind]`), and the R of the adapter MAY contain it. The host provides it for each launch through the adapter.

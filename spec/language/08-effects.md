@@ -39,7 +39,7 @@ effect Clock {
   - Opening a handler member (`E.M(arguments)` or `x = E.M(arguments)` in a with, `L by E.M(arguments)`, or `E.M(arguments)` inside an init, 8.3, 8.4, 8.9) is determined by the declaration of the handler member. If it is a `suspend handler`, it may suspend. For a with item, the end of the with, where the handler opened is released, may suspend too.
 - If the body contains no call that may suspend, its R is not restricted. The R of `fn now() { (use Clock).now() }` contains Clock, which becomes a requirement of the handler. Mixing `now` of the outer Clock and `sleep` inside an inner `with InstantClock` in the same body satisfies neither condition and is a compile error (E4303). Accepting it would require looking, for each call, at the innermost with that provides its effect, which makes the rule heavier, so this is not done. A call through a function is treated as possibly suspending even if that function calls only fn operations (`fn now() { stamp() }`, which calls `fn stamp() -> Instant uses { Clock }`, is a compile error (E4303)). That a function does not suspend is not inferred from its body. The implementations of fn operations in every handler are bound by the same rule, so a call of a fn operation does not suspend whichever handler it reaches.
 - An operation that involves waiting (waiting on an `@external suspend fn`, calling a suspend operation) MUST be declared as a suspend fn on the effect side. Otherwise its implementation is a compile error (E4303). This is because the caller can learn whether a call suspends only from the effect's declaration. Only operation declarations of effects carry a mark of whether they suspend. Function signatures (`uses { Http }`) and calls do not.
-- An effect declared in source MUST have at least one operation or handler member (E4010). The effects without operations and handler members are the host effects (`[effect.host]`) and External (`[effect.external]`), which only the compiler declares.
+- An effect declared in source MUST have at least one operation or handler member (E4010). The effects without operations and handler members are the host effect Async (`[effect.host]`) and External (`[effect.external]`), which only the compiler declares. Host kinds have none either, and are not effects (`[effect.host-kind]`).
 
 ## 8.2 use `[effect.use]`
 
@@ -137,7 +137,7 @@ fn run[R](f: fn() -> () uses { Logger, R }) -> () uses { R } {
 - The handlers that the calls inside an anonymous function or a local fn need are passed by the side that calls the function. The withs that enclose the function do not provide them. A capability value that the function captures keeps referring to its handler. This is because the R of these functions is enclosed in their types (9.4) and does not appear in the R of the enclosing function.
 - A loop expression (`[fn.loop]`) is not one of these functions. It runs where it is written, its R is part of the R of the enclosing function (9.4), and the withs that enclose it provide its handlers.
 - The capability of a named item keeps referring to its handler even if an inner with overrides the same effect.
-- The R of main MUST be empty except for the host effects that main is given (Async and ProcessHost, `[effect.host]`). main is the fn named `main` in the entry module. If the entry has no main, `emela run` reports a compile error (E2009). Something named `main` that is not a fn (such as a const) does not count as main. `emela build` MAY produce output even without main. The R MUST be empty even if a uses clause is written. The R of the value of a const is also empty. The same holds for an `@export` fn (`[ext.export]`).
+- The R of main MUST be empty except for what main is given by the host: the host effect Async and the host kind ProcessHost (`[effect.host]`). main is the fn named `main` in the entry module. If the entry has no main, `emela run` reports a compile error (E2009). Something named `main` that is not a fn (such as a const) does not count as main. `emela build` MAY produce output even without main. The R MUST be empty even if a uses clause is written. The R of the value of a const is also empty. The same holds for an `@export` fn (`[ext.export]`).
 - The return type of main is `()` or `ExitCode` (`[api.std.process]`); another type, other than Never, is W3001 (`[dyn.error]`). This is separate from the rule on R above.
 - Each item of a with runs its init and makes a capability. Leaving the with releases it, and the capability ends.
 - An item can be written as `x = Item` (a named item). Within the body, x is bound to the capability of the item (of type `use F`, 8.2), and refers to the handler of that item even when another item of the same with provides the same effect. An item without a name provides its effect by name only. A named item provides nothing by name: the effects that the body uses by name (through the R of a function the body calls, or through an effect alias) are provided by the withs that enclose this with, or by the caller. The rule holds for every item that can be bound: a handler (`x = H`), a handler member (`x = E.M(...)`, `x = c.M(...)`) and a label plugged into a handler or a handler member (`x = L by H`, `x = L by E.M(...)`). To provide an effect by name, the item is written without a name.
@@ -280,7 +280,7 @@ fn make_greeter() {
 
 ## 8.7 Async `[effect.async]`
 
-- Async is a host effect (`[effect.host]`) that represents "being resumed later". The rules of `[effect.host]` apply: only the host provides it, `handler H: Async` is a compile error (E4003), and `use Async` is a compile error (E4402).
+- Async is the host effect (`[effect.host]`) that represents "being resumed later". The rules of `[effect.host]` apply: only the host provides it, `handler H: Async` is a compile error (E4003), and `use Async` is a compile error (E4402).
 - The means of calling `resume` later (callbacks of external functions, `@external suspend fn`, starting a task, 11.2, 11.3) require Async. Therefore SystemClock requires Async, and Async remains in the R of `with SystemClock { ... }`.
 - When the body of a suspend fn implementation uses `resume` in any way other than calling it directly (`resume(v)`), the compiler assumes that resume may be called later and adds Async to the handler's requirements. Uses other than direct calls include storing it in a variable, capturing it in a closure, and passing it as an argument. Calling an `@external suspend fn` also adds Async. This decision is purely syntactic and errs on the safe side.
 - A handler that resumes on the spot (such as the test handler InstantClock) does not require Async. `with InstantClock { ... }` does not actually suspend, and Async does not appear in the types either.
@@ -368,23 +368,27 @@ fn main() {
 
 ## 8.10 Host effects `[effect.host]`
 
-- A host effect is an effect whose only handler is the host. `Async` (`[effect.async]`), `ProcessHost` and `PageHost` are the host effects.
-  - `Async`: the host can resume a computation later.
+- A host effect is an effect whose only handler is the host. `Async` (`[effect.async]`) is the host effect: the host can resume a computation later.
+- Host kinds (`[effect.host-kind]`) are provided in the same way, and the following rules hold for both.
+- Users cannot write a handler for a host effect or a host kind. `handler H: Async` and `handler H: ProcessHost` are compile errors (E4003), and such a handler provides nothing even when written in a with. `use` of a host effect or a host kind is a compile error (E4402).
+- They enter R only through what host functions need. Calling an `@external suspend fn` adds Async (`[effect.async]`). Calling an external function declared with `uses { ProcessHost }` or `uses { PageHost }` adds that host kind (`[ext.call]`). A handler whose init, release or operation bodies make such calls requires them (requires(H) in `[effect.handler]`), so they remain in the R of a with that lists the handler, or a layer that contains it.
+- A with does not remove a host effect or a host kind. Only the entry of a launch provides them.
+
+| Entry | Host effects provided | Host kinds provided |
+|---|---|---|
+| `main` (`[effect.with]`) | Async | ProcessHost |
+| A test function (`[test.constraints]`) | Async | ProcessHost |
+| An `@export` fn that is not an entry adapter (`[ext.export]`) | Async | None |
+| An entry adapter (`[ext.entry]`) | Async | The host kind the adapter declares, if any |
+
+### 8.10.1 Host kinds `[effect.host-kind]`
+
+- A host kind is a requirement that the host of a launch is of a kind. `ProcessHost` and `PageHost` are the host kinds.
   - `ProcessHost`: the host is a process of the operating system, with arguments, standard input and output, environment variables and a file system.
   - `PageHost`: the host is a page of a web browser.
-- Users cannot write a handler for a host effect. `handler H: ProcessHost` is a compile error (E4003), and that handler provides nothing even when written in a with. `use` of a host effect is a compile error (E4402). A host effect can be written in a uses clause (`fn f() uses { ProcessHost }`).
-- A host effect enters R only through what host functions need. Calling an `@external suspend fn` adds Async (`[effect.async]`). Calling an external function declared with `uses { ProcessHost }` or `uses { PageHost }` adds that host effect (`[ext.call]`). A handler whose init, release or operation bodies make such calls requires the host effect (requires(H) in `[effect.handler]`), so the host effect remains in the R of a with that lists the handler, or a layer that contains it.
-- A with does not remove a host effect. Only the entry of a launch provides host effects.
-
-| Entry | Host effects provided |
-|---|---|
-| `main` (`[effect.with]`) | Async, ProcessHost |
-| A test function (`[test.constraints]`) | Async, ProcessHost |
-| An `@export` fn that is not an entry adapter (`[ext.export]`) | Async |
-| An entry adapter (`[ext.entry]`) | Async, and the host effect the adapter declares |
-
-- `ProcessHost` and `PageHost` are Immediate (`[type.effect-bound]`).
-- Host effects do not name targets. A program whose entry type checks runs on every target that supports that entry (`[target]`).
+- A host kind is not an effect. It has no operations and no handler, and no meaning at run time: it decides only which entries type check. It is an element of R, as effects, labels and capabilities are (`[type.rules]`), and is written in a uses clause (`fn f() uses { ProcessHost }`). It is provided as a host effect is (`[effect.host]`).
+- A host kind is Immediate (`[type.effect-bound]`).
+- Host kinds do not name targets. A program whose entry type checks runs on every target that supports that entry (`[target]`). A target and a kind of host are independent: the js target runs in a process and in a page, and code that requires `ProcessHost` runs on every target.
 
 ## 8.11 External `[effect.external]`
 
@@ -401,7 +405,7 @@ pub handler FileLog: Log {
 
 - Every module has one effect `External`, which stands for the host side effects of external functions. Written in a module, `External` names the External of that module; the Externals of two modules are different effects. In another module, the External of M is written `M.External`. It can be written wherever an effect can, except in the declaration of an external function.
 - The name `External` is treated as a name of the Prelude (`[module.resolution]`). A definition or an import named `External` in a module shadows it (W2102). In that module, `External` names the definition or the import, and the built-in External of that module has no name: it is not written, and is only inferred. In another module, `M.External` names that definition of M, and the built-in External of M has no name there either.
-- Every external function, except one declared with `uses {}` that is not a `suspend fn`, has in its type the External of the module that declares it (`[ext.call]`). External is not written in the declaration. A call, or a reference as a value, adds that External, in the module that declares the function and in any other module that refers to it (an `@external` fn MAY be pub, `[ext.decl]`). A function value that refers to such an external function, or calls one, has that External in the uses of its type. The functions that such an external function returns have that External, and the host effects in its uses clause, in their uses: the return type when it is a function type, and the return types of those function types in turn. The parameters of those function types are callbacks, and follow `[ext.boundary]`.
+- Every external function, except one declared with `uses {}` that is not a `suspend fn`, has in its type the External of the module that declares it (`[ext.call]`). External is not written in the declaration. A call, or a reference as a value, adds that External, in the module that declares the function and in any other module that refers to it (an `@external` fn MAY be pub, `[ext.decl]`). A function value that refers to such an external function, or calls one, has that External in the uses of its type. The functions that such an external function returns have that External, and the host kinds in its uses clause, in their uses: the return type when it is a function type, and the return types of those function types in turn. The parameters of those function types are callbacks, and follow `[ext.boundary]`.
 - The External of a module M is removed from the R of the init, the release and the operation bodies of the handlers declared in M, inner handlers included (`[effect.handler]`). It is not removed from the types of the anonymous functions and local fns written inside those bodies. No other place removes it: a with does not, and an entry does not.
 - As a result, a value that calls an external function can be carried wherever its type allows, other modules included, and Emela code calls it only inside the handlers of its module. Outside them, only the host calls it, as a callback passed to one of the external functions of the module: by a handler of the module or, for one declared with `uses {}` that is not a `suspend fn`, wherever that function is called (`[ext.call]`). Which handler of the module, and which instance, calls it is not restricted; the state of an instance is reached through `self` (`[effect.handler]`).
 - A handler for External is a compile error (E4003), `use External` is a compile error (E4402), and External cannot be listed in a with or a layer.

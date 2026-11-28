@@ -130,7 +130,7 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 
 Capabilities (8.2, 8.3) are told apart in types and in R.
 
-- The elements of R are effects, declared labels and capabilities. Calling an operation of a capability adds that capability to R, and the with that made the capability removes it. A capability is not widened to its effect: an effect set that contains a capability is not included in an effect set that contains only the effect of the capability.
+- The elements of R are effects, declared labels, capabilities and host kinds (`[effect.host-kind]`). Calling an operation of a capability adds that capability to R, and the with that made the capability removes it. A capability is not widened to its effect: an effect set that contains a capability is not included in an effect set that contains only the effect of the capability.
 - A capability type `use E` records a set of capabilities of E. The set is not written in source. Unification takes the union of sets, as for R; there is no general subtyping. Calling an operation of a value whose type has a set adds every capability of the set to R.
 - A parameter of type `use E` gives the function a type parameter that ranges over sets of capabilities of E, decided at each call by the argument. Two parameters give two type parameters. The same holds for a capability-bound type of E written in a parameter type (`task: Task[A]`, `ts: List[Task[A]]`). The result of a function can be a capability type; its set comes from the parameters.
 - The set of a capability type `use E` or a capability-bound type of E written in the result type of a function is the union of the sets of every capability of E in the parameter types (including those inside other types, `acc: List[use Db]`, and the hidden sets of fields). When no parameter has one, it is the name E. The set is decided by the signature, not by the body.
@@ -153,7 +153,7 @@ fn on_click[R: Immediate](id: String, handler: fn() -> () uses { R }) -> ()
 Immediate is a built-in constraint that means "does not suspend, and completes on the spot when called". The compiler determines it automatically from declarations, and users never write implementations of it.
 
 - An effect is Immediate when it has no suspend fn, no suspend handler member, and is not Async.
-- An effect set is Immediate when all its elements are Immediate. The empty set is Immediate.
+- An effect set is Immediate when all its elements are Immediate. The empty set is Immediate. A host kind is Immediate (`[effect.host-kind]`).
 
 Only the places where suspension would cause problems (such as callbacks passed to external functions) require this constraint. Instead of marking call sites, type checking forbids suspension there.
 
