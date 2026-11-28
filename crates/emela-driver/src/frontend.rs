@@ -1,5 +1,8 @@
 //! Frontends plugging in emela-syntax's parser, name resolution and type checking.
 
+use std::collections::BTreeMap;
+use std::sync::Mutex;
+
 use emela_resolve::hir::{DefId, DefKind, Program};
 use emela_resolve::{BuiltinModules, Import, ModuleId, ModuleName, NoBuiltins};
 use emela_syntax::ast::{self, AstNode};
@@ -15,7 +18,7 @@ use crate::hints::InlayHint;
 use crate::hover::HoverInfo;
 use crate::internal::{check_external_in_dependencies, check_internal};
 use crate::nav::{NavTarget, RenameError};
-use crate::pipeline::{Checked, CoreSource, Frontend, Parsed};
+use crate::pipeline::{CORE_DIR, Checked, CoreSource, Frontend, Parsed};
 use crate::program::TypedProgram;
 use crate::signature::SignatureInfo;
 use crate::source::{FileId, SourceFile};
@@ -45,7 +48,11 @@ impl Frontend for ParseOnly {
     type Program = ();
 
     fn parse(&mut self, module: ModuleId, file: FileId, source: &SourceFile) -> Parsed {
-        let parse = emela_syntax::parse(source.text());
+        let parse = if source.path().starts_with(CORE_DIR) {
+            parse_core(source.text())
+        } else {
+            emela_syntax::parse(source.text())
+        };
         let diagnostics = parse
             .diagnostics()
             .iter()
@@ -65,6 +72,24 @@ impl Frontend for ParseOnly {
             diagnostics: Vec::new(),
         }
     }
+}
+
+/// Parses a module of the core, reusing the tree from an earlier check in the process.
+///
+/// Every check reads the whole bundled core, and the language server checks again after each
+/// edit, so parsing it would otherwise be repeated each time. Keyed by the text, since a parse
+/// depends on nothing else (a frontend may be given other core sources).
+fn parse_core(text: &str) -> Parse {
+    static PARSES: Mutex<BTreeMap<String, Parse>> = Mutex::new(BTreeMap::new());
+    let mut parses = PARSES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(parse) = parses.get(text) {
+        return parse.clone();
+    }
+    let parse = emela_syntax::parse(text);
+    parses.insert(text.to_owned(), parse.clone());
+    parse
 }
 
 /// A frontend that resolves names after parsing ([`ParseOnly`]) and returns the resolver's

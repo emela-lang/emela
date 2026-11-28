@@ -23,7 +23,6 @@ impl BodyInfer<'_> {
     /// after sets are solved.
     pub(super) fn find_bound_item_redirects(&mut self) {
         let program = self.program;
-        let rows = self.resolved_rows(SetKind::Effects);
         let bodies: Vec<ExprId> = self
             .defs
             .iter()
@@ -33,6 +32,8 @@ impl BodyInfer<'_> {
         for body in bodies {
             self.collect_use_sites(body, false, &mut Vec::new(), &mut sites);
         }
+        // Resolving every expression's R is only needed when there is a site to look at.
+        let mut rows = None;
         for (site, withs) in sites {
             let ExprKind::Use {
                 effect: Res::Def(effect),
@@ -48,7 +49,8 @@ impl BodyInfer<'_> {
                 Some(local) => program.alias_uses.get(e).copied().flatten() == Some(local),
                 None => e == site,
             };
-            if self.redirects(&rows, &withs, effect, &excluded) {
+            let rows = rows.get_or_insert_with(|| self.resolved_rows(SetKind::Effects));
+            if self.redirects(rows, &withs, effect, &excluded) {
                 self.bound_item_redirects.push(program.exprs[site].span);
             }
         }

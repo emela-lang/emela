@@ -684,8 +684,24 @@ impl Row {
     }
 
     pub fn extend(&mut self, other: &Row) {
+        // `other` is already sorted without repeats, so it is the result as is.
+        if self.elems.is_empty() {
+            self.elems.clone_from(&other.elems);
+            return;
+        }
         for e in &other.elems {
             self.insert(e.clone());
+        }
+    }
+
+    /// [`Row::extend`] with a row that is not needed afterwards, without copying its elements.
+    pub fn append(&mut self, other: Row) {
+        if self.elems.is_empty() {
+            *self = other;
+            return;
+        }
+        for e in other.elems {
+            self.insert(e);
         }
     }
 
@@ -760,7 +776,7 @@ impl Row {
     pub fn flat_map(&self, mut f: impl FnMut(&RowElem) -> Row) -> Row {
         let mut out = Row::empty();
         for e in &self.elems {
-            out.extend(&f(e));
+            out.append(f(e));
         }
         out
     }

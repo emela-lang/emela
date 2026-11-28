@@ -188,7 +188,7 @@ impl BodyInfer<'_> {
                 let mut row = Row::empty();
                 for part in parts {
                     if let StrPart::Interp(e) = part {
-                        row.extend(&self.expr_row(*e));
+                        row.append(self.expr_row(*e));
                     }
                 }
                 row
@@ -197,9 +197,9 @@ impl BodyInfer<'_> {
             ExprKind::Call { callee, args } => {
                 let mut row = self.expr_row(*callee);
                 for arg in args {
-                    row.extend(&self.expr_row(arg.value));
+                    row.append(self.expr_row(arg.value));
                 }
-                row.extend(&self.callee_fails(*callee, e.span));
+                row.append(self.callee_fails(*callee, e.span));
                 row
             }
             ExprKind::Unary { operand, .. } => self.expr_row(*operand),
@@ -215,15 +215,15 @@ impl BodyInfer<'_> {
                     ExprKind::Call { callee, args } => {
                         let mut r = self.expr_row(*callee);
                         for arg in args {
-                            r.extend(&self.expr_row(arg.value));
+                            r.append(self.expr_row(arg.value));
                         }
-                        r.extend(&self.callee_fails(*callee, e.span));
+                        r.append(self.callee_fails(*callee, e.span));
                         self.expr_rows.insert(*rhs, r.clone());
                         r
                     }
                     _ => {
                         let mut r = self.expr_row(*rhs);
-                        r.extend(&self.callee_fails(*rhs, e.span));
+                        r.append(self.callee_fails(*rhs, e.span));
                         r
                     }
                 };
@@ -235,7 +235,7 @@ impl BodyInfer<'_> {
             ExprKind::List { elems, rest } => {
                 let mut row = self.rows_of(elems);
                 if let Some(rest) = rest {
-                    row.extend(&self.expr_row(*rest));
+                    row.append(self.expr_row(*rest));
                 }
                 row
             }
@@ -246,9 +246,9 @@ impl BodyInfer<'_> {
                 else_branch,
             } => {
                 let mut row = self.expr_row(*cond);
-                row.extend(&self.expr_row(*then_branch));
+                row.append(self.expr_row(*then_branch));
                 if let Some(e) = else_branch {
-                    row.extend(&self.expr_row(*e));
+                    row.append(self.expr_row(*e));
                 }
                 row
             }
@@ -256,9 +256,9 @@ impl BodyInfer<'_> {
                 let mut row = self.expr_row(*scrutinee);
                 for arm in arms {
                     if let Some(guard) = arm.guard {
-                        row.extend(&self.expr_row(guard));
+                        row.append(self.expr_row(guard));
                     }
-                    row.extend(&self.expr_row(arm.body));
+                    row.append(self.expr_row(arm.body));
                 }
                 row
             }
@@ -329,9 +329,9 @@ impl BodyInfer<'_> {
                 }
                 for arm in arms {
                     if let Some(guard) = arm.guard {
-                        row.extend(&self.expr_row(guard));
+                        row.append(self.expr_row(guard));
                     }
-                    row.extend(&self.expr_row(arm.body));
+                    row.append(self.expr_row(arm.body));
                 }
                 let wildcard = wildcard.map(|i| arms[i].pat);
                 self.escapes.push(Escape {
@@ -359,9 +359,9 @@ impl BodyInfer<'_> {
             ExprKind::Update { ctor, fields, base } => {
                 let mut row = self.expr_row(*ctor);
                 for field in fields {
-                    row.extend(&self.expr_row(field.value));
+                    row.append(self.expr_row(field.value));
                 }
-                row.extend(&self.expr_row(*base));
+                row.append(self.expr_row(*base));
                 row
             }
             // The E of `with` is the body's E plus the init E of the listed handlers and the E of
@@ -387,7 +387,7 @@ impl BodyInfer<'_> {
                         }
                     }
                 }
-                row.extend(&self.expr_row(*body));
+                row.append(self.expr_row(*body));
                 for entry in entries {
                     if let Some(h) = entry.handler() {
                         // The tasks of a built-in handler fail the `with` (`[task.group]`).
@@ -429,7 +429,7 @@ impl BodyInfer<'_> {
     fn rows_of(&mut self, exprs: &[ExprId]) -> Row {
         let mut row = Row::empty();
         for &e in exprs {
-            row.extend(&self.expr_row(e));
+            row.append(self.expr_row(e));
         }
         row
     }
@@ -438,13 +438,13 @@ impl BodyInfer<'_> {
         let mut row = Row::empty();
         for stmt in &block.stmts {
             match stmt {
-                Stmt::Let { value, .. } => row.extend(&self.expr_row(*value)),
+                Stmt::Let { value, .. } => row.append(self.expr_row(*value)),
                 Stmt::LocalFn(f) => self.local_fn_errors(f.local),
-                Stmt::Expr(e) => row.extend(&self.expr_row(*e)),
+                Stmt::Expr(e) => row.append(self.expr_row(*e)),
             }
         }
         if let Some(tail) = block.tail {
-            row.extend(&self.expr_row(tail));
+            row.append(self.expr_row(tail));
         }
         row
     }

@@ -288,7 +288,7 @@ impl BodyInfer<'_> {
     fn sub_effects(&mut self, expr: ExprId) -> Row {
         let mut row = Row::empty();
         for e in self.sub_exprs(expr) {
-            row.extend(&self.expr_effects(e));
+            row.append(self.expr_effects(e));
         }
         row
     }

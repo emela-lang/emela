@@ -8,6 +8,7 @@ mod navigation;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use emela_driver::{Analysis, Diagnostic, FileId, FileSystem, Frontend, Input, NavTarget};
 use lsp_server::{
@@ -26,6 +27,7 @@ use lsp_types::request::{
 };
 use lsp_types::{self as lsp, Uri};
 
+use crate::cache::{CheckCache, Checked};
 use crate::convert::{self, path_to_uri, uri_to_path};
 use crate::overlay::Overlay;
 
@@ -146,14 +148,14 @@ where
 /// [`Session::handle`] and gets back what the server sends. Analysis runs inside `handle`, after
 /// the message that changed a file, so diagnostics come back with it. The server does not ask the
 /// client to watch files.
-pub struct Session<Fs, M> {
-    server: Server<Fs, M>,
+pub struct Session<Fs, M, F: Frontend> {
+    server: Server<Fs, M, F>,
     /// The client's ends of the channels: what the server sends is read from here.
     client: Connection,
     initialized: bool,
 }
 
-impl<Fs, M, F> Session<Fs, M>
+impl<Fs, M, F> Session<Fs, M, F>
 where
     Fs: FileSystem,
     M: FnMut() -> F,
@@ -256,11 +258,13 @@ struct Folder {
     path: PathBuf,
 }
 
-struct Server<Fs, M> {
+struct Server<Fs, M, F: Frontend> {
     /// The server's ends of the channels to the client.
     connection: Connection,
     fs: Overlay<Fs>,
     make_frontend: M,
+    /// Shared by diagnostics and requests, so the requests that follow an edit reuse its check.
+    checks: CheckCache<F::Program>,
     /// Folders with a `Pome.toml` are analyzed even if no file is open.
     workspace: Vec<Folder>,
     documents: HashMap<Uri, Document>,
@@ -270,7 +274,7 @@ struct Server<Fs, M> {
     published: HashMap<PathBuf, Uri>,
 }
 
-impl<Fs, M, F> Server<Fs, M>
+impl<Fs, M, F> Server<Fs, M, F>
 where
     Fs: FileSystem,
     M: FnMut() -> F,
@@ -281,6 +285,7 @@ where
             connection,
             fs,
             make_frontend,
+            checks: CheckCache::default(),
             workspace: Vec::new(),
             documents: HashMap::new(),
             published: HashMap::new(),
@@ -756,21 +761,26 @@ where
 
     /// Checks the project containing the file (or just the file if it is standalone).
     ///
-    /// Every request checks again from scratch instead of reusing the analysis of the last
-    /// diagnostics run. Nothing is incremental or cached across edits, so an answer can never be
-    /// computed from contents older than the request (`[lsp.project]`).
-    fn check_file(&mut self, uri: &Uri) -> Option<(Analysis, F::Program, FileId)> {
+    /// The check is reused only while every file it read is unchanged ([`CheckCache`]), so an
+    /// answer is never computed from contents older than the request (`[lsp.project]`).
+    fn check_file(&mut self, uri: &Uri) -> Option<(Rc<Analysis>, Rc<F::Program>, FileId)> {
         let path = self.path_of(uri)?;
         let input = match Input::resolve(&self.fs, &path).ok()? {
             input if !input.single_file => Input::resolve(&self.fs, &input.base).ok()?,
             input => input,
         };
         let (input, _) = with_dependencies(&self.fs, input);
-        let (analysis, program) =
-            emela_driver::check(&self.fs, &input, &mut (self.make_frontend)());
+        let Checked { analysis, program } = self.check(&input);
         let program = program?;
         let file = analysis.sources.file_id(&path)?;
         Some((analysis, program, file))
+    }
+
+    fn check(&mut self, input: &Input) -> Checked<F::Program> {
+        let make_frontend = &mut self.make_frontend;
+        self.checks.get_or_check(&self.fs, input, |fs| {
+            emela_driver::check(fs, input, &mut make_frontend())
+        })
     }
 
     /// The absolute path the driver uses.
@@ -930,15 +940,13 @@ where
         for input in inputs {
             let (input, problem) = with_dependencies(&self.fs, input);
             let input = &input;
-            let (mut analysis, _) =
-                emela_driver::check(&self.fs, input, &mut (self.make_frontend)());
-            analysis.diagnostics.extend(problem);
+            let analysis = self.check(input).analysis;
             // Diagnostics without a location attach to the entry, or to `Pome.toml` if none.
             let anchor = input
                 .entry
                 .clone()
                 .unwrap_or_else(|| input.base.join(PROJECT_FILE));
-            for diagnostic in &analysis.diagnostics {
+            for diagnostic in analysis.diagnostics.iter().chain(&problem) {
                 let (path, lsp) = self.convert(diagnostic, &analysis.sources, &anchor);
                 // Several standalone files open in the same directory would duplicate the
                 // diagnostic.
@@ -1019,8 +1027,8 @@ where
 }
 
 struct CheckedAt<P> {
-    analysis: Analysis,
-    program: P,
+    analysis: Rc<Analysis>,
+    program: Rc<P>,
     file: FileId,
     offset: line_index::TextSize,
 }
