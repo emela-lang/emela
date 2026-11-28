@@ -80,7 +80,7 @@ pub effect Log {
 
 ## Prefixes each line.
 pub handler Prefixed(prefix: String): Log {
-  init { Prefixed(prefix: "> ") }
+  init { Self(prefix: "> ") }
   fn info(msg) { () }
 }
 

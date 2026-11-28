@@ -10,7 +10,7 @@ handler InMemoryRepo[K: Eq, V]: Repo[K, V] {
 }
 
 handler Memory[S](value: S): State[S] {
-  init(value: S) { Memory(value:) }
+  init(value: S) { Self(value:) }
   fn get() { self.value }
 }
 

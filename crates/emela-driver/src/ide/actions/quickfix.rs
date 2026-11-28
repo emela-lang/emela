@@ -55,6 +55,9 @@ pub(super) fn quickfixes(
                 old_uses_clause(tree.syntax(), span.range)
             }
             Some(code::DEPRECATED_USE) => deprecated_use(tree.syntax(), diagnostic, span.range),
+            Some(code::DEPRECATED_HANDLER_NAME_AS_VALUE | code::HANDLER_NAME_AS_VALUE) => {
+                handler_name_to_self(tree.syntax(), span.range)
+            }
             Some(code::UNUSED_TYPE_PARAM) => {
                 unused_type_param(program, module, span.range, tree.syntax())
             }
@@ -286,6 +289,76 @@ fn deprecated_use(root: &SyntaxNode, diagnostic: &Diagnostic, range: TextRange) 
         ]
     };
     Some((format!("Rewrite as `{name} <- {effect}`"), edits))
+}
+
+/// The name of a handler written for its value inside its init (W4001, E4014,
+/// `[lsp.code-action]`) becomes `Self`. For a record update `H(n: 2, ..a)`, `..a` becomes the
+/// fields not written, each read from `a`, in the order of the declaration (`Self(n: 2, m: a.m)`),
+/// and goes with its `,` when every field is written. A record update whose expression after
+/// `..` is not a name gets no fix: the rewrite would evaluate it once for each field.
+///
+/// The handler is the innermost one around the name: the diagnostic is reported only inside its
+/// own init, and an inner handler is a declaration of its own inside the outer one.
+fn handler_name_to_self(root: &SyntaxNode, range: TextRange) -> Option<Fix> {
+    let token = root
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| t.text_range() == range)?;
+    let path_expr = token
+        .parent_ancestors()
+        .find(|n| n.kind() == SyntaxKind::PATH_EXPR)?;
+    let title = format!("Write `Self` in place of `{}`", token.text());
+    let mut edits = vec![(path_expr.text_range(), "Self".to_owned())];
+    let list = path_expr
+        .parent()
+        .filter(|p| p.kind() == SyntaxKind::CALL_EXPR)
+        .and_then(|call| call.children().find(|c| c.kind() == SyntaxKind::ARG_LIST));
+    let spread = list
+        .as_ref()
+        .and_then(|list| list.children().find(|c| c.kind() == SyntaxKind::SPREAD_ARG));
+    if let (Some(list), Some(spread)) = (list, spread) {
+        let base = spread.children().next()?;
+        if base.kind() != SyntaxKind::NAME_REF {
+            return None;
+        }
+        let base = base.text().to_string();
+        let written: Vec<String> = list
+            .children()
+            .filter(|a| a.kind() == SyntaxKind::NAMED_ARG)
+            .filter_map(|a| {
+                a.children_with_tokens()
+                    .filter_map(|e| e.into_token())
+                    .find(|t| t.kind() == SyntaxKind::LOWER_NAME)
+                    .map(|t| t.text().to_owned())
+            })
+            .collect();
+        let handler = path_expr.ancestors().find_map(ast::HandlerDecl::cast)?;
+        let fields: Vec<ast::Field> = handler
+            .field_list()
+            .map(|l| l.fields().collect())
+            .unwrap_or_default();
+        let missing: Vec<String> = fields
+            .iter()
+            .filter_map(|f| f.name().map(|t| t.text().to_owned()))
+            .filter(|f| !written.contains(f))
+            .map(|f| format!("{f}: {base}.{f}"))
+            .collect();
+        if missing.is_empty() {
+            // `, ..a`: from the end of the argument before it.
+            let start = list
+                .children()
+                .take_while(|c| *c != spread)
+                .last()
+                .map_or(spread.text_range().start(), |c| c.text_range().end());
+            edits.push((
+                TextRange::new(start, spread.text_range().end()),
+                String::new(),
+            ));
+        } else {
+            edits.push((spread.text_range(), missing.join(", ")));
+        }
+    }
+    Some((title, edits))
 }
 
 fn nearby_name(

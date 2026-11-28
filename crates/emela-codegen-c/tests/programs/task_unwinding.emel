@@ -30,7 +30,7 @@ effect Name {
 handler SlowRes: Name {
   init {
     print("init slow")
-    SlowRes
+    Self
   }
   fn name() { "slow" }
   release {
@@ -42,7 +42,7 @@ handler SlowRes: Name {
 
 ## A release that fails while its task unwinds by an interruption.
 handler BadRes: Name {
-  init { BadRes }
+  init { Self }
   fn name() { "bad" }
   release { panic("release failed") }
 }

@@ -21,7 +21,7 @@ effect Name {
 handler Res(label: String): Name {
   init {
     print("init res")
-    Res(label: "res")
+    Self(label: "res")
   }
   fn name() { self.label }
   release { print("release #{self.label}") }
@@ -30,7 +30,7 @@ handler Res(label: String): Name {
 ## A release that uses attempt while the run unwinds as interrupted: a defect is not caught
 ## there, so it replaces the interruption (spec 11.5, 14.4).
 handler Loud: Name {
-  init { Loud }
+  init { Self }
   fn name() { "loud" }
   release {
     print("release loud")

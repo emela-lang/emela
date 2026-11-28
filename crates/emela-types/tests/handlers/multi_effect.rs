@@ -25,7 +25,7 @@ effect Store[S] {
 }
 
 handler SystemTx(conn: Int): Query + Execute {
-  init(url: String) { SystemTx(conn: 1) }
+  init(url: String) { Self(conn: 1) }
   release { () }
   fn query(sql) { self.conn }
   fn execute(sql) { () }
@@ -43,7 +43,7 @@ fn run(src: &str) -> String {
 fn providing_several_effects() {
     insta::assert_snapshot!(run(r#"
 handler Counter(n: Int): Store[Int] + Audit {
-  init { Counter(n: 0) }
+  init { Self(n: 0) }
   fn load() { self.n }
   fn note(msg) { () }
 }

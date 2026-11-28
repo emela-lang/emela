@@ -62,6 +62,9 @@ impl Lower<'_, '_> {
                 Some(path) => {
                     self.member_label = None;
                     let res = self.ctor_path(&path, false);
+                    if let Res::Def(def) = res {
+                        self.handler_name_as_value(def, &path, range);
+                    }
                     let id = self.alloc_expr(ExprKind::Path(res), range);
                     if let Some(label) = self.member_label.take() {
                         self.r.set_member_label(id, label);
@@ -579,7 +582,10 @@ impl Lower<'_, '_> {
             match self.r.lookup(self.module, Ns::Ctor, &name) {
                 Some(def) => def,
                 None => {
-                    self.undefined_ctor(&name, range);
+                    if let Some(res) = self.inner_handler_name(path, &name, range, in_pattern) {
+                        return res;
+                    }
+                    self.undefined_ctor(path, &name, range, in_pattern);
                     return Res::Err;
                 }
             }
@@ -596,17 +602,136 @@ impl Lower<'_, '_> {
         if data.is_opaque && data.module != DefModule::Source(self.module) {
             let module = self.r.def_module_name(def);
             let kind = if in_pattern {
-                DiagnosticKind::OpaquePattern { name, module }
+                DiagnosticKind::OpaquePattern {
+                    name: name.clone(),
+                    module,
+                }
             } else {
-                DiagnosticKind::OpaqueConstruction { name, module }
+                DiagnosticKind::OpaqueConstruction {
+                    name: name.clone(),
+                    module,
+                }
             };
             self.error(range, kind);
+        }
+        if in_pattern && self.handler_of_ctor(def).is_some() {
+            self.error(
+                range,
+                DiagnosticKind::HandlerNamePattern {
+                    handler: name,
+                    deprecated: true,
+                    field: pattern_field(path),
+                },
+            );
         }
         self.refer(range, RefTarget::Def(def));
         Res::Def(def)
     }
 
-    fn undefined_ctor(&mut self, name: &SmolStr, range: TextRange) {
+    /// The handler whose constructor `def` is.
+    fn handler_of_ctor(&self, def: DefId) -> Option<DefId> {
+        let data = self.r.def(def);
+        let owner = data.parent.filter(|_| data.kind == DefKind::Ctor)?;
+        (self.r.def(owner).kind == DefKind::Handler).then_some(owner)
+    }
+
+    /// The name of an inner handler, which is in no scope (`[effect.handler]`). Inside its own
+    /// init, as a constructor, it is E4014 and resolves to its constructor, as `Self` does, so
+    /// that the rest of the init is checked; that is reported by [`Self::handler_name_as_value`].
+    /// As a constructor pattern inside the outer handler it is E4015.
+    fn inner_handler_name(
+        &mut self,
+        path: &ast::Path,
+        name: &SmolStr,
+        range: TextRange,
+        in_pattern: bool,
+    ) -> Option<Res> {
+        if in_pattern {
+            if !self.inner_names.contains(name) {
+                return None;
+            }
+            self.error(
+                range,
+                DiagnosticKind::HandlerNamePattern {
+                    handler: name.clone(),
+                    deprecated: false,
+                    field: pattern_field(path),
+                },
+            );
+            return Some(Res::Err);
+        }
+        let init = self.init_of.as_ref().filter(|i| i.inner)?;
+        if self.r.def(init.handler).name != *name {
+            return None;
+        }
+        let ctor = init.ctor;
+        self.refer(range, RefTarget::Def(ctor));
+        Some(Res::Def(ctor))
+    }
+
+    /// W4001 or E4014 (`[effect.handler]`) for the name of a handler written for its value inside
+    /// its own init. `def` is what `path` resolves to; `range` is the expression, which is the
+    /// callee of [`Self::call_update`] for a record update. Outside the init, a constructor of a
+    /// handler is E4005, reported by type inference.
+    fn handler_name_as_value(&mut self, def: DefId, path: &ast::Path, range: TextRange) {
+        let Some(init) = self.init_of.as_ref().filter(|i| i.ctor == def) else {
+            return;
+        };
+        let update = self
+            .call_update
+            .take_if(|(callee, _)| *callee == range)
+            .map(|(_, update)| {
+                let mut args: Vec<String> = update
+                    .written
+                    .iter()
+                    .map(|(_, text)| text.clone())
+                    .collect();
+                args.extend(
+                    init.fields
+                        .iter()
+                        .filter(|f| !update.written.iter().any(|(l, _)| l.as_ref() == Some(*f)))
+                        .map(|f| format!("{f}: {}.{f}", update.base)),
+                );
+                format!("Self({})", args.join(", "))
+            });
+        let Some(last) = path.segments().last() else {
+            return;
+        };
+        let (handler, name_range) = token_name(&last);
+        let deprecated = !init.inner;
+        self.error(
+            name_range,
+            DiagnosticKind::HandlerNameAsValue {
+                handler,
+                deprecated,
+                update,
+            },
+        );
+    }
+
+    fn undefined_ctor(
+        &mut self,
+        path: &ast::Path,
+        name: &SmolStr,
+        range: TextRange,
+        in_pattern: bool,
+    ) {
+        let handler = self
+            .r
+            .lookup(self.module, Ns::Type, name)
+            .filter(|def| self.r.def(*def).kind == DefKind::Handler);
+        // A handler without a constructor: without parentheses and without init.
+        if in_pattern && handler.is_some() {
+            self.error(
+                range,
+                DiagnosticKind::HandlerNamePattern {
+                    handler: name.clone(),
+                    deprecated: false,
+                    field: pattern_field(path),
+                },
+            );
+            return;
+        }
         // A type, effect or module name written as a value.
         let found = if let Some(def) = self.r.lookup(self.module, Ns::Type, name) {
             Some(self.r.def(def).kind.describe())
@@ -641,7 +766,12 @@ impl Lower<'_, '_> {
     }
 
     fn call(&mut self, node: &SyntaxNode) -> ExprKind {
+        let outer = self.call_update.take();
+        if self.init_of.is_some() {
+            self.call_update = call_update(node);
+        }
         let callee = self.child_expr(node, 0);
+        self.call_update = outer;
         let (args, spread) = match node.children().find(|c| c.kind() == ARG_LIST) {
             Some(list) => self.arg_list(&list),
             None => (Vec::new(), None),
@@ -1352,4 +1482,50 @@ fn is_pat(kind: SyntaxKind) -> bool {
             | TUPLE_PAT
             | LIST_PAT
     )
+}
+
+/// The record update `H(n: 2, ..a)` at `node`, a call, with the range of its callee
+/// ([`Lower::call_update`]).
+fn call_update(node: &SyntaxNode) -> Option<(TextRange, super::CallUpdate)> {
+    let callee = node.children().find(|c| is_expr(c.kind()))?;
+    let list = node.children().find(|c| c.kind() == ARG_LIST)?;
+    let mut written = Vec::new();
+    let mut base = None;
+    for arg in list.children() {
+        match arg.kind() {
+            SPREAD_ARG => base = arg.children().find(|c| is_expr(c.kind())),
+            NAMED_ARG => written.push((
+                child_token(&arg, LOWER_NAME).map(|t| token_name(&t).0),
+                arg.text().to_string(),
+            )),
+            k if is_expr(k) => written.push((None, arg.text().to_string())),
+            _ => {}
+        }
+    }
+    let base = base?;
+    let text = base.text().to_string();
+    let base = if base.kind() == NAME_REF {
+        text
+    } else {
+        format!("({text})")
+    };
+    Some((callee.text_range(), super::CallUpdate { written, base }))
+}
+
+/// The field that the help of E4015 and W4002 reads with `.`: the first one the pattern at
+/// `path` names, or `n`, as in the help that the specification gives (`[diag.list]`).
+fn pattern_field(path: &ast::Path) -> SmolStr {
+    let node = path.syntax().parent();
+    // `Counter(n:)` on the left of `=` is a call whose callee is the path.
+    let node = match node {
+        Some(n) if n.kind() == PATH_EXPR => n.parent(),
+        n => n,
+    };
+    node.into_iter()
+        .flat_map(|n| n.children())
+        .filter(|c| matches!(c.kind(), PAT_ARG_LIST | ARG_LIST))
+        .flat_map(|list| list.children())
+        .filter(|a| matches!(a.kind(), FIELD_PAT | NAMED_ARG))
+        .find_map(|a| child_token(&a, LOWER_NAME))
+        .map_or_else(|| SmolStr::new("n"), |t| token_name(&t).0)
 }

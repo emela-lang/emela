@@ -10,7 +10,7 @@ effect Pool {
 }
 
 handler Leaky(n: Int): Pool {
-  init { Leaky(n: 1) }
+  init { Self(n: 1) }
   release {
     print("release leaky")
     panic("release failed")

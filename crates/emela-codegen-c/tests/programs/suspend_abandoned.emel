@@ -27,7 +27,7 @@ effect Name {
 handler Res(label: String): Name {
   init {
     print("init res")
-    Res(label: "res")
+    Self(label: "res")
   }
   fn name() { self.label }
   release { print("release #{self.label}") }
@@ -37,7 +37,7 @@ handler Res(label: String): Name {
 handler SlowRes: Name {
   init {
     print("init slow")
-    SlowRes
+    Self
   }
   fn name() { "slow" }
   release {

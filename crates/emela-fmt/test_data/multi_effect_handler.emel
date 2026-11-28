@@ -1,5 +1,5 @@
 handler SystemTx(conn: Connection):Query+Execute {
-  init(url: String) { SystemTx(conn: connect(url)) }
+  init(url: String) { Self(conn: connect(url)) }
   fn query(sql) { run(self.conn, sql) }
   fn execute(sql) { exec(self.conn, sql) }
 }

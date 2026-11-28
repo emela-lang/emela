@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse.debug_dump()
 input_file: crates/emela-syntax/test_data/parser/ok/spec_effects.emel
 ---
-ROOT@0..825
+ROOT@0..816
   EFFECT_DECL@0..46
     EFFECT_KW@0..6 "effect"
     WHITESPACE@6..7 " "
@@ -174,7 +174,7 @@ ROOT@0..825
       R_BRACE@275..276 "}"
   NEWLINE@276..277 "\n"
   NEWLINE@277..278 "\n"
-  HANDLER_DECL@278..492
+  HANDLER_DECL@278..483
     HANDLER_KW@278..285 "handler"
     WHITESPACE@285..286 " "
     TYPE_NAME@286..299 "PostgresUsers"
@@ -194,14 +194,14 @@ ROOT@0..825
       PATH@319..324
         TYPE_NAME@319..324 "Users"
     WHITESPACE@324..325 " "
-    ITEM_LIST@325..492
+    ITEM_LIST@325..483
       L_BRACE@325..326 "{"
       NEWLINE@326..327 "\n"
       WHITESPACE@327..329 "  "
-      HANDLER_INIT@329..416
+      HANDLER_INIT@329..407
         LOWER_NAME@329..333 "init"
         WHITESPACE@333..334 " "
-        BLOCK_EXPR@334..416
+        BLOCK_EXPR@334..407
           L_BRACE@334..335 "{"
           NEWLINE@335..336 "\n"
           WHITESPACE@336..340 "    "
@@ -218,251 +218,250 @@ ROOT@0..825
                 TYPE_NAME@353..359 "Config"
           NEWLINE@359..360 "\n"
           WHITESPACE@360..364 "    "
-          CALL_EXPR@364..412
-            PATH_EXPR@364..377
-              PATH@364..377
-                TYPE_NAME@364..377 "PostgresUsers"
-            ARG_LIST@377..412
-              L_PAREN@377..378 "("
-              NAMED_ARG@378..411
-                LOWER_NAME@378..382 "conn"
-                COLON@382..383 ":"
-                WHITESPACE@383..384 " "
-                CALL_EXPR@384..411
-                  NAME_REF@384..394
-                    LOWER_NAME@384..394 "pg_connect"
-                  ARG_LIST@394..411
-                    L_PAREN@394..395 "("
-                    CALL_EXPR@395..410
-                      FIELD_EXPR@395..408
-                        NAME_REF@395..401
-                          LOWER_NAME@395..401 "config"
-                        DOT@401..402 "."
-                        LOWER_NAME@402..408 "db_url"
-                      ARG_LIST@408..410
-                        L_PAREN@408..409 "("
-                        R_PAREN@409..410 ")"
-                    R_PAREN@410..411 ")"
-              R_PAREN@411..412 ")"
-          NEWLINE@412..413 "\n"
-          WHITESPACE@413..415 "  "
-          R_BRACE@415..416 "}"
-      NEWLINE@416..417 "\n"
-      WHITESPACE@417..419 "  "
-      HANDLER_RELEASE@419..456
-        LOWER_NAME@419..426 "release"
-        WHITESPACE@426..427 " "
-        BLOCK_EXPR@427..456
-          L_BRACE@427..428 "{"
-          NEWLINE@428..429 "\n"
-          WHITESPACE@429..433 "    "
-          CALL_EXPR@433..452
-            NAME_REF@433..441
-              LOWER_NAME@433..441 "pg_close"
-            ARG_LIST@441..452
-              L_PAREN@441..442 "("
-              FIELD_EXPR@442..451
-                NAME_REF@442..446
-                  SELF_KW@442..446 "self"
-                DOT@446..447 "."
-                LOWER_NAME@447..451 "conn"
-              R_PAREN@451..452 ")"
-          NEWLINE@452..453 "\n"
-          WHITESPACE@453..455 "  "
-          R_BRACE@455..456 "}"
-      NEWLINE@456..457 "\n"
-      WHITESPACE@457..459 "  "
-      FN_DECL@459..490
-        FN_KW@459..461 "fn"
+          CALL_EXPR@364..403
+            NAME_REF@364..368
+              SELF_TYPE_KW@364..368 "Self"
+            ARG_LIST@368..403
+              L_PAREN@368..369 "("
+              NAMED_ARG@369..402
+                LOWER_NAME@369..373 "conn"
+                COLON@373..374 ":"
+                WHITESPACE@374..375 " "
+                CALL_EXPR@375..402
+                  NAME_REF@375..385
+                    LOWER_NAME@375..385 "pg_connect"
+                  ARG_LIST@385..402
+                    L_PAREN@385..386 "("
+                    CALL_EXPR@386..401
+                      FIELD_EXPR@386..399
+                        NAME_REF@386..392
+                          LOWER_NAME@386..392 "config"
+                        DOT@392..393 "."
+                        LOWER_NAME@393..399 "db_url"
+                      ARG_LIST@399..401
+                        L_PAREN@399..400 "("
+                        R_PAREN@400..401 ")"
+                    R_PAREN@401..402 ")"
+              R_PAREN@402..403 ")"
+          NEWLINE@403..404 "\n"
+          WHITESPACE@404..406 "  "
+          R_BRACE@406..407 "}"
+      NEWLINE@407..408 "\n"
+      WHITESPACE@408..410 "  "
+      HANDLER_RELEASE@410..447
+        LOWER_NAME@410..417 "release"
+        WHITESPACE@417..418 " "
+        BLOCK_EXPR@418..447
+          L_BRACE@418..419 "{"
+          NEWLINE@419..420 "\n"
+          WHITESPACE@420..424 "    "
+          CALL_EXPR@424..443
+            NAME_REF@424..432
+              LOWER_NAME@424..432 "pg_close"
+            ARG_LIST@432..443
+              L_PAREN@432..433 "("
+              FIELD_EXPR@433..442
+                NAME_REF@433..437
+                  SELF_KW@433..437 "self"
+                DOT@437..438 "."
+                LOWER_NAME@438..442 "conn"
+              R_PAREN@442..443 ")"
+          NEWLINE@443..444 "\n"
+          WHITESPACE@444..446 "  "
+          R_BRACE@446..447 "}"
+      NEWLINE@447..448 "\n"
+      WHITESPACE@448..450 "  "
+      FN_DECL@450..481
+        FN_KW@450..452 "fn"
+        WHITESPACE@452..453 " "
+        LOWER_NAME@453..457 "find"
+        PARAM_LIST@457..461
+          L_PAREN@457..458 "("
+          PARAM@458..460
+            LOWER_NAME@458..460 "id"
+          R_PAREN@460..461 ")"
         WHITESPACE@461..462 " "
-        LOWER_NAME@462..466 "find"
-        PARAM_LIST@466..470
-          L_PAREN@466..467 "("
-          PARAM@467..469
-            LOWER_NAME@467..469 "id"
-          R_PAREN@469..470 ")"
-        WHITESPACE@470..471 " "
-        BLOCK_EXPR@471..490
-          L_BRACE@471..472 "{"
-          WHITESPACE@472..473 " "
-          CALL_EXPR@473..488
-            NAME_REF@473..477
-              LOWER_NAME@473..477 "todo"
-            ARG_LIST@477..488
-              L_PAREN@477..478 "("
-              FIELD_EXPR@478..487
-                NAME_REF@478..482
-                  SELF_KW@478..482 "self"
-                DOT@482..483 "."
-                LOWER_NAME@483..487 "conn"
-              R_PAREN@487..488 ")"
-          WHITESPACE@488..489 " "
-          R_BRACE@489..490 "}"
-      NEWLINE@490..491 "\n"
-      R_BRACE@491..492 "}"
-  NEWLINE@492..493 "\n"
-  NEWLINE@493..494 "\n"
-  HANDLER_DECL@494..618
-    HANDLER_KW@494..501 "handler"
+        BLOCK_EXPR@462..481
+          L_BRACE@462..463 "{"
+          WHITESPACE@463..464 " "
+          CALL_EXPR@464..479
+            NAME_REF@464..468
+              LOWER_NAME@464..468 "todo"
+            ARG_LIST@468..479
+              L_PAREN@468..469 "("
+              FIELD_EXPR@469..478
+                NAME_REF@469..473
+                  SELF_KW@469..473 "self"
+                DOT@473..474 "."
+                LOWER_NAME@474..478 "conn"
+              R_PAREN@478..479 ")"
+          WHITESPACE@479..480 " "
+          R_BRACE@480..481 "}"
+      NEWLINE@481..482 "\n"
+      R_BRACE@482..483 "}"
+  NEWLINE@483..484 "\n"
+  NEWLINE@484..485 "\n"
+  HANDLER_DECL@485..609
+    HANDLER_KW@485..492 "handler"
+    WHITESPACE@492..493 " "
+    TYPE_NAME@493..500 "JsClock"
+    COLON@500..501 ":"
     WHITESPACE@501..502 " "
-    TYPE_NAME@502..509 "JsClock"
-    COLON@509..510 ":"
-    WHITESPACE@510..511 " "
-    HANDLER_EFFECT@511..516
-      PATH@511..516
-        TYPE_NAME@511..516 "Clock"
-    WHITESPACE@516..517 " "
-    ITEM_LIST@517..618
-      L_BRACE@517..518 "{"
-      NEWLINE@518..519 "\n"
-      WHITESPACE@519..521 "  "
-      FN_DECL@521..590
-        SUSPEND_KW@521..528 "suspend"
-        WHITESPACE@528..529 " "
-        FN_KW@529..531 "fn"
-        WHITESPACE@531..532 " "
-        LOWER_NAME@532..537 "sleep"
-        PARAM_LIST@537..549
-          L_PAREN@537..538 "("
-          PARAM@538..540
-            LOWER_NAME@538..540 "ms"
-          COMMA@540..541 ","
-          WHITESPACE@541..542 " "
-          PARAM@542..548
-            LOWER_NAME@542..548 "resume"
-          R_PAREN@548..549 ")"
-        WHITESPACE@549..550 " "
-        BLOCK_EXPR@550..590
-          L_BRACE@550..551 "{"
-          NEWLINE@551..552 "\n"
-          WHITESPACE@552..556 "    "
-          CALL_EXPR@556..586
-            NAME_REF@556..567
-              LOWER_NAME@556..567 "set_timeout"
-            ARG_LIST@567..586
-              L_PAREN@567..568 "("
-              NAME_REF@568..570
-                LOWER_NAME@568..570 "ms"
-              COMMA@570..571 ","
-              WHITESPACE@571..572 " "
-              LAMBDA_EXPR@572..585
-                PARAM_LIST@572..574
-                  PIPE2@572..574 "||"
-                WHITESPACE@574..575 " "
-                CALL_EXPR@575..585
-                  NAME_REF@575..581
-                    LOWER_NAME@575..581 "resume"
-                  ARG_LIST@581..585
-                    L_PAREN@581..582 "("
-                    UNIT_EXPR@582..584
-                      L_PAREN@582..583 "("
-                      R_PAREN@583..584 ")"
-                    R_PAREN@584..585 ")"
-              R_PAREN@585..586 ")"
-          NEWLINE@586..587 "\n"
-          WHITESPACE@587..589 "  "
-          R_BRACE@589..590 "}"
-      NEWLINE@590..591 "\n"
-      WHITESPACE@591..593 "  "
-      FN_DECL@593..616
-        FN_KW@593..595 "fn"
-        WHITESPACE@595..596 " "
-        LOWER_NAME@596..599 "now"
-        PARAM_LIST@599..601
-          L_PAREN@599..600 "("
-          R_PAREN@600..601 ")"
-        WHITESPACE@601..602 " "
-        BLOCK_EXPR@602..616
-          L_BRACE@602..603 "{"
-          WHITESPACE@603..604 " "
-          CALL_EXPR@604..614
-            NAME_REF@604..612
-              LOWER_NAME@604..612 "date_now"
-            ARG_LIST@612..614
-              L_PAREN@612..613 "("
-              R_PAREN@613..614 ")"
-          WHITESPACE@614..615 " "
-          R_BRACE@615..616 "}"
-      NEWLINE@616..617 "\n"
-      R_BRACE@617..618 "}"
-  NEWLINE@618..619 "\n"
-  NEWLINE@619..620 "\n"
-  LAYER_DECL@620..735
-    LAYER_KW@620..625 "layer"
-    WHITESPACE@625..626 " "
-    TYPE_NAME@626..633 "AppLive"
-    WHITESPACE@633..634 " "
-    ITEM_LIST@634..735
-      L_BRACE@634..635 "{"
-      NEWLINE@635..636 "\n"
-      WHITESPACE@636..638 "  "
-      PATH@638..647
-        TYPE_NAME@638..647 "EnvConfig"
-      NEWLINE@647..648 "\n"
-      WHITESPACE@648..650 "  "
-      PATH@650..663
-        TYPE_NAME@650..663 "ConsoleLogger"
-      NEWLINE@663..664 "\n"
-      WHITESPACE@664..666 "  "
-      PATH@666..673
-        TYPE_NAME@666..673 "JsClock"
-      NEWLINE@673..674 "\n"
-      WHITESPACE@674..676 "  "
-      PATH@676..689
-        TYPE_NAME@676..689 "PostgresUsers"
-      WHITESPACE@689..695 "      "
-      COMMENT@695..733 "# init で Config を use している"
-      NEWLINE@733..734 "\n"
-      R_BRACE@734..735 "}"
-  NEWLINE@735..736 "\n"
-  NEWLINE@736..737 "\n"
-  LAYER_DECL@737..777
-    LAYER_KW@737..742 "layer"
-    WHITESPACE@742..743 " "
-    TYPE_NAME@743..748 "Small"
-    WHITESPACE@748..749 " "
-    ITEM_LIST@749..777
-      L_BRACE@749..750 "{"
-      WHITESPACE@750..751 " "
-      PATH@751..760
-        TYPE_NAME@751..760 "EnvConfig"
-      COMMA@760..761 ","
-      WHITESPACE@761..762 " "
-      PATH@762..775
-        TYPE_NAME@762..775 "ConsoleLogger"
-      WHITESPACE@775..776 " "
-      R_BRACE@776..777 "}"
-  NEWLINE@777..778 "\n"
-  NEWLINE@778..779 "\n"
-  FN_DECL@779..824
-    FN_KW@779..781 "fn"
-    WHITESPACE@781..782 " "
-    LOWER_NAME@782..786 "main"
-    PARAM_LIST@786..788
-      L_PAREN@786..787 "("
-      R_PAREN@787..788 ")"
-    WHITESPACE@788..789 " "
-    BLOCK_EXPR@789..824
-      L_BRACE@789..790 "{"
-      NEWLINE@790..791 "\n"
-      WHITESPACE@791..793 "  "
-      WITH_EXPR@793..822
-        WITH_KW@793..797 "with"
-        WHITESPACE@797..798 " "
-        PATH@798..805
-          TYPE_NAME@798..805 "AppLive"
-        WHITESPACE@805..806 " "
-        BLOCK_EXPR@806..822
-          L_BRACE@806..807 "{"
-          WHITESPACE@807..808 " "
-          CALL_EXPR@808..820
-            NAME_REF@808..818
-              LOWER_NAME@808..818 "run_server"
-            ARG_LIST@818..820
-              L_PAREN@818..819 "("
-              R_PAREN@819..820 ")"
-          WHITESPACE@820..821 " "
-          R_BRACE@821..822 "}"
-      NEWLINE@822..823 "\n"
-      R_BRACE@823..824 "}"
-  NEWLINE@824..825 "\n"
+    HANDLER_EFFECT@502..507
+      PATH@502..507
+        TYPE_NAME@502..507 "Clock"
+    WHITESPACE@507..508 " "
+    ITEM_LIST@508..609
+      L_BRACE@508..509 "{"
+      NEWLINE@509..510 "\n"
+      WHITESPACE@510..512 "  "
+      FN_DECL@512..581
+        SUSPEND_KW@512..519 "suspend"
+        WHITESPACE@519..520 " "
+        FN_KW@520..522 "fn"
+        WHITESPACE@522..523 " "
+        LOWER_NAME@523..528 "sleep"
+        PARAM_LIST@528..540
+          L_PAREN@528..529 "("
+          PARAM@529..531
+            LOWER_NAME@529..531 "ms"
+          COMMA@531..532 ","
+          WHITESPACE@532..533 " "
+          PARAM@533..539
+            LOWER_NAME@533..539 "resume"
+          R_PAREN@539..540 ")"
+        WHITESPACE@540..541 " "
+        BLOCK_EXPR@541..581
+          L_BRACE@541..542 "{"
+          NEWLINE@542..543 "\n"
+          WHITESPACE@543..547 "    "
+          CALL_EXPR@547..577
+            NAME_REF@547..558
+              LOWER_NAME@547..558 "set_timeout"
+            ARG_LIST@558..577
+              L_PAREN@558..559 "("
+              NAME_REF@559..561
+                LOWER_NAME@559..561 "ms"
+              COMMA@561..562 ","
+              WHITESPACE@562..563 " "
+              LAMBDA_EXPR@563..576
+                PARAM_LIST@563..565
+                  PIPE2@563..565 "||"
+                WHITESPACE@565..566 " "
+                CALL_EXPR@566..576
+                  NAME_REF@566..572
+                    LOWER_NAME@566..572 "resume"
+                  ARG_LIST@572..576
+                    L_PAREN@572..573 "("
+                    UNIT_EXPR@573..575
+                      L_PAREN@573..574 "("
+                      R_PAREN@574..575 ")"
+                    R_PAREN@575..576 ")"
+              R_PAREN@576..577 ")"
+          NEWLINE@577..578 "\n"
+          WHITESPACE@578..580 "  "
+          R_BRACE@580..581 "}"
+      NEWLINE@581..582 "\n"
+      WHITESPACE@582..584 "  "
+      FN_DECL@584..607
+        FN_KW@584..586 "fn"
+        WHITESPACE@586..587 " "
+        LOWER_NAME@587..590 "now"
+        PARAM_LIST@590..592
+          L_PAREN@590..591 "("
+          R_PAREN@591..592 ")"
+        WHITESPACE@592..593 " "
+        BLOCK_EXPR@593..607
+          L_BRACE@593..594 "{"
+          WHITESPACE@594..595 " "
+          CALL_EXPR@595..605
+            NAME_REF@595..603
+              LOWER_NAME@595..603 "date_now"
+            ARG_LIST@603..605
+              L_PAREN@603..604 "("
+              R_PAREN@604..605 ")"
+          WHITESPACE@605..606 " "
+          R_BRACE@606..607 "}"
+      NEWLINE@607..608 "\n"
+      R_BRACE@608..609 "}"
+  NEWLINE@609..610 "\n"
+  NEWLINE@610..611 "\n"
+  LAYER_DECL@611..726
+    LAYER_KW@611..616 "layer"
+    WHITESPACE@616..617 " "
+    TYPE_NAME@617..624 "AppLive"
+    WHITESPACE@624..625 " "
+    ITEM_LIST@625..726
+      L_BRACE@625..626 "{"
+      NEWLINE@626..627 "\n"
+      WHITESPACE@627..629 "  "
+      PATH@629..638
+        TYPE_NAME@629..638 "EnvConfig"
+      NEWLINE@638..639 "\n"
+      WHITESPACE@639..641 "  "
+      PATH@641..654
+        TYPE_NAME@641..654 "ConsoleLogger"
+      NEWLINE@654..655 "\n"
+      WHITESPACE@655..657 "  "
+      PATH@657..664
+        TYPE_NAME@657..664 "JsClock"
+      NEWLINE@664..665 "\n"
+      WHITESPACE@665..667 "  "
+      PATH@667..680
+        TYPE_NAME@667..680 "PostgresUsers"
+      WHITESPACE@680..686 "      "
+      COMMENT@686..724 "# init で Config を use している"
+      NEWLINE@724..725 "\n"
+      R_BRACE@725..726 "}"
+  NEWLINE@726..727 "\n"
+  NEWLINE@727..728 "\n"
+  LAYER_DECL@728..768
+    LAYER_KW@728..733 "layer"
+    WHITESPACE@733..734 " "
+    TYPE_NAME@734..739 "Small"
+    WHITESPACE@739..740 " "
+    ITEM_LIST@740..768
+      L_BRACE@740..741 "{"
+      WHITESPACE@741..742 " "
+      PATH@742..751
+        TYPE_NAME@742..751 "EnvConfig"
+      COMMA@751..752 ","
+      WHITESPACE@752..753 " "
+      PATH@753..766
+        TYPE_NAME@753..766 "ConsoleLogger"
+      WHITESPACE@766..767 " "
+      R_BRACE@767..768 "}"
+  NEWLINE@768..769 "\n"
+  NEWLINE@769..770 "\n"
+  FN_DECL@770..815
+    FN_KW@770..772 "fn"
+    WHITESPACE@772..773 " "
+    LOWER_NAME@773..777 "main"
+    PARAM_LIST@777..779
+      L_PAREN@777..778 "("
+      R_PAREN@778..779 ")"
+    WHITESPACE@779..780 " "
+    BLOCK_EXPR@780..815
+      L_BRACE@780..781 "{"
+      NEWLINE@781..782 "\n"
+      WHITESPACE@782..784 "  "
+      WITH_EXPR@784..813
+        WITH_KW@784..788 "with"
+        WHITESPACE@788..789 " "
+        PATH@789..796
+          TYPE_NAME@789..796 "AppLive"
+        WHITESPACE@796..797 " "
+        BLOCK_EXPR@797..813
+          L_BRACE@797..798 "{"
+          WHITESPACE@798..799 " "
+          CALL_EXPR@799..811
+            NAME_REF@799..809
+              LOWER_NAME@799..809 "run_server"
+            ARG_LIST@809..811
+              L_PAREN@809..810 "("
+              R_PAREN@810..811 ")"
+          WHITESPACE@811..812 " "
+          R_BRACE@812..813 "}"
+      NEWLINE@813..814 "\n"
+      R_BRACE@814..815 "}"
+  NEWLINE@815..816 "\n"

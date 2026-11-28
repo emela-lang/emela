@@ -3,8 +3,8 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse.debug_dump()
 input_file: crates/emela-syntax/test_data/parser/ok/handler_init_args.emel
 ---
-ROOT@0..538
-  HANDLER_DECL@0..157
+ROOT@0..533
+  HANDLER_DECL@0..153
     PUB_KW@0..3 "pub"
     WHITESPACE@3..4 " "
     HANDLER_KW@4..11 "handler"
@@ -26,11 +26,11 @@ ROOT@0..538
       PATH@37..39
         TYPE_NAME@37..39 "Kv"
     WHITESPACE@39..40 " "
-    ITEM_LIST@40..157
+    ITEM_LIST@40..153
       L_BRACE@40..41 "{"
       NEWLINE@41..42 "\n"
       WHITESPACE@42..44 "  "
-      HANDLER_INIT@44..119
+      HANDLER_INIT@44..115
         LOWER_NAME@44..48 "init"
         PARAM_LIST@48..79
           L_PAREN@48..49 "("
@@ -52,313 +52,311 @@ ROOT@0..538
                 TYPE_NAME@75..78 "Int"
           R_PAREN@78..79 ")"
         WHITESPACE@79..80 " "
-        BLOCK_EXPR@80..119
+        BLOCK_EXPR@80..115
           L_BRACE@80..81 "{"
           WHITESPACE@81..82 " "
-          CALL_EXPR@82..117
-            PATH_EXPR@82..90
-              PATH@82..90
-                TYPE_NAME@82..90 "WorkerKv"
-            ARG_LIST@90..117
-              L_PAREN@90..91 "("
-              NAMED_ARG@91..116
-                LOWER_NAME@91..93 "ns"
-                COLON@93..94 ":"
-                WHITESPACE@94..95 " "
-                CALL_EXPR@95..116
-                  NAME_REF@95..107
-                    LOWER_NAME@95..107 "kv_namespace"
-                  ARG_LIST@107..116
-                    L_PAREN@107..108 "("
-                    NAME_REF@108..115
-                      LOWER_NAME@108..115 "binding"
-                    R_PAREN@115..116 ")"
-              R_PAREN@116..117 ")"
-          WHITESPACE@117..118 " "
-          R_BRACE@118..119 "}"
-      NEWLINE@119..120 "\n"
-      WHITESPACE@120..122 "  "
-      FN_DECL@122..155
-        FN_KW@122..124 "fn"
-        WHITESPACE@124..125 " "
-        LOWER_NAME@125..128 "get"
-        PARAM_LIST@128..133
-          L_PAREN@128..129 "("
-          PARAM@129..132
-            LOWER_NAME@129..132 "key"
-          R_PAREN@132..133 ")"
-        WHITESPACE@133..134 " "
-        BLOCK_EXPR@134..155
-          L_BRACE@134..135 "{"
-          WHITESPACE@135..136 " "
-          CALL_EXPR@136..153
-            NAME_REF@136..139
-              LOWER_NAME@136..139 "get"
-            ARG_LIST@139..153
-              L_PAREN@139..140 "("
-              FIELD_EXPR@140..147
-                NAME_REF@140..144
-                  SELF_KW@140..144 "self"
-                DOT@144..145 "."
-                LOWER_NAME@145..147 "ns"
-              COMMA@147..148 ","
-              WHITESPACE@148..149 " "
-              NAME_REF@149..152
-                LOWER_NAME@149..152 "key"
-              R_PAREN@152..153 ")"
-          WHITESPACE@153..154 " "
-          R_BRACE@154..155 "}"
-      NEWLINE@155..156 "\n"
-      R_BRACE@156..157 "}"
-  NEWLINE@157..158 "\n"
-  NEWLINE@158..159 "\n"
-  HANDLER_DECL@159..222
-    HANDLER_KW@159..166 "handler"
-    WHITESPACE@166..167 " "
-    TYPE_NAME@167..172 "Empty"
-    COLON@172..173 ":"
-    WHITESPACE@173..174 " "
-    HANDLER_EFFECT@174..176
-      PATH@174..176
-        TYPE_NAME@174..176 "Kv"
-    WHITESPACE@176..177 " "
-    ITEM_LIST@177..222
-      L_BRACE@177..178 "{"
-      NEWLINE@178..179 "\n"
-      WHITESPACE@179..181 "  "
-      HANDLER_INIT@181..197
-        LOWER_NAME@181..185 "init"
-        PARAM_LIST@185..187
-          L_PAREN@185..186 "("
-          R_PAREN@186..187 ")"
-        WHITESPACE@187..188 " "
-        BLOCK_EXPR@188..197
-          L_BRACE@188..189 "{"
-          WHITESPACE@189..190 " "
-          PATH_EXPR@190..195
-            PATH@190..195
-              TYPE_NAME@190..195 "Empty"
-          WHITESPACE@195..196 " "
-          R_BRACE@196..197 "}"
-      NEWLINE@197..198 "\n"
-      WHITESPACE@198..200 "  "
-      FN_DECL@200..220
-        FN_KW@200..202 "fn"
-        WHITESPACE@202..203 " "
-        LOWER_NAME@203..206 "get"
-        PARAM_LIST@206..211
-          L_PAREN@206..207 "("
-          PARAM@207..210
-            LOWER_NAME@207..210 "key"
-          R_PAREN@210..211 ")"
-        WHITESPACE@211..212 " "
-        BLOCK_EXPR@212..220
-          L_BRACE@212..213 "{"
+          CALL_EXPR@82..113
+            NAME_REF@82..86
+              SELF_TYPE_KW@82..86 "Self"
+            ARG_LIST@86..113
+              L_PAREN@86..87 "("
+              NAMED_ARG@87..112
+                LOWER_NAME@87..89 "ns"
+                COLON@89..90 ":"
+                WHITESPACE@90..91 " "
+                CALL_EXPR@91..112
+                  NAME_REF@91..103
+                    LOWER_NAME@91..103 "kv_namespace"
+                  ARG_LIST@103..112
+                    L_PAREN@103..104 "("
+                    NAME_REF@104..111
+                      LOWER_NAME@104..111 "binding"
+                    R_PAREN@111..112 ")"
+              R_PAREN@112..113 ")"
+          WHITESPACE@113..114 " "
+          R_BRACE@114..115 "}"
+      NEWLINE@115..116 "\n"
+      WHITESPACE@116..118 "  "
+      FN_DECL@118..151
+        FN_KW@118..120 "fn"
+        WHITESPACE@120..121 " "
+        LOWER_NAME@121..124 "get"
+        PARAM_LIST@124..129
+          L_PAREN@124..125 "("
+          PARAM@125..128
+            LOWER_NAME@125..128 "key"
+          R_PAREN@128..129 ")"
+        WHITESPACE@129..130 " "
+        BLOCK_EXPR@130..151
+          L_BRACE@130..131 "{"
+          WHITESPACE@131..132 " "
+          CALL_EXPR@132..149
+            NAME_REF@132..135
+              LOWER_NAME@132..135 "get"
+            ARG_LIST@135..149
+              L_PAREN@135..136 "("
+              FIELD_EXPR@136..143
+                NAME_REF@136..140
+                  SELF_KW@136..140 "self"
+                DOT@140..141 "."
+                LOWER_NAME@141..143 "ns"
+              COMMA@143..144 ","
+              WHITESPACE@144..145 " "
+              NAME_REF@145..148
+                LOWER_NAME@145..148 "key"
+              R_PAREN@148..149 ")"
+          WHITESPACE@149..150 " "
+          R_BRACE@150..151 "}"
+      NEWLINE@151..152 "\n"
+      R_BRACE@152..153 "}"
+  NEWLINE@153..154 "\n"
+  NEWLINE@154..155 "\n"
+  HANDLER_DECL@155..217
+    HANDLER_KW@155..162 "handler"
+    WHITESPACE@162..163 " "
+    TYPE_NAME@163..168 "Empty"
+    COLON@168..169 ":"
+    WHITESPACE@169..170 " "
+    HANDLER_EFFECT@170..172
+      PATH@170..172
+        TYPE_NAME@170..172 "Kv"
+    WHITESPACE@172..173 " "
+    ITEM_LIST@173..217
+      L_BRACE@173..174 "{"
+      NEWLINE@174..175 "\n"
+      WHITESPACE@175..177 "  "
+      HANDLER_INIT@177..192
+        LOWER_NAME@177..181 "init"
+        PARAM_LIST@181..183
+          L_PAREN@181..182 "("
+          R_PAREN@182..183 ")"
+        WHITESPACE@183..184 " "
+        BLOCK_EXPR@184..192
+          L_BRACE@184..185 "{"
+          WHITESPACE@185..186 " "
+          NAME_REF@186..190
+            SELF_TYPE_KW@186..190 "Self"
+          WHITESPACE@190..191 " "
+          R_BRACE@191..192 "}"
+      NEWLINE@192..193 "\n"
+      WHITESPACE@193..195 "  "
+      FN_DECL@195..215
+        FN_KW@195..197 "fn"
+        WHITESPACE@197..198 " "
+        LOWER_NAME@198..201 "get"
+        PARAM_LIST@201..206
+          L_PAREN@201..202 "("
+          PARAM@202..205
+            LOWER_NAME@202..205 "key"
+          R_PAREN@205..206 ")"
+        WHITESPACE@206..207 " "
+        BLOCK_EXPR@207..215
+          L_BRACE@207..208 "{"
+          WHITESPACE@208..209 " "
+          PATH_EXPR@209..213
+            PATH@209..213
+              TYPE_NAME@209..213 "None"
           WHITESPACE@213..214 " "
-          PATH_EXPR@214..218
-            PATH@214..218
-              TYPE_NAME@214..218 "None"
-          WHITESPACE@218..219 " "
-          R_BRACE@219..220 "}"
-      NEWLINE@220..221 "\n"
-      R_BRACE@221..222 "}"
-  NEWLINE@222..223 "\n"
-  NEWLINE@223..224 "\n"
-  LAYER_DECL@224..311
-    LAYER_KW@224..229 "layer"
-    WHITESPACE@229..230 " "
-    TYPE_NAME@230..237 "AppLive"
-    WHITESPACE@237..238 " "
-    ITEM_LIST@238..311
-      L_BRACE@238..239 "{"
-      NEWLINE@239..240 "\n"
-      WHITESPACE@240..242 "  "
-      PATH@242..255
-        TYPE_NAME@242..255 "SystemConsole"
-      NEWLINE@255..256 "\n"
-      WHITESPACE@256..258 "  "
-      SUPPLY@258..293
-        PATH@258..266
-          TYPE_NAME@258..266 "WorkerKv"
-        ARG_LIST@266..293
-          L_PAREN@266..267 "("
-          NAMED_ARG@267..280
-            LOWER_NAME@267..274 "binding"
-            COLON@274..275 ":"
-            WHITESPACE@275..276 " "
-            STRING@276..280
-              STRING_QUOTE@276..277 "\""
-              STRING_TEXT@277..279 "KV"
-              STRING_QUOTE@279..280 "\""
-          COMMA@280..281 ","
-          WHITESPACE@281..282 " "
-          NAMED_ARG@282..292
-            LOWER_NAME@282..289 "retries"
-            COLON@289..290 ":"
-            WHITESPACE@290..291 " "
-            LITERAL@291..292
-              INT@291..292 "3"
-          R_PAREN@292..293 ")"
-      NEWLINE@293..294 "\n"
-      WHITESPACE@294..296 "  "
-      SUPPLY@296..309
-        PATH@296..301
-          TYPE_NAME@296..301 "Other"
-        ARG_LIST@301..309
-          L_PAREN@301..302 "("
-          STRING@302..305
-            STRING_QUOTE@302..303 "\""
-            STRING_TEXT@303..304 "x"
-            STRING_QUOTE@304..305 "\""
-          COMMA@305..306 ","
-          WHITESPACE@306..307 " "
-          LITERAL@307..308
-            INT@307..308 "1"
-          R_PAREN@308..309 ")"
-      NEWLINE@309..310 "\n"
-      R_BRACE@310..311 "}"
-  NEWLINE@311..312 "\n"
-  NEWLINE@312..313 "\n"
-  EFFECT_DECL@313..338
-    EFFECT_KW@313..319 "effect"
-    WHITESPACE@319..320 " "
-    TYPE_NAME@320..328 "AuditLog"
-    WHITESPACE@328..329 " "
-    EFFECT_LABEL@329..338
-      LOWER_NAME@329..331 "of"
-      WHITESPACE@331..332 " "
-      PATH@332..338
-        TYPE_NAME@332..338 "Logger"
-  NEWLINE@338..339 "\n"
-  NEWLINE@339..340 "\n"
-  FN_DECL@340..537
-    FN_KW@340..342 "fn"
-    WHITESPACE@342..343 " "
-    LOWER_NAME@343..347 "main"
-    PARAM_LIST@347..349
-      L_PAREN@347..348 "("
-      R_PAREN@348..349 ")"
-    WHITESPACE@349..350 " "
-    BLOCK_EXPR@350..537
-      L_BRACE@350..351 "{"
-      NEWLINE@351..352 "\n"
-      WHITESPACE@352..354 "  "
-      WITH_EXPR@354..404
-        WITH_KW@354..358 "with"
-        WHITESPACE@358..359 " "
-        SUPPLY@359..394
-          PATH@359..367
-            TYPE_NAME@359..367 "WorkerKv"
-          ARG_LIST@367..394
-            L_PAREN@367..368 "("
-            NAMED_ARG@368..381
-              LOWER_NAME@368..375 "binding"
-              COLON@375..376 ":"
-              WHITESPACE@376..377 " "
-              STRING@377..381
-                STRING_QUOTE@377..378 "\""
-                STRING_TEXT@378..380 "KV"
-                STRING_QUOTE@380..381 "\""
-            COMMA@381..382 ","
-            WHITESPACE@382..383 " "
-            NAMED_ARG@383..393
-              LOWER_NAME@383..390 "retries"
-              COLON@390..391 ":"
-              WHITESPACE@391..392 " "
-              LITERAL@392..393
-                INT@392..393 "3"
-            R_PAREN@393..394 ")"
-        WHITESPACE@394..395 " "
-        BLOCK_EXPR@395..404
-          L_BRACE@395..396 "{"
-          WHITESPACE@396..397 " "
-          CALL_EXPR@397..402
-            NAME_REF@397..400
-              LOWER_NAME@397..400 "run"
-            ARG_LIST@400..402
-              L_PAREN@400..401 "("
-              R_PAREN@401..402 ")"
-          WHITESPACE@402..403 " "
-          R_BRACE@403..404 "}"
-      NEWLINE@404..405 "\n"
-      WHITESPACE@405..407 "  "
-      WITH_EXPR@407..464
-        WITH_KW@407..411 "with"
-        WHITESPACE@411..412 " "
-        PATH@412..419
-          TYPE_NAME@412..419 "AppLive"
-        COMMA@419..420 ","
-        WHITESPACE@420..421 " "
-        SUPPLY@421..454
-          PATH@421..429
-            TYPE_NAME@421..429 "WorkerKv"
-          ARG_LIST@429..454
-            L_PAREN@429..430 "("
-            NAMED_ARG@430..443
-              LOWER_NAME@430..437 "binding"
-              COLON@437..438 ":"
-              WHITESPACE@438..439 " "
-              NAME_REF@439..443
-                LOWER_NAME@439..443 "name"
-            COMMA@443..444 ","
-            WHITESPACE@444..445 " "
-            NAMED_ARG@445..453
-              LOWER_NAME@445..452 "retries"
-              COLON@452..453 ":"
-            R_PAREN@453..454 ")"
-        WHITESPACE@454..455 " "
-        BLOCK_EXPR@455..464
-          L_BRACE@455..456 "{"
-          WHITESPACE@456..457 " "
-          CALL_EXPR@457..462
-            NAME_REF@457..460
-              LOWER_NAME@457..460 "run"
-            ARG_LIST@460..462
-              L_PAREN@460..461 "("
-              R_PAREN@461..462 ")"
-          WHITESPACE@462..463 " "
-          R_BRACE@463..464 "}"
-      NEWLINE@464..465 "\n"
-      WHITESPACE@465..467 "  "
-      WITH_EXPR@467..535
-        WITH_KW@467..471 "with"
-        WHITESPACE@471..472 " "
-        PATH@472..485
-          TYPE_NAME@472..485 "SystemConsole"
-        COMMA@485..486 ","
-        WHITESPACE@486..487 " "
-        WITH_BY@487..525
-          PATH@487..495
-            TYPE_NAME@487..495 "AuditLog"
-          WHITESPACE@495..496 " "
-          LOWER_NAME@496..498 "by"
-          WHITESPACE@498..499 " "
-          SUPPLY@499..525
-            PATH@499..506
-              TYPE_NAME@499..506 "FileLog"
-            ARG_LIST@506..525
-              L_PAREN@506..507 "("
-              NAMED_ARG@507..524
-                LOWER_NAME@507..511 "path"
-                COLON@511..512 ":"
-                WHITESPACE@512..513 " "
-                STRING@513..524
-                  STRING_QUOTE@513..514 "\""
-                  STRING_TEXT@514..523 "audit.log"
-                  STRING_QUOTE@523..524 "\""
-              R_PAREN@524..525 ")"
-        WHITESPACE@525..526 " "
-        BLOCK_EXPR@526..535
-          L_BRACE@526..527 "{"
-          WHITESPACE@527..528 " "
-          CALL_EXPR@528..533
-            NAME_REF@528..531
-              LOWER_NAME@528..531 "run"
-            ARG_LIST@531..533
-              L_PAREN@531..532 "("
-              R_PAREN@532..533 ")"
-          WHITESPACE@533..534 " "
-          R_BRACE@534..535 "}"
-      NEWLINE@535..536 "\n"
-      R_BRACE@536..537 "}"
-  NEWLINE@537..538 "\n"
+          R_BRACE@214..215 "}"
+      NEWLINE@215..216 "\n"
+      R_BRACE@216..217 "}"
+  NEWLINE@217..218 "\n"
+  NEWLINE@218..219 "\n"
+  LAYER_DECL@219..306
+    LAYER_KW@219..224 "layer"
+    WHITESPACE@224..225 " "
+    TYPE_NAME@225..232 "AppLive"
+    WHITESPACE@232..233 " "
+    ITEM_LIST@233..306
+      L_BRACE@233..234 "{"
+      NEWLINE@234..235 "\n"
+      WHITESPACE@235..237 "  "
+      PATH@237..250
+        TYPE_NAME@237..250 "SystemConsole"
+      NEWLINE@250..251 "\n"
+      WHITESPACE@251..253 "  "
+      SUPPLY@253..288
+        PATH@253..261
+          TYPE_NAME@253..261 "WorkerKv"
+        ARG_LIST@261..288
+          L_PAREN@261..262 "("
+          NAMED_ARG@262..275
+            LOWER_NAME@262..269 "binding"
+            COLON@269..270 ":"
+            WHITESPACE@270..271 " "
+            STRING@271..275
+              STRING_QUOTE@271..272 "\""
+              STRING_TEXT@272..274 "KV"
+              STRING_QUOTE@274..275 "\""
+          COMMA@275..276 ","
+          WHITESPACE@276..277 " "
+          NAMED_ARG@277..287
+            LOWER_NAME@277..284 "retries"
+            COLON@284..285 ":"
+            WHITESPACE@285..286 " "
+            LITERAL@286..287
+              INT@286..287 "3"
+          R_PAREN@287..288 ")"
+      NEWLINE@288..289 "\n"
+      WHITESPACE@289..291 "  "
+      SUPPLY@291..304
+        PATH@291..296
+          TYPE_NAME@291..296 "Other"
+        ARG_LIST@296..304
+          L_PAREN@296..297 "("
+          STRING@297..300
+            STRING_QUOTE@297..298 "\""
+            STRING_TEXT@298..299 "x"
+            STRING_QUOTE@299..300 "\""
+          COMMA@300..301 ","
+          WHITESPACE@301..302 " "
+          LITERAL@302..303
+            INT@302..303 "1"
+          R_PAREN@303..304 ")"
+      NEWLINE@304..305 "\n"
+      R_BRACE@305..306 "}"
+  NEWLINE@306..307 "\n"
+  NEWLINE@307..308 "\n"
+  EFFECT_DECL@308..333
+    EFFECT_KW@308..314 "effect"
+    WHITESPACE@314..315 " "
+    TYPE_NAME@315..323 "AuditLog"
+    WHITESPACE@323..324 " "
+    EFFECT_LABEL@324..333
+      LOWER_NAME@324..326 "of"
+      WHITESPACE@326..327 " "
+      PATH@327..333
+        TYPE_NAME@327..333 "Logger"
+  NEWLINE@333..334 "\n"
+  NEWLINE@334..335 "\n"
+  FN_DECL@335..532
+    FN_KW@335..337 "fn"
+    WHITESPACE@337..338 " "
+    LOWER_NAME@338..342 "main"
+    PARAM_LIST@342..344
+      L_PAREN@342..343 "("
+      R_PAREN@343..344 ")"
+    WHITESPACE@344..345 " "
+    BLOCK_EXPR@345..532
+      L_BRACE@345..346 "{"
+      NEWLINE@346..347 "\n"
+      WHITESPACE@347..349 "  "
+      WITH_EXPR@349..399
+        WITH_KW@349..353 "with"
+        WHITESPACE@353..354 " "
+        SUPPLY@354..389
+          PATH@354..362
+            TYPE_NAME@354..362 "WorkerKv"
+          ARG_LIST@362..389
+            L_PAREN@362..363 "("
+            NAMED_ARG@363..376
+              LOWER_NAME@363..370 "binding"
+              COLON@370..371 ":"
+              WHITESPACE@371..372 " "
+              STRING@372..376
+                STRING_QUOTE@372..373 "\""
+                STRING_TEXT@373..375 "KV"
+                STRING_QUOTE@375..376 "\""
+            COMMA@376..377 ","
+            WHITESPACE@377..378 " "
+            NAMED_ARG@378..388
+              LOWER_NAME@378..385 "retries"
+              COLON@385..386 ":"
+              WHITESPACE@386..387 " "
+              LITERAL@387..388
+                INT@387..388 "3"
+            R_PAREN@388..389 ")"
+        WHITESPACE@389..390 " "
+        BLOCK_EXPR@390..399
+          L_BRACE@390..391 "{"
+          WHITESPACE@391..392 " "
+          CALL_EXPR@392..397
+            NAME_REF@392..395
+              LOWER_NAME@392..395 "run"
+            ARG_LIST@395..397
+              L_PAREN@395..396 "("
+              R_PAREN@396..397 ")"
+          WHITESPACE@397..398 " "
+          R_BRACE@398..399 "}"
+      NEWLINE@399..400 "\n"
+      WHITESPACE@400..402 "  "
+      WITH_EXPR@402..459
+        WITH_KW@402..406 "with"
+        WHITESPACE@406..407 " "
+        PATH@407..414
+          TYPE_NAME@407..414 "AppLive"
+        COMMA@414..415 ","
+        WHITESPACE@415..416 " "
+        SUPPLY@416..449
+          PATH@416..424
+            TYPE_NAME@416..424 "WorkerKv"
+          ARG_LIST@424..449
+            L_PAREN@424..425 "("
+            NAMED_ARG@425..438
+              LOWER_NAME@425..432 "binding"
+              COLON@432..433 ":"
+              WHITESPACE@433..434 " "
+              NAME_REF@434..438
+                LOWER_NAME@434..438 "name"
+            COMMA@438..439 ","
+            WHITESPACE@439..440 " "
+            NAMED_ARG@440..448
+              LOWER_NAME@440..447 "retries"
+              COLON@447..448 ":"
+            R_PAREN@448..449 ")"
+        WHITESPACE@449..450 " "
+        BLOCK_EXPR@450..459
+          L_BRACE@450..451 "{"
+          WHITESPACE@451..452 " "
+          CALL_EXPR@452..457
+            NAME_REF@452..455
+              LOWER_NAME@452..455 "run"
+            ARG_LIST@455..457
+              L_PAREN@455..456 "("
+              R_PAREN@456..457 ")"
+          WHITESPACE@457..458 " "
+          R_BRACE@458..459 "}"
+      NEWLINE@459..460 "\n"
+      WHITESPACE@460..462 "  "
+      WITH_EXPR@462..530
+        WITH_KW@462..466 "with"
+        WHITESPACE@466..467 " "
+        PATH@467..480
+          TYPE_NAME@467..480 "SystemConsole"
+        COMMA@480..481 ","
+        WHITESPACE@481..482 " "
+        WITH_BY@482..520
+          PATH@482..490
+            TYPE_NAME@482..490 "AuditLog"
+          WHITESPACE@490..491 " "
+          LOWER_NAME@491..493 "by"
+          WHITESPACE@493..494 " "
+          SUPPLY@494..520
+            PATH@494..501
+              TYPE_NAME@494..501 "FileLog"
+            ARG_LIST@501..520
+              L_PAREN@501..502 "("
+              NAMED_ARG@502..519
+                LOWER_NAME@502..506 "path"
+                COLON@506..507 ":"
+                WHITESPACE@507..508 " "
+                STRING@508..519
+                  STRING_QUOTE@508..509 "\""
+                  STRING_TEXT@509..518 "audit.log"
+                  STRING_QUOTE@518..519 "\""
+              R_PAREN@519..520 ")"
+        WHITESPACE@520..521 " "
+        BLOCK_EXPR@521..530
+          L_BRACE@521..522 "{"
+          WHITESPACE@522..523 " "
+          CALL_EXPR@523..528
+            NAME_REF@523..526
+              LOWER_NAME@523..526 "run"
+            ARG_LIST@526..528
+              L_PAREN@526..527 "("
+              R_PAREN@527..528 ")"
+          WHITESPACE@528..529 " "
+          R_BRACE@529..530 "}"
+      NEWLINE@530..531 "\n"
+      R_BRACE@531..532 "}"
+  NEWLINE@532..533 "\n"

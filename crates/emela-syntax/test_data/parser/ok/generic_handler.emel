@@ -3,12 +3,12 @@ handler InMemoryRepo[K: Eq, V]: Repo[K, V] {
 }
 
 handler Constant[S](value: S): State[S] {
-  init(value: S) { Constant(value:) }
+  init(value: S) { Self(value:) }
   fn get() { self.value }
 }
 
 handler Cache[K: Eq + Hash, V](entries: List[(K, V)]): Repo[K, V] {
-  init() { Cache(entries: []) }
+  init() { Self(entries: []) }
 }
 
 layer AppTest {

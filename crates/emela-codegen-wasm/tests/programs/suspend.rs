@@ -123,7 +123,7 @@ effect Name {
 }
 
 handler Res(label: String): Name {
-  init { Res(label: "res") }
+  init { Self(label: "res") }
   fn name() { self.label }
   release { dbg("release #{self.label}") }
 }
@@ -179,7 +179,7 @@ effect Name {
 }
 
 handler Res: Name {
-  init { Res }
+  init { Self }
   fn name() { "res" }
   release { dbg("release res") }
 }
@@ -231,7 +231,7 @@ effect Name {
 }
 
 handler Res: Name {
-  init { Res }
+  init { Self }
   fn name() { "res" }
   release { dbg("release res") }
 }
@@ -373,13 +373,13 @@ effect Name {
 }
 
 handler ResMiddle: Name {
-  init { ResMiddle }
+  init { Self }
   fn name() { "middle" }
   release { dbg("release middle") }
 }
 
 handler ResOuter: Name {
-  init { ResOuter }
+  init { Self }
   fn name() { "outer" }
   release { dbg("release outer") }
 }
@@ -436,7 +436,7 @@ effect Name {
 }
 
 handler Boom: Name {
-  init { Boom }
+  init { Self }
   fn name() { "boom" }
   release {
     dbg("release boom")
@@ -532,7 +532,7 @@ effect Name {
 }
 
 handler Res: Name {
-  init { Res }
+  init { Self }
   fn name() { "res" }
   release { dbg("release res") }
 }

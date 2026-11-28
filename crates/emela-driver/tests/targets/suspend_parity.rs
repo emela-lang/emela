@@ -140,7 +140,7 @@ effect Name {
 }
 
 handler Res: Name {
-  init { Res }
+  init { Self }
   fn name() { "res" }
   release {
     dbg("release res")
@@ -183,7 +183,7 @@ effect Name {
 }
 
 handler Res: Name {
-  init { Res }
+  init { Self }
   fn name() { "res" }
   release {
     dbg("release res")
@@ -235,13 +235,13 @@ effect Name {
 }
 
 handler OuterRes: Name {
-  init { OuterRes }
+  init { Self }
   fn name() { "outer" }
   release { dbg("release outer") }
 }
 
 handler InnerRes: Name {
-  init { InnerRes }
+  init { Self }
   fn name() { "inner" }
   release { dbg("release inner") }
 }
@@ -484,13 +484,13 @@ handler Ignores: Wait {
 }
 
 handler MainRes: Name {
-  init { MainRes }
+  init { Self }
   fn name() { "main" }
   release { dbg("release main") }
 }
 
 handler InnerRes: Tag {
-  init { InnerRes }
+  init { Self }
   fn tag() { "inner" }
   release { dbg("release inner") }
 }
@@ -565,7 +565,7 @@ effect Name {
 }
 
 handler MainRes: Name {
-  init { MainRes }
+  init { Self }
   fn name() { "main" }
   release { dbg("release main") }
 }

@@ -28,14 +28,14 @@ effect Name {
 handler Res(label: String): Name {
   init {
     print("init res")
-    Res(label: "res")
+    Self(label: "res")
   }
   fn name() { self.label }
   release { print("release #{self.label}") }
 }
 
 handler BadRes: Name {
-  init { BadRes }
+  init { Self }
   fn name() { "bad" }
   release { panic("release failed") }
 }

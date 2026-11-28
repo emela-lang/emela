@@ -432,7 +432,7 @@ fn old_impl_and_handler_heads_are_rewritten() {
     assert!(edited.contains("impl Box[A: Label]: Label {"));
     assert_clean(&edited, &[]);
 
-    let text = "effect Logger {\n  fn info(msg: String) -> ()\n}\nhandler Quiet(level: Int) implements Logger {\n  init { Quiet(level: 0) }\n  fn info(msg) { () }\n}\n";
+    let text = "effect Logger {\n  fn info(msg: String) -> ()\n}\nhandler Quiet(level: Int) implements Logger {\n  init { Self(level: 0) }\n  fn info(msg) { () }\n}\n";
     let actions = fixes(text, "implements", &[]);
     assert_eq!(actions.len(), 1);
     assert_eq!(
@@ -552,6 +552,96 @@ fn deprecated_uses_are_rewritten_to_effect_aliases() {
     let text =
         format!("{prelude}fn f() {{\n  log = use Logger\n  with Quiet {{ log.info(\"a\") }}\n}}\n");
     assert!(fixes(&text, "use Logger", &[]).is_empty());
+}
+
+/// W4001 and E4014 (`[lsp.code-action]`): the name of a handler written for its value inside its
+/// init becomes `Self`, and the `..x` of a record update becomes the fields not written, each read
+/// from x. No fix for a record update whose expression after `..` is not a name, nor for W4002.
+/// The rewritten program has no W4001 left.
+#[test]
+fn handler_names_are_rewritten_to_self() {
+    let prelude = "effect Counts {\n  fn get() -> Int\n}\n\n";
+    let by_name = |text: &str| {
+        let (analysis, _, _) = checked(text, &[]);
+        analysis
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == Some(code::DEPRECATED_HANDLER_NAME_AS_VALUE))
+            .count()
+    };
+
+    // A constructor.
+    let text = format!(
+        "{prelude}handler Counter(n: Int, m: Int): Counts {{\n  init {{ Counter(n: 1, m: 2) }}\n\n  fn get() {{ self.n }}\n}}\n"
+    );
+    let actions = fixes(&text, "Counter(n: 1", &[]);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].title, "Write `Self` in place of `Counter`");
+    let edited = apply(&text, &actions[0]);
+    assert!(edited.contains("init { Self(n: 1, m: 2) }"), "{edited}");
+    assert_clean(&edited, &[]);
+    assert_eq!(by_name(&edited), 0);
+
+    // A handler without parentheses.
+    let text = format!(
+        "{prelude}handler Plain: Counts {{\n  init {{ Plain }}\n\n  fn get() {{ 0 }}\n}}\n"
+    );
+    let actions = fixes(&text, "Plain }", &[]);
+    assert_eq!(actions.len(), 1);
+    let edited = apply(&text, &actions[0]);
+    assert!(edited.contains("init { Self }"), "{edited}");
+    assert_clean(&edited, &[]);
+
+    // A record update: the fields not written are read from the name after `..`.
+    let text = format!(
+        "{prelude}handler Counter(n: Int, m: Int, k: Int): Counts {{\n  init {{\n    a = Self(n: 1, m: 2, k: 3)\n    Counter(m: 4, ..a)\n  }}\n\n  fn get() {{ self.n }}\n}}\n"
+    );
+    let actions = fixes(&text, "Counter(m: 4", &[]);
+    assert_eq!(actions.len(), 1);
+    let edited = apply(&text, &actions[0]);
+    assert!(
+        edited.contains("    Self(m: 4, n: a.n, k: a.k)\n"),
+        "{edited}"
+    );
+    assert_clean(&edited, &[]);
+    assert_eq!(by_name(&edited), 0);
+
+    // A record update that writes every field: `..a` goes.
+    let text = format!(
+        "{prelude}handler Counter(n: Int): Counts {{\n  init {{\n    a = Self(n: 1)\n    Counter(n: 2, ..a)\n  }}\n\n  fn get() {{ self.n }}\n}}\n"
+    );
+    let actions = fixes(&text, "Counter(n: 2", &[]);
+    assert_eq!(actions.len(), 1);
+    let edited = apply(&text, &actions[0]);
+    assert!(edited.contains("    Self(n: 2)\n"), "{edited}");
+    assert_clean(&edited, &[]);
+
+    // The expression after `..` is not a name: it would be evaluated more than once.
+    let text = format!(
+        "{prelude}handler Counter(n: Int, m: Int): Counts {{\n  init {{ Counter(n: 2, ..Self(n: 1, m: 2)) }}\n\n  fn get() {{ self.n }}\n}}\n"
+    );
+    assert!(fixes(&text, "Counter(n: 2", &[]).is_empty());
+
+    // An inner handler (E4014).
+    let text = "effect Files {\n  handler Open(path: String): Reader\n}\n\neffect Reader {\n  fn read() -> String\n}\n\nhandler Fs: Files {\n  handler Open(p: String): Reader {\n    init(path: String) { Open(p: path) }\n\n    fn read() { self.p }\n  }\n}\n".to_owned();
+    let actions = fixes(&text, "Open(p: path)", &[]);
+    assert_eq!(actions.len(), 1);
+    assert_eq!(
+        actions[0].diagnostics[0].code,
+        Some(code::HANDLER_NAME_AS_VALUE)
+    );
+    let edited = apply(&text, &actions[0]);
+    assert!(
+        edited.contains("init(path: String) { Self(p: path) }"),
+        "{edited}"
+    );
+    assert_clean(&edited, &[]);
+
+    // A pattern (W4002): no fix.
+    let text = format!(
+        "{prelude}handler Counter(n: Int): Counts {{\n  init {{ Self(n: 1) }}\n\n  fn get() {{\n    self match {{\n      Counter(n:) -> n\n    }}\n  }}\n}}\n"
+    );
+    assert!(fixes(&text, "Counter(n:)", &[]).is_empty());
 }
 
 /// W3002 (`[lsp.code-action]`): the type parameter is removed with its bound and the `,` next to

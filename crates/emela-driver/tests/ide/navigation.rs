@@ -268,7 +268,7 @@ fn lambda_parameter_patterns_in_ide_queries() {
 /// `[effect.handler]`: the parameters of init are completed in the body of init, and only there.
 #[test]
 fn init_parameters_are_completed_in_init() {
-    let text = "effect Kv {\n  fn get(key: String) -> String\n}\n\nhandler WorkerKv(name: String): Kv {\n  init(binding: String) { WorkerKv(name: binding) }\n  fn get(key) { key }\n}\n\nfn main() {}\n";
+    let text = "effect Kv {\n  fn get(key: String) -> String\n}\n\nhandler WorkerKv(name: String): Kv {\n  init(binding: String) { Self(name: binding) }\n  fn get(key) { key }\n}\n\nfn main() {}\n";
     let (analysis, program) = checked(&[("/app/Pome.toml", ""), ("/app/src/main.emel", text)]);
     let file = analysis
         .sources

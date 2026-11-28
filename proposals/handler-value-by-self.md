@@ -114,11 +114,11 @@ handler ConsoleLogger: Logger {
 
 - [ ] E4014 (new): the name of a handler written for its value as a constructor or a record update inside its own init. From 0.30; for an inner handler, from the adoption. At the name. Message ``the value of `PostgresUsers` is made with `Self` ``, with ``= help: write `Self` in place of `PostgresUsers` ``, or for a record update ``= help: write `Self` with every field, as in `Self(n: 2, m: a.m)` ``, listing the fields of the update.
 - [ ] E4015 (new): a constructor pattern that names a handler. From 0.30; for an inner handler or a handler without parentheses, from the adoption. At the name. Message ``handler `Counter` cannot be matched by its name``, with ``= help: read the fields with `.`, as in `self.n` ``.
-- [ ] W4001 (new): until 0.30, what E4014 reports from 0.30. Message ``constructing `PostgresUsers` by its name is deprecated``, with the help of E4014.
-- [ ] W4002 (new): until 0.30, what E4015 reports from 0.30. Message ``matching `Counter` by its name is deprecated``, with the help of E4015.
-- [ ] The language server offers a quick fix for W4001 and E4014 (`[lsp.code-action]`): the name becomes `Self`, and for a record update, `..x` becomes the fields not written, read from x. It is not offered for a record update whose expression after `..` is not a name, since the rewrite would evaluate it more than once. No fix is offered for W4002 and E4015, whose rewrite changes the body that uses the bindings. That the two kinds have different fixes is why they have different codes (`[diag]`).
+- [x] W4001 (new): until 0.30, what E4014 reports from 0.30. Message ``constructing `PostgresUsers` by its name is deprecated``, with the help of E4014.
+- [x] W4002 (new): until 0.30, what E4015 reports from 0.30. Message ``matching `Counter` by its name is deprecated``, with the help of E4015.
+- [x] The language server offers a quick fix for W4001 and E4014 (`[lsp.code-action]`): the name becomes `Self`, and for a record update, `..x` becomes the fields not written, read from x. It is not offered for a record update whose expression after `..` is not a name, since the rewrite would evaluate it more than once. No fix is offered for W4002 and E4015, whose rewrite changes the body that uses the bindings. That the two kinds have different fixes is why they have different codes (`[diag]`).
 - E4005 is unchanged: it stays the code for a handler value made outside the init of the handler.
-- [ ] E4006 (changed help): ``= help: add `init { ... }` that returns `Self(...)` `` in place of `NoInit(...)`.
+- [x] E4006 (changed help): ``= help: add `init { ... }` that returns `Self(...)` `` in place of `NoInit(...)`.
 
 ## Compatibility
 

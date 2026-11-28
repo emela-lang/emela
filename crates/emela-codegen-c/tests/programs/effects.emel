@@ -19,7 +19,7 @@ handler PrintLog: Log {
 handler Prefixed(prefix: String): Store {
   init {
     (use Log).log("open")
-    Prefixed(prefix: "p")
+    Self(prefix: "p")
   }
 
   release {
@@ -30,7 +30,7 @@ handler Prefixed(prefix: String): Store {
 }
 
 handler Counter(start: Int): Store {
-  init { Counter(start: 10) }
+  init { Self(start: 10) }
   fn get(key) { "#{key}=#{self.start}" }
 }
 

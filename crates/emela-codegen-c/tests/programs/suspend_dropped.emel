@@ -21,7 +21,7 @@ effect Name {
 }
 
 handler Res(label: String): Name {
-  init { Res(label: "res") }
+  init { Self(label: "res") }
   fn name() { self.label }
   release { print("release #{self.label}") }
 }

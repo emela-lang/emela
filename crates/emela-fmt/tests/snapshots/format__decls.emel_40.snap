@@ -24,7 +24,7 @@ effect Clock {
   fn now() -> Instant
 }
 handler FixedClock: Clock {
-  init { FixedClock() }
+  init { Self() }
   suspend fn sleep(ms, resume) {
     resume(())
   }

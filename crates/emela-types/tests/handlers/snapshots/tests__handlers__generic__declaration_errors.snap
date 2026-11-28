@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/handlers/generic.rs
-expression: "render(r#\"\nimport Std.State.{State}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect ReadFile {\n  fn read() -> String\n}\n\neffect Files {\n  fn exists(path: String) -> Bool\n  handler Open(path: String): ReadFile\n}\n\nhandler AsSet[E]: State[fn() -> () fails E] {\n  fn get() { || () }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nhandler Recording[A]: Logger {\n  fn info(msg) {\n    st <- State[List[A]]\n    ()\n  }\n}\n\nhandler Nowhere[A]: Logger {\n  fn info(msg) { () }\n}\n\nhandler InInit[A]: Logger {\n  init(x: A) { InInit }\n  fn info(msg) { () }\n}\n\nhandler Memory[S](value: S): State[S] {\n  init(value: S) { Memory(value: 1) }\n  fn get() { self.value }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nhandler Outer[S](value: S): Files {\n  init(value: S) { Outer(value:) }\n  fn exists(path) { True }\n  handler Open[T](path: String): ReadFile {\n    init(path: String) { Self(path:) }\n    fn read() { self.path }\n  }\n}\n\nhandler Sees[S](value: S): Files {\n  init(value: S) { Sees(value:) }\n  fn exists(path) { True }\n  handler Open(path: String): ReadFile {\n    init(path: String) {\n      none: Option[S] = None\n      Self(path:)\n    }\n    fn read() { self.path }\n  }\n}\n\nhandler Generic: State {\n  fn get() { 0 }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\"#)"
+expression: "render(r#\"\nimport Std.State.{State}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\neffect ReadFile {\n  fn read() -> String\n}\n\neffect Files {\n  fn exists(path: String) -> Bool\n  handler Open(path: String): ReadFile\n}\n\nhandler AsSet[E]: State[fn() -> () fails E] {\n  fn get() { || () }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nhandler Recording[A]: Logger {\n  fn info(msg) {\n    st <- State[List[A]]\n    ()\n  }\n}\n\nhandler Nowhere[A]: Logger {\n  fn info(msg) { () }\n}\n\nhandler InInit[A]: Logger {\n  init(x: A) { Self }\n  fn info(msg) { () }\n}\n\nhandler Memory[S](value: S): State[S] {\n  init(value: S) { Self(value: 1) }\n  fn get() { self.value }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nhandler Outer[S](value: S): Files {\n  init(value: S) { Self(value:) }\n  fn exists(path) { True }\n  handler Open[T](path: String): ReadFile {\n    init(path: String) { Self(path:) }\n    fn read() { self.path }\n  }\n}\n\nhandler Sees[S](value: S): Files {\n  init(value: S) { Self(value:) }\n  fn exists(path) { True }\n  handler Open(path: String): ReadFile {\n    init(path: String) {\n      none: Option[S] = None\n      Self(path:)\n    }\n    fn read() { self.path }\n  }\n}\n\nhandler Generic: State {\n  fn get() { 0 }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\"#)"
 ---
 handler AsSet: use {}
 handler Recording: use {}
@@ -15,7 +15,7 @@ handler Generic: use {}
 `E` HandlerParamNotType { handler: "AsSet", param: "E" }
 `A` UnusedHandlerParam { handler: "Recording", param: "A" }
 `A` UnusedHandlerParam { handler: "Nowhere", param: "A" }
-`Memory(value: 1)` mismatch: expected `Memory['0]`, found `Memory[Int]`
+`Self(value: 1)` mismatch: expected `Memory['0]`, found `Memory[Int]`
 `T` InnerHandlerTypeParams { handler: "Open" }
 `Generic` MissingEffectTypeArgs { effect: "State", params: ["S"], handler: Some("Generic") }
 --- R

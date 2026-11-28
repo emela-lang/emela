@@ -261,7 +261,7 @@ effect Name {
 handler SlowRes: Name {
   init {
     dbg("init slow")
-    SlowRes
+    Self
   }
   fn name() { "slow" }
   release {
@@ -319,7 +319,7 @@ effect Name {
 handler Res: Name {
   init {
     dbg("init res")
-    Res
+    Self
   }
   fn name() { "res" }
   release { panic("second") }
@@ -397,7 +397,7 @@ effect Name {
 handler Res: Name {
   init {
     dbg("init res")
-    Res
+    Self
   }
   fn name() { "res" }
   release { panic("second") }

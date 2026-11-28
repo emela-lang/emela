@@ -54,7 +54,7 @@ effect Ask {
 }
 
 handler Fixed(n: Int): Ask {
-  init { Fixed(n: 2) }
+  init { Self(n: 2) }
   release { print("bye") }
   fn ask() { self.n }
 }

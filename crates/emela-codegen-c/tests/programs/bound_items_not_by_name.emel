@@ -36,7 +36,7 @@ handler Pool(conn: use Conn, other: use Conn): Conn {
   init {
     with replica = ReplicaDb {
       _ = dbg(replica.name())
-      Pool(conn: Db.Open("pool"), other: (use Db).Open("use"))
+      Self(conn: Db.Open("pool"), other: (use Db).Open("use"))
     }
   }
 

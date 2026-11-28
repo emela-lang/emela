@@ -75,7 +75,7 @@ effect Log {
 ## A private handler.
 handler Silent(prefix: Int): Log {
   ## Initializes logging.
-  init { Silent(prefix: 0) }
+  init { Self(prefix: 0) }
   ## Releases logging.
   release { () }
   ## Implements logging.

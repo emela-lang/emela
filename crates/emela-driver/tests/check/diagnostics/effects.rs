@@ -270,7 +270,7 @@ effect Pong {
 fn risky() -> () fails Boom { fail Boom }
 
 handler Counter(n: Int): Logger {
-  init { Counter(n: 0) }
+  init { Self(n: 0) }
   release { risky() }
   fn info(msg) { () }
 }
@@ -514,7 +514,7 @@ effect Kv {
 }
 
 handler WorkerKv(binding: String): Kv {
-  init(binding: String, retries: Int) { WorkerKv(binding:) }
+  init(binding: String, retries: Int) { Self(binding:) }
   fn get(key) { self.binding }
 }
 
@@ -523,7 +523,7 @@ handler FakeKv: Kv {
 }
 
 handler Untyped(binding: String): Kv {
-  init(binding) { Untyped(binding:) }
+  init(binding) { Self(binding:) }
   fn get(key) { self.binding }
 }
 
@@ -1008,6 +1008,70 @@ fn forms() {
     insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
 }
 
+/// W4001, W4002, E4014 and E4015 (`[effect.handler]`): the name of a handler written for its
+/// value. The help of a record update lists every field; the help of a pattern reads a field. E4006
+/// names `Self` in its help.
+#[test]
+fn handler_value_by_name_diagnostics() {
+    let analysis = check_files(
+        &[(
+            "home/main.emel",
+            r#"effect Counts {
+  fn get() -> Int
+}
+
+effect Files {
+  handler Open(path: String): Reader
+}
+
+effect Reader {
+  fn read() -> String
+}
+
+handler Counter(n: Int, m: Int): Counts {
+  init {
+    a = Counter(n: 1, m: 2)
+    Counter(n: 2, ..a)
+  }
+
+  fn get() {
+    self match {
+      Counter(n:, ..) -> n
+    }
+  }
+}
+
+handler Plain: Counts {
+  fn get() {
+    self match {
+      Plain -> 0
+    }
+  }
+}
+
+handler Fs: Files {
+  handler Open(p: String): Reader {
+    init(path: String) { Open(p: path) }
+
+    fn read() {
+      self match {
+        Open(p:) -> p
+      }
+    }
+  }
+}
+
+handler NoInit(n: Int): Counts {
+  fn get() { self.n }
+}
+"#,
+        )],
+        "home/main.emel",
+        &mut Typecheck::default(),
+    );
+    insta::assert_snapshot!(render(&analysis.diagnostics, &analysis.sources, false));
+}
+
 /// The diagnostics of handlers with type parameters (`[effect.handler]`, `[effect.with]`,
 /// `[effect.layer]`): E4009, E4107, E1213, E4013, E3101 on an item, and the help of E4008 in the
 /// head of a handler.
@@ -1067,7 +1131,7 @@ handler Empty[A]: Cell[List[A]] {
 }
 
 handler Blank[A](xs: List[A]): Logger {
-  init() { Blank(xs: []) }
+  init() { Self(xs: []) }
   fn info(msg) { () }
 }
 
@@ -1457,7 +1521,7 @@ pub effect Log {
 pub handler FileLog: Log {
   init {
     tagged("init", "open")
-    FileLog
+    Self
   }
   fn info(msg) {
     tagged("info", msg)

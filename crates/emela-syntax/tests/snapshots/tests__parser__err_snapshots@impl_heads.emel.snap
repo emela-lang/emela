@@ -3,7 +3,7 @@ source: crates/emela-syntax/tests/parser.rs
 expression: parse(&src).debug_dump()
 input_file: crates/emela-syntax/test_data/parser/err/impl_heads.emel
 ---
-ROOT@0..500
+ROOT@0..499
   COMMENT@0..54 "# 前の形の impl と handler の頭（10.2，8.4）"
   NEWLINE@54..55 "\n"
   IMPL_DECL@55..100
@@ -167,7 +167,7 @@ ROOT@0..500
       NEWLINE@261..262 "\n"
       R_BRACE@262..263 "}"
   NEWLINE@263..264 "\n"
-  HANDLER_DECL@264..334
+  HANDLER_DECL@264..333
     HANDLER_KW@264..271 "handler"
     WHITESPACE@271..272 " "
     TYPE_NAME@272..277 "Fixed"
@@ -194,165 +194,164 @@ ROOT@0..500
             TYPE_NAME@303..306 "Int"
         R_BRACK@306..307 "]"
     WHITESPACE@307..308 " "
-    ITEM_LIST@308..334
+    ITEM_LIST@308..333
       L_BRACE@308..309 "{"
       NEWLINE@309..310 "\n"
       WHITESPACE@310..312 "  "
-      HANDLER_INIT@312..332
+      HANDLER_INIT@312..331
         LOWER_NAME@312..316 "init"
         WHITESPACE@316..317 " "
-        BLOCK_EXPR@317..332
+        BLOCK_EXPR@317..331
           L_BRACE@317..318 "{"
           WHITESPACE@318..319 " "
-          CALL_EXPR@319..330
-            PATH_EXPR@319..324
-              PATH@319..324
-                TYPE_NAME@319..324 "Fixed"
-            ARG_LIST@324..330
-              L_PAREN@324..325 "("
-              NAMED_ARG@325..329
-                LOWER_NAME@325..326 "n"
-                COLON@326..327 ":"
-                WHITESPACE@327..328 " "
-                LITERAL@328..329
-                  INT@328..329 "0"
-              R_PAREN@329..330 ")"
-          WHITESPACE@330..331 " "
-          R_BRACE@331..332 "}"
-      NEWLINE@332..333 "\n"
-      R_BRACE@333..334 "}"
-  NEWLINE@334..335 "\n"
-  FN_DECL@335..351
-    FN_KW@335..337 "fn"
-    WHITESPACE@337..338 " "
-    LOWER_NAME@338..343 "after"
-    PARAM_LIST@343..345
-      L_PAREN@343..344 "("
-      R_PAREN@344..345 ")"
-    WHITESPACE@345..346 " "
-    BLOCK_EXPR@346..351
-      L_BRACE@346..347 "{"
-      WHITESPACE@347..348 " "
-      LITERAL@348..349
-        INT@348..349 "1"
-      WHITESPACE@349..350 " "
-      R_BRACE@350..351 "}"
-  NEWLINE@351..352 "\n"
-  IMPL_DECL@352..384
-    IMPL_KW@352..356 "impl"
-    TYPE_PARAM_LIST@356..366
-      L_BRACK@356..357 "["
-      TYPE_PARAM@357..362
-        UPPER_NAME@357..358 "A"
-        COLON@358..359 ":"
-        WHITESPACE@359..360 " "
-        PATH@360..362
-          TYPE_NAME@360..362 "Eq"
-      COMMA@362..363 ","
-      WHITESPACE@363..364 " "
-      TYPE_PARAM@364..365
-        UPPER_NAME@364..365 "B"
-      R_BRACK@365..366 "]"
-    WHITESPACE@366..367 " "
-    IMPL_TYPE@367..377
-      PATH@367..371
-        TYPE_NAME@367..371 "Pair"
-      TYPE_PARAM_LIST@371..377
-        L_BRACK@371..372 "["
-        TYPE_PARAM@372..373
-          UPPER_NAME@372..373 "A"
-        COMMA@373..374 ","
-        WHITESPACE@374..375 " "
-        TYPE_PARAM@375..376
-          UPPER_NAME@375..376 "B"
-        R_BRACK@376..377 "]"
-    COLON@377..378 ":"
-    WHITESPACE@378..379 " "
-    PATH@379..381
-      TYPE_NAME@379..381 "Eq"
-    WHITESPACE@381..382 " "
-    ITEM_LIST@382..384
-      L_BRACE@382..383 "{"
-      R_BRACE@383..384 "}"
-  NEWLINE@384..385 "\n"
-  IMPL_DECL@385..418
-    IMPL_KW@385..389 "impl"
-    TYPE_PARAM_LIST@389..398
-      L_BRACK@389..390 "["
-      TYPE_PARAM@390..397
-        UPPER_NAME@390..391 "A"
-        COLON@391..392 ":"
-        WHITESPACE@392..393 " "
-        PATH@393..397
-          TYPE_NAME@393..397 "Show"
-      R_BRACK@397..398 "]"
-    WHITESPACE@398..399 " "
-    PATH@399..403
-      TYPE_NAME@399..403 "Show"
-    WHITESPACE@403..404 " "
-    LOWER_NAME@404..407 "for"
-    WHITESPACE@407..408 " "
-    IMPL_TYPE@408..415
-      PATH@408..412
-        TYPE_NAME@408..412 "List"
-      TYPE_PARAM_LIST@412..415
-        L_BRACK@412..413 "["
-        TYPE_PARAM@413..414
-          UPPER_NAME@413..414 "A"
-        R_BRACK@414..415 "]"
-    WHITESPACE@415..416 " "
-    ITEM_LIST@416..418
-      L_BRACE@416..417 "{"
-      R_BRACE@417..418 "}"
-  NEWLINE@418..419 "\n"
-  HANDLER_DECL@419..452
-    HANDLER_KW@419..426 "handler"
-    WHITESPACE@426..427 " "
-    TYPE_NAME@427..431 "Bare"
-    WHITESPACE@431..432 " "
-    LOWER_NAME@432..442 "implements"
-    WHITESPACE@442..443 " "
-    HANDLER_EFFECT@443..449
-      PATH@443..449
-        TYPE_NAME@443..449 "Logger"
-    WHITESPACE@449..450 " "
-    ITEM_LIST@450..452
-      L_BRACE@450..451 "{"
-      R_BRACE@451..452 "}"
-  NEWLINE@452..453 "\n"
-  HANDLER_DECL@453..499
-    HANDLER_KW@453..460 "handler"
-    WHITESPACE@460..461 " "
-    TYPE_NAME@461..465 "Both"
-    WHITESPACE@465..466 " "
-    LOWER_NAME@466..476 "implements"
-    WHITESPACE@476..477 " "
-    HANDLER_EFFECT@477..483
-      PATH@477..483
-        TYPE_NAME@477..483 "Logger"
-    WHITESPACE@483..484 " "
-    PLUS@484..485 "+"
-    WHITESPACE@485..486 " "
-    HANDLER_EFFECT@486..496
-      PATH@486..491
-        TYPE_NAME@486..491 "State"
-      TYPE_ARG_LIST@491..496
-        L_BRACK@491..492 "["
-        PATH_TYPE@492..495
-          PATH@492..495
-            TYPE_NAME@492..495 "Int"
-        R_BRACK@495..496 "]"
-    WHITESPACE@496..497 " "
-    ITEM_LIST@497..499
-      L_BRACE@497..498 "{"
-      R_BRACE@498..499 "}"
-  NEWLINE@499..500 "\n"
+          CALL_EXPR@319..329
+            NAME_REF@319..323
+              SELF_TYPE_KW@319..323 "Self"
+            ARG_LIST@323..329
+              L_PAREN@323..324 "("
+              NAMED_ARG@324..328
+                LOWER_NAME@324..325 "n"
+                COLON@325..326 ":"
+                WHITESPACE@326..327 " "
+                LITERAL@327..328
+                  INT@327..328 "0"
+              R_PAREN@328..329 ")"
+          WHITESPACE@329..330 " "
+          R_BRACE@330..331 "}"
+      NEWLINE@331..332 "\n"
+      R_BRACE@332..333 "}"
+  NEWLINE@333..334 "\n"
+  FN_DECL@334..350
+    FN_KW@334..336 "fn"
+    WHITESPACE@336..337 " "
+    LOWER_NAME@337..342 "after"
+    PARAM_LIST@342..344
+      L_PAREN@342..343 "("
+      R_PAREN@343..344 ")"
+    WHITESPACE@344..345 " "
+    BLOCK_EXPR@345..350
+      L_BRACE@345..346 "{"
+      WHITESPACE@346..347 " "
+      LITERAL@347..348
+        INT@347..348 "1"
+      WHITESPACE@348..349 " "
+      R_BRACE@349..350 "}"
+  NEWLINE@350..351 "\n"
+  IMPL_DECL@351..383
+    IMPL_KW@351..355 "impl"
+    TYPE_PARAM_LIST@355..365
+      L_BRACK@355..356 "["
+      TYPE_PARAM@356..361
+        UPPER_NAME@356..357 "A"
+        COLON@357..358 ":"
+        WHITESPACE@358..359 " "
+        PATH@359..361
+          TYPE_NAME@359..361 "Eq"
+      COMMA@361..362 ","
+      WHITESPACE@362..363 " "
+      TYPE_PARAM@363..364
+        UPPER_NAME@363..364 "B"
+      R_BRACK@364..365 "]"
+    WHITESPACE@365..366 " "
+    IMPL_TYPE@366..376
+      PATH@366..370
+        TYPE_NAME@366..370 "Pair"
+      TYPE_PARAM_LIST@370..376
+        L_BRACK@370..371 "["
+        TYPE_PARAM@371..372
+          UPPER_NAME@371..372 "A"
+        COMMA@372..373 ","
+        WHITESPACE@373..374 " "
+        TYPE_PARAM@374..375
+          UPPER_NAME@374..375 "B"
+        R_BRACK@375..376 "]"
+    COLON@376..377 ":"
+    WHITESPACE@377..378 " "
+    PATH@378..380
+      TYPE_NAME@378..380 "Eq"
+    WHITESPACE@380..381 " "
+    ITEM_LIST@381..383
+      L_BRACE@381..382 "{"
+      R_BRACE@382..383 "}"
+  NEWLINE@383..384 "\n"
+  IMPL_DECL@384..417
+    IMPL_KW@384..388 "impl"
+    TYPE_PARAM_LIST@388..397
+      L_BRACK@388..389 "["
+      TYPE_PARAM@389..396
+        UPPER_NAME@389..390 "A"
+        COLON@390..391 ":"
+        WHITESPACE@391..392 " "
+        PATH@392..396
+          TYPE_NAME@392..396 "Show"
+      R_BRACK@396..397 "]"
+    WHITESPACE@397..398 " "
+    PATH@398..402
+      TYPE_NAME@398..402 "Show"
+    WHITESPACE@402..403 " "
+    LOWER_NAME@403..406 "for"
+    WHITESPACE@406..407 " "
+    IMPL_TYPE@407..414
+      PATH@407..411
+        TYPE_NAME@407..411 "List"
+      TYPE_PARAM_LIST@411..414
+        L_BRACK@411..412 "["
+        TYPE_PARAM@412..413
+          UPPER_NAME@412..413 "A"
+        R_BRACK@413..414 "]"
+    WHITESPACE@414..415 " "
+    ITEM_LIST@415..417
+      L_BRACE@415..416 "{"
+      R_BRACE@416..417 "}"
+  NEWLINE@417..418 "\n"
+  HANDLER_DECL@418..451
+    HANDLER_KW@418..425 "handler"
+    WHITESPACE@425..426 " "
+    TYPE_NAME@426..430 "Bare"
+    WHITESPACE@430..431 " "
+    LOWER_NAME@431..441 "implements"
+    WHITESPACE@441..442 " "
+    HANDLER_EFFECT@442..448
+      PATH@442..448
+        TYPE_NAME@442..448 "Logger"
+    WHITESPACE@448..449 " "
+    ITEM_LIST@449..451
+      L_BRACE@449..450 "{"
+      R_BRACE@450..451 "}"
+  NEWLINE@451..452 "\n"
+  HANDLER_DECL@452..498
+    HANDLER_KW@452..459 "handler"
+    WHITESPACE@459..460 " "
+    TYPE_NAME@460..464 "Both"
+    WHITESPACE@464..465 " "
+    LOWER_NAME@465..475 "implements"
+    WHITESPACE@475..476 " "
+    HANDLER_EFFECT@476..482
+      PATH@476..482
+        TYPE_NAME@476..482 "Logger"
+    WHITESPACE@482..483 " "
+    PLUS@483..484 "+"
+    WHITESPACE@484..485 " "
+    HANDLER_EFFECT@485..495
+      PATH@485..490
+        TYPE_NAME@485..490 "State"
+      TYPE_ARG_LIST@490..495
+        L_BRACK@490..491 "["
+        PATH_TYPE@491..494
+          PATH@491..494
+            TYPE_NAME@491..494 "Int"
+        R_BRACK@494..495 "]"
+    WHITESPACE@495..496 " "
+    ITEM_LIST@496..498
+      L_BRACE@496..497 "{"
+      R_BRACE@497..498 "}"
+  NEWLINE@498..499 "\n"
 error[E1402]@55..73: write `impl User: Show` instead of `impl Show for User`
 error[E1402]@101..123: write `impl Box[A: Eq]: Eq` instead of `impl[A: Eq] Box[A]: Eq`
 error[E1101]@168..172: expected `:`
 error[E1403]@220..230: write `handler ConsoleLogger: Logger` instead of `implements`
 error[E1403]@286..296: write `handler Fixed(n: Int): State[Int]` instead of `implements`
-error[E1402]@352..381: write `impl Pair[A: Eq, B]: Eq` instead of `impl[A: Eq, B] Pair[A, B]: Eq`
-error[E1402]@385..415: write `impl List[A: Show]: Show` instead of `impl[A: Show] Show for List[A]`
-error[E1403]@432..442: write `handler Bare: Logger` instead of `implements`
-error[E1403]@466..476: write `handler Both: Logger + State[Int]` instead of `implements`
+error[E1402]@351..380: write `impl Pair[A: Eq, B]: Eq` instead of `impl[A: Eq, B] Pair[A, B]: Eq`
+error[E1402]@384..414: write `impl List[A: Show]: Show` instead of `impl[A: Show] Show for List[A]`
+error[E1403]@431..441: write `handler Bare: Logger` instead of `implements`
+error[E1403]@465..475: write `handler Both: Logger + State[Int]` instead of `implements`

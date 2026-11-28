@@ -23,7 +23,7 @@ handler MemoryStore(prefix: String): Store {
     console <- Console
     prefix = config.prefix()
     console.print_line("open store #{prefix}")
-    MemoryStore(prefix:)
+    Self(prefix:)
   }
 
   release {

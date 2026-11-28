@@ -40,6 +40,9 @@ pub(crate) fn lower_item(resolver: &mut Resolver<'_>, pending: Pending) {
         use_binds: FxHashMap::default(),
         region: 0,
         regions: 0,
+        init_of: None,
+        inner_names: Vec::new(),
+        call_update: None,
     };
     let item = match &pending.item {
         ast::Item::Import(_) => return,
@@ -176,6 +179,34 @@ struct Lower<'r, 'a> {
     region: u32,
     /// The number of regions made so far.
     regions: u32,
+    /// The handler whose init is being lowered, anonymous functions and local fns inside it
+    /// included (W4001, E4014, `[effect.handler]`).
+    init_of: Option<InitOf>,
+    /// The names of the inner handlers of the handlers being lowered. They are in no scope, so
+    /// a constructor pattern with one of them is reported as E4015 instead of an undefined name.
+    inner_names: Vec<SmolStr>,
+    /// The callee of the record update being lowered and the update as written, taken by the
+    /// callee when it names the handler of [`Self::init_of`] (W4001, E4014).
+    call_update: Option<(TextRange, CallUpdate)>,
+}
+
+/// The handler whose init is being lowered ([`Lower::init_of`]).
+struct InitOf {
+    handler: DefId,
+    ctor: DefId,
+    /// An inner handler, whose name is never in scope: written for its value, it is E4014
+    /// without a deprecation.
+    inner: bool,
+    /// The names of its fields, in declaration order.
+    fields: Vec<SmolStr>,
+}
+
+/// A record update `H(n: 2, ..a)` as written ([`Lower::call_update`]).
+struct CallUpdate {
+    /// The arguments before `..`: the label, if any, and the text.
+    written: Vec<(Option<SmolStr>, String)>,
+    /// The text of the expression after `..`, in parentheses unless it is a name.
+    base: String,
 }
 
 /// Names bound by one pattern (or parameter list). Binding the same name twice is reported.
@@ -774,7 +805,12 @@ impl Lower<'_, '_> {
 
     fn handler_item(&mut self, def: DefId, ctor: Option<DefId>, h: &ast::HandlerDecl) -> Item {
         let outer = self.handler.replace((def, ctor));
+        let names = self.inner_names.len();
+        let inner = self.r.inner_handlers(def);
+        self.inner_names
+            .extend(inner.iter().map(|(d, _)| self.r.def(*d).name.clone()));
         let item = self.handler_body(def, ctor, h);
+        self.inner_names.truncate(names);
         self.handler = outer;
         item
     }
@@ -856,7 +892,19 @@ impl Lower<'_, '_> {
             (Some(b), params) => {
                 self.push_scope();
                 let params = self.params(params, LocalKind::Param);
+                let init_of = ctor.map(|ctor| InitOf {
+                    handler: def,
+                    ctor,
+                    inner: self
+                        .r
+                        .def(def)
+                        .parent
+                        .is_some_and(|p| self.r.def(p).kind == DefKind::Handler),
+                    fields: fields.iter().map(|f| f.name.clone()).collect(),
+                });
+                let outer = std::mem::replace(&mut self.init_of, init_of);
                 let body = self.block(&b);
+                self.init_of = outer;
                 self.pop_scope();
                 (params, Some(body))
             }

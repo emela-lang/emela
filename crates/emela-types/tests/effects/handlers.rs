@@ -86,7 +86,7 @@ fn connect(url: String) -> Connection fails DbDown {
 handler PostgresUsers(conn: Connection): Users {
   init {
     config = use Config
-    PostgresUsers(conn: connect(config.db_url()))
+    Self(conn: connect(config.db_url()))
   }
 
   release {
@@ -102,13 +102,13 @@ handler EnvConfig: Config {
 }
 
 handler Quiet: Logger {
-  init { Quiet }
+  init { Self }
   release { () }
   fn info(msg) { () }
 }
 
 handler Unit(): Logger {
-  init { Unit() }
+  init { Self() }
   fn info(msg) { () }
 }
 
@@ -142,7 +142,7 @@ effect Logger {
 fn risky() -> () fails Boom { fail Boom }
 
 handler Counter(n: Int): Logger {
-  init { Counter(n: 0) }
+  init { Self(n: 0) }
   release { risky() }
   fn info(msg) {
     next = Counter(n: self.n + 1)
@@ -151,7 +151,7 @@ handler Counter(n: Int): Logger {
 }
 
 handler Careful(n: Int): Logger {
-  init { Careful(n: 1) }
+  init { Self(n: 1) }
   release { risky() escape { Boom -> () } }
   fn info(msg) { () }
 }

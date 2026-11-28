@@ -601,7 +601,7 @@ effect Res {
 }
 
 handler Timed(id: Int): Res {
-  init { Timed(id: 7) }
+  init { Self(id: 7) }
 
   release {
     t = (use Clock).now()

@@ -50,7 +50,7 @@ effect Mark {
 }
 
 handler StartOnRelease(name: String): Mark {
-  init(name: String) { StartOnRelease(name:) }
+  init(name: String) { Self(name:) }
   fn mark() { () }
   release {
     name = self.name

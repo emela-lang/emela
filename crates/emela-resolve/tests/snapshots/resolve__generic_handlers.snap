@@ -1,6 +1,6 @@
 ---
 source: crates/emela-resolve/tests/resolve.rs
-expression: "run(&[(\"main.emel\",\nr##\"effect Store[A] {\n  fn get() -> A\n  handler Open(path: String): Store[A]\n}\n\neffect Hits of Store[Int]\n\nhandler Memory[S: Eq](value: S): Store[S] {\n  init(value: S) { Memory(value:) }\n  fn get() {\n    x: S = self.value\n    x\n  }\n  handler Open(path: String): Store[S] {\n    fn get() {\n      y: S = self.path\n      y\n    }\n  }\n}\n\nlayer Both {\n  Memory[Int](value: 0)\n}\n\nfn main() {\n  with m = Memory[Int](value: 0), Hits by Memory[Int](value: 1) { m.get() }\n}\n\nfn outside(x: S) -> () { () }\n\"##,)])"
+expression: "run(&[(\"main.emel\",\nr##\"effect Store[A] {\n  fn get() -> A\n  handler Open(path: String): Store[A]\n}\n\neffect Hits of Store[Int]\n\nhandler Memory[S: Eq](value: S): Store[S] {\n  init(value: S) { Self(value:) }\n  fn get() {\n    x: S = self.value\n    x\n  }\n  handler Open(path: String): Store[S] {\n    fn get() {\n      y: S = self.path\n      y\n    }\n  }\n}\n\nlayer Both {\n  Memory[Int](value: 0)\n}\n\nfn main() {\n  with m = Memory[Int](value: 0), Hits by Memory[Int](value: 1) { m.get() }\n}\n\nfn outside(x: S) -> () { () }\n\"##,)])"
 ---
 == Main (src/main.emel)
 effect Main.Store
@@ -65,4 +65,4 @@ fn Main.outside
     block
       ()
 == diagnostics
-error src/main.emel@473..474 `S`: undefined type parameter `S`
+error src/main.emel@471..472 `S`: undefined type parameter `S`

@@ -25,7 +25,7 @@ handler AuditLog: Log {
 handler Tagged(tag: String): Log {
   init {
     print("open")
-    Tagged(tag: "t")
+    Self(tag: "t")
   }
 
   release {

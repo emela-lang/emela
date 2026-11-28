@@ -1,0 +1,17 @@
+---
+source: crates/emela-resolve/tests/resolve.rs
+expression: diagnostics
+---
+warning src/main.emel@192..199 `Counter`: constructing `Counter` by its name is deprecated
+warning src/main.emel@220..227 `Counter`: constructing `Counter` by its name is deprecated
+warning src/main.emel@268..275 `Counter`: matching `Counter` by its name is deprecated
+warning src/main.emel@299..306 `Counter`: constructing `Counter` by its name is deprecated
+warning src/main.emel@366..373 `Counter`: matching `Counter` by its name is deprecated
+error src/main.emel@460..465 `Plain`: handler `Plain` cannot be matched by its name
+warning src/main.emel@519..526 `Started`: constructing `Started` by its name is deprecated
+warning src/main.emel@566..573 `Started`: matching `Started` by its name is deprecated
+warning src/main.emel@627..632 `Empty`: constructing `Empty` by its name is deprecated
+warning src/main.emel@674..679 `Empty`: matching `Empty` by its name is deprecated
+error src/main.emel@791..795 `Open`: the value of `Open` is made with `Self`
+error src/main.emel@811..815 `Open`: the value of `Open` is made with `Self`
+error src/main.emel@879..883 `Open`: handler `Open` cannot be matched by its name

@@ -51,7 +51,7 @@ effect Mark {
 }
 
 handler Released(name: String): Mark {
-  init(name: String) { Released(name:) }
+  init(name: String) { Self(name:) }
   fn mark() { () }
   release { say("released #{self.name}") }
 }

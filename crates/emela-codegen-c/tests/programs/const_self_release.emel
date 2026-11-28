@@ -3,7 +3,7 @@ effect Pool {
 }
 
 handler PoolH: Pool {
-  init { PoolH }
+  init { Self }
   release { panic("release failed") }
   fn get() { 0 }
 }

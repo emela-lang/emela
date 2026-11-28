@@ -4,7 +4,7 @@ expression: "check(name, &src, 40)"
 ---
 handler WorkerKv(ns: Namespace): Kv {
   init(binding: String, retries: Int) {
-    WorkerKv(ns: kv_namespace(binding))
+    Self(ns: kv_namespace(binding))
   }
   fn get(key) { get(self.ns, key) }
 }

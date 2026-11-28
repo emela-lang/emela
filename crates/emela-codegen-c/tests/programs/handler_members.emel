@@ -15,7 +15,7 @@ effect Audit of Files
 handler MemFiles(base: Int): Files {
   init {
     _ = dbg("open MemFiles")
-    MemFiles(base: 10)
+    Self(base: 10)
   }
   release { _ = dbg("close MemFiles") }
 

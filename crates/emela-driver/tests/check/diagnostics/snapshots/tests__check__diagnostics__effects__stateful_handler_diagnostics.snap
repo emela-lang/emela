@@ -18,7 +18,7 @@ error[E4006]: handler `NoInit` has fields but no `init`
     │         ───┬──  
     │            ╰──── 
 ────╯
-   = help: add `init { ... }` that returns `NoInit(...)`
+   = help: add `init { ... }` that returns `Self(...)`
 
 error[E4102]: effect `Logger` is provided by both `Counter` and `Quiet` in layer `Loud`
     ╭─[ main.emel:41:3 ]

@@ -901,9 +901,7 @@ impl Diagnostic {
                 )
             }
             TypeDiagnosticKind::MissingInit { handler } => {
-                help = Some(format!(
-                    "add `init {{ ... }}` that returns `{handler}(...)`"
-                ));
+                help = Some("add `init { ... }` that returns `Self(...)`".to_owned());
                 (
                     Severity::Error,
                     Some(code::MISSING_INIT),

@@ -380,7 +380,7 @@ handler AuditLog: Log {
 handler Tagged(tag: String): Log {
   init {
     _ = dbg("open")
-    Tagged(tag: "t")
+    Self(tag: "t")
   }
   release {
     _ = dbg("close #{self.tag}")
@@ -467,7 +467,7 @@ effect Replica of Query
 handler Tx(conn: Int): Query + Execute {
   init(conn: Int) {
     _ = dbg("open #{conn}")
-    Tx(conn:)
+    Self(conn:)
   }
   release {
     _ = dbg("close #{self.conn}")
@@ -654,7 +654,7 @@ error Bad
 handler Tagged(tag: String): Log {
   init(tag: String, times: Int) {
     _ = dbg("open #{tag} #{times}")
-    Tagged(tag:)
+    Self(tag:)
   }
   release {
     _ = dbg("close #{self.tag}")
@@ -665,7 +665,7 @@ handler Tagged(tag: String): Log {
 handler Counter(start: Int): Count {
   init(start: Int) {
     (use Log).log("counter from #{start}")
-    Counter(start:)
+    Self(start:)
   }
   fn next() { self.start + 1 }
 }
@@ -764,7 +764,7 @@ effect Pool {
 }
 
 handler PoolH: Pool {
-  init { PoolH }
+  init { Self }
   release { panic("release failed") }
   fn get() { 0 }
 }
@@ -784,13 +784,13 @@ effect Pool {
 }
 
 handler ResA: Pool {
-  init { ResA }
+  init { Self }
   release { panic("a failed") }
   fn get() { 0 }
 }
 
 handler ResB: Pool {
-  init { ResB }
+  init { Self }
   release { panic("b failed") }
   fn get() { 1 }
 }
@@ -814,7 +814,7 @@ effect Pool {
 }
 
 handler Leaky: Pool {
-  init { Leaky }
+  init { Self }
   release { panic("release failed") }
   fn get() { 1 }
 }
@@ -1297,7 +1297,7 @@ effect Cell[A] {
 handler Memory[A](initial: A): Cell[A] {
   init(initial: A) {
     dbg(initial)
-    Memory(initial:)
+    Self(initial:)
   }
 
   release {
