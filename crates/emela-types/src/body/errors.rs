@@ -594,18 +594,17 @@ impl BodyInfer<'_> {
         // solved E and R of the group's definitions at their references
         // ([`Self::place_instance_sets`]) add constraints while solving, so solve again until no
         // new constraint appears.
-        self.ctx.set_solving(true);
+        self.ctx.start_solving();
         let row_diffs = std::mem::take(&mut self.row_diffs);
         loop {
-            let count = self.ctx.subsets().len();
+            let count = self.ctx.subset_count();
             self.solve_round(&row_diffs);
             self.place_instance_sets();
-            if self.ctx.subsets().len() == count {
+            if self.ctx.subset_count() == count {
                 break;
             }
         }
-        self.ctx.set_solving(false);
-        let subsets = self.ctx.subsets().to_vec();
+        let subsets = self.ctx.finish_solving();
 
         self.check_subsets(&subsets);
     }
@@ -630,8 +629,7 @@ impl BodyInfer<'_> {
     /// capability first entered each set variable ([`BodyInfer::cap_provenance`]).
     fn solve_round(&mut self, row_diffs: &[(RowVar, RowVar, Vec<RowElem>)]) {
         // Start from the set variables, not from the previous round's solution.
-        self.ctx.clear_row_solution();
-        let subsets = self.ctx.subsets().to_vec();
+        let subsets = self.ctx.start_round();
 
         // Lower bounds of set variables.
         let mut lowers: FxHashMap<RowVar, Vec<Lower>> = FxHashMap::default();
@@ -1620,12 +1618,11 @@ impl BodyInfer<'_> {
     pub(super) fn check_leaks(&mut self) {
         self.check_task_items();
         self.check_with_values();
-        for (cap, span) in std::mem::take(&mut self.ctx.scopes.escapes) {
+        for (cap, span) in self.ctx.take_escapes() {
             self.push_leak(&cap, span);
         }
         for (v, row) in self.ctx.solution_entries() {
-            let scope = self.ctx.scopes.row_var(v);
-            let effects = self.ctx.effect_vars.contains(&v);
+            let effects = self.ctx.is_effect_var(v);
             // The sets an error tag records (`[type.rules]`).
             let mut in_tags: Vec<CapElem> = Vec::new();
             for t in row.tags() {
@@ -1650,13 +1647,13 @@ impl BodyInfer<'_> {
                 {
                     continue;
                 }
-                if !self.ctx.scopes.fits(c, scope) {
+                if !self.ctx.may_hold(v, c) {
                     let span = self
                         .cap_provenance
                         .get(&(v, c.id))
                         .copied()
                         .flatten()
-                        .or(self.ctx.scopes.row_span(v));
+                        .or(self.ctx.row_var_span(v));
                     self.push_leak(c, span);
                 }
             }
@@ -1676,12 +1673,11 @@ impl BodyInfer<'_> {
                 continue;
             };
             let span = handlers.get(i as usize).map(|h| h.span);
-            let scope = self.ctx.scopes.row_var(v);
             let row = self.ctx.resolve_row(&Row::var(v));
             for c in row.caps() {
                 let allowed =
                     matches!(c.id, CapId::Item { with: w, item } if w == with && item <= i);
-                if !allowed && !self.ctx.scopes.fits(c, scope) {
+                if !allowed && !self.ctx.may_hold(v, c) {
                     self.push_leak(c, span);
                 }
             }

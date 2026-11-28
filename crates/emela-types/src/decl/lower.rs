@@ -50,7 +50,7 @@ pub(crate) enum Omitted<'a> {
 pub(crate) struct Hidden {
     /// The number of written type parameters; invisible ones are indexed after these.
     base: usize,
-    pub(crate) params: Vec<TyParam>,
+    params: Vec<TyParam>,
     /// The current parameter's name, used to name invisible set type parameters (`E(f)`, `R(f)`).
     param: SmolStr,
     /// How many error sets, effect sets and capability sets were added for the current
@@ -58,19 +58,20 @@ pub(crate) struct Hidden {
     in_param: [usize; 3],
     /// Invisible error sets in positive positions of parameter types (functions the body can
     /// call). Included in the declared E.
-    pub(crate) positive: Row,
+    positive: Row,
     /// Likewise for invisible effect sets; included in the declared R.
-    pub(crate) positive_uses: Row,
+    positive_uses: Row,
     /// Whether invisible effect sets get an `Immediate` bound. Callbacks of external functions
     /// must be Immediate (spec 9.5).
-    pub(crate) immediate: bool,
+    immediate: bool,
     /// The capability sets of the capability types in the parameter types, with the effects of
     /// each (`[type.rules]`). The result type of the function takes its sets from them.
-    pub(crate) caps: Vec<(Vec<DefId>, Row)>,
+    caps: Vec<(Vec<DefId>, Row)>,
 }
 
 impl Hidden {
-    pub(crate) fn new(base: usize) -> Self {
+    /// `immediate` gives the invisible effect sets an `Immediate` bound.
+    pub(crate) fn new(base: usize, immediate: bool) -> Self {
         Hidden {
             base,
             params: Vec::new(),
@@ -78,8 +79,32 @@ impl Hidden {
             in_param: [0, 0, 0],
             positive: Row::empty(),
             positive_uses: Row::empty(),
-            immediate: false,
+            immediate,
             caps: Vec::new(),
+        }
+    }
+
+    /// `declared` (the written type parameters) followed by the invisible set type parameters.
+    pub(crate) fn all_params(&self, declared: &[TyParam]) -> Vec<TyParam> {
+        declared.iter().chain(&self.params).cloned().collect()
+    }
+
+    /// The written `fails` set united with the invisible error sets in positive positions.
+    pub(crate) fn declared_fails(&self, written: Row) -> Row {
+        written.union(&self.positive)
+    }
+
+    /// The written `uses` set united with the invisible effect sets in positive positions.
+    pub(crate) fn declared_uses(&self, written: Row) -> Row {
+        written.union(&self.positive_uses)
+    }
+
+    /// `scope` for the result type: a capability type there takes its set from the capability
+    /// types of the parameters (`[type.rules]`).
+    pub(crate) fn result_scope<'a>(&'a self, scope: Scope<'a>) -> Scope<'a> {
+        Scope {
+            result_caps: Some(&self.caps),
+            ..scope
         }
     }
 
@@ -531,8 +556,46 @@ impl TyTable {
         out
     }
 
-    pub(crate) fn decl_sets(&self) -> &DeclSets {
-        &self.sets
+    /// The kinds of `params` from where `types` use them ([`classify_params`]).
+    pub(crate) fn classify_params(
+        &self,
+        program: &Program,
+        params: &[DefId],
+        types: impl IntoIterator<Item = TypeId>,
+    ) -> Vec<ParamKind> {
+        classify_params(program, &self.sets, params, types)
+    }
+
+    /// The set kind of each of `params`, `None` if it is not a set ([`classify_sets`]).
+    pub(crate) fn classify_sets(
+        &self,
+        program: &Program,
+        params: &[DefId],
+        types: impl IntoIterator<Item = TypeId>,
+    ) -> Vec<Option<SetKind>> {
+        classify_sets(program, &self.sets, params, types)
+    }
+
+    /// [`Self::classify_sets`] for a function's type parameters, with its `uses` clause
+    /// ([`classify_fn_sets`]).
+    pub(crate) fn classify_fn_sets(
+        &self,
+        program: &Program,
+        params: &[DefId],
+        types: impl IntoIterator<Item = TypeId>,
+        uses: Option<&EffectSet>,
+    ) -> Vec<Option<SetKind>> {
+        classify_fn_sets(program, &self.sets, params, types, uses)
+    }
+
+    /// How `types` write each of `params` ([`mark_all`]).
+    pub(crate) fn mark_all(
+        &self,
+        program: &Program,
+        params: &[DefId],
+        types: impl IntoIterator<Item = TypeId>,
+    ) -> Vec<(bool, Option<SetKind>)> {
+        mark_all(program, &self.sets, params, types)
     }
 
     /// The set kind of the `i`-th type parameter of a type, enum or built-in effect, if it is a
@@ -1378,7 +1441,7 @@ pub(crate) type DeclSets = ArenaMap<DefId, Vec<Option<SetKind>>>;
 /// and in `fails`, it is the type of a single error, spec 7.2). Type parameters written as set
 /// type arguments of named types (the `E` of `Handler[E, R]`) are sets too. `types` are the type
 /// expressions where type parameters may occur (parameters, return type, field types).
-pub(crate) fn classify_params(
+fn classify_params(
     program: &Program,
     decls: &DeclSets,
     params: &[DefId],
@@ -1395,7 +1458,7 @@ pub(crate) fn classify_params(
 
 /// Decides like [`classify_params`], returning the set kind (error or effect set) for sets. A type
 /// parameter written in both is given the kind found first.
-pub(crate) fn classify_sets(
+fn classify_sets(
     program: &Program,
     decls: &DeclSets,
     params: &[DefId],
@@ -1407,7 +1470,7 @@ pub(crate) fn classify_sets(
 /// Decides like [`classify_sets`], also counting the set type arguments of built-in effects in a
 /// fn's own `uses` clause (the `E` and `R` of
 /// `fn crawl[E, R](tasks: use TaskGroup[E, R]) -> ()`, `[task.group]`).
-pub(crate) fn classify_fn_sets(
+fn classify_fn_sets(
     program: &Program,
     decls: &DeclSets,
     params: &[DefId],
@@ -1449,7 +1512,7 @@ pub(crate) fn classify_fn_sets(
 /// For each of `params`, whether it is written in `types` as an ordinary type, and the kind of
 /// set it is written as, if any ([`classify_sets`] keeps only the second when the first is
 /// false).
-pub(crate) fn mark_all(
+fn mark_all(
     program: &Program,
     decls: &DeclSets,
     params: &[DefId],

@@ -46,7 +46,7 @@ impl BodyInfer<'_> {
         let program = self.program;
         for def in self.defs.clone() {
             self.current = Some(def);
-            self.ctx.scopes.reset();
+            self.ctx.reset_scopes();
             match program.item(def) {
                 Some(Item::Fn(_) | Item::TraitFn(_)) | None => {
                     let Some(parts) = fn_parts(program, def) else {
@@ -115,9 +115,9 @@ impl BodyInfer<'_> {
                         .map(|b| (b.index, b.body, b.resume_later))
                         .collect();
                     for (index, body, resume_later) in bodies {
-                        self.ctx.scopes.enter(body);
+                        self.ctx.enter_scope(body);
                         let row = self.expr_effects(body);
-                        self.ctx.scopes.exit();
+                        self.ctx.exit_scope();
                         let mut row = self.end_self(&row, def, true);
                         // The capability parameters end with the body (`[effect.handler]`).
                         if let Some(rigid) = self.quantified_lambdas.get(&body).cloned() {
@@ -198,9 +198,9 @@ impl BodyInfer<'_> {
             ExprKind::Lambda { body, .. } => {
                 let outer = self.binder.replace(expr);
                 let withs = std::mem::take(&mut self.with_stack);
-                self.ctx.scopes.enter(expr);
+                self.ctx.enter_scope(expr);
                 let mut body_row = self.expr_effects(*body);
-                self.ctx.scopes.exit();
+                self.ctx.exit_scope();
                 self.with_stack = withs;
                 self.binder = outer;
                 body_row.extend(&self.captured_caps(expr));
@@ -226,9 +226,9 @@ impl BodyInfer<'_> {
                         let (body, uses) = (info.body, info.uses.clone());
                         let outer = self.binder.replace(body);
                         let withs = std::mem::take(&mut self.with_stack);
-                        self.ctx.scopes.enter(body);
+                        self.ctx.enter_scope(body);
                         let mut body_row = self.expr_effects(body);
-                        self.ctx.scopes.exit();
+                        self.ctx.exit_scope();
                         self.with_stack = withs;
                         self.binder = outer;
                         body_row.extend(&self.captured_caps(body));
@@ -331,9 +331,9 @@ impl BodyInfer<'_> {
             .map(|e| e.effect.clone())
             .collect();
         self.with_stack.push((expr, provides.clone()));
-        self.ctx.scopes.enter(expr);
+        self.ctx.enter_scope(expr);
         let body_row = self.expr_effects(body);
-        self.ctx.scopes.exit();
+        self.ctx.exit_scope();
         self.with_stack.pop();
         layer::check_with_items(
             program,
@@ -426,10 +426,9 @@ impl BodyInfer<'_> {
                     })
                 }));
                 // A capability the tasks cannot have is reported at the item.
-                let hint = self.ctx.hint();
-                self.ctx.set_hint(Some(entry.span));
+                self.ctx.push_hint(entry.span);
                 let deps = self.subtract_elems(deps, &minus);
-                self.ctx.set_hint(hint);
+                self.ctx.pop_hint();
                 row.extend(&deps);
                 continue;
             }
@@ -577,8 +576,7 @@ impl BodyInfer<'_> {
                 }),
                 RowElem::Bound(_) => minus.contains(e),
                 RowElem::Var(v) => {
-                    let d = self.ctx.new_row_var();
-                    self.ctx.effect_vars.insert(d);
+                    let d = self.ctx.new_effect_row_var();
                     self.row_diffs.push((d, *v, minus.to_vec()));
                     out.insert(RowElem::Var(d));
                     continue;
@@ -606,8 +604,7 @@ impl BodyInfer<'_> {
                     if matches!(c.id, CapId::Named { .. })
                         && tags.iter().any(|p| self.ctx.same_tag(p, &c.tag)) => {}
                 RowElem::Var(v) if !tags.is_empty() => {
-                    let d = self.ctx.new_row_var();
-                    self.ctx.effect_vars.insert(d);
+                    let d = self.ctx.new_effect_row_var();
                     let minus = tags.iter().map(|t| RowElem::Tag(t.clone())).collect();
                     self.row_diffs.push((d, *v, minus));
                     out.insert(RowElem::Var(d));

@@ -111,9 +111,9 @@ impl BodyInfer<'_> {
             },
         );
         self.name_providers.push(None);
-        self.ctx.scopes.enter(f.body);
+        self.ctx.enter_scope(f.body);
         self.check_expr(f.body, &ret);
-        self.ctx.scopes.exit();
+        self.ctx.exit_scope();
         self.name_providers.pop();
         self.binder = outer;
     }
@@ -202,7 +202,7 @@ impl BodyInfer<'_> {
         if let Some(provided) = provided {
             self.name_providers.push(Some((expr, provided)));
         }
-        self.ctx.scopes.enter(expr);
+        self.ctx.enter_scope(expr);
 
         let mut param_tys = Vec::new();
         for (i, param) in params.iter().enumerate() {
@@ -230,7 +230,7 @@ impl BodyInfer<'_> {
             }
             None => self.infer_expr(body),
         };
-        self.ctx.scopes.exit();
+        self.ctx.exit_scope();
         if by_name {
             self.name_providers.pop();
         }

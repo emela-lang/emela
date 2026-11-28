@@ -391,8 +391,7 @@ impl<'a> BodyInfer<'a> {
         builtins: &'a Builtins,
         traits: &'a Traits,
     ) -> Self {
-        let mut ctx = InferCtx::new();
-        ctx.set_error_tags(ty_table.error_tags());
+        let ctx = InferCtx::with_error_tags(ty_table.error_tags());
         BodyInfer {
             program,
             ty_table,
@@ -473,7 +472,7 @@ impl<'a> BodyInfer<'a> {
     /// Switches to the definition about to be inferred, taking its module and type parameters.
     fn enter(&mut self, def: DefId) {
         self.current = Some(def);
-        self.ctx.scopes.reset();
+        self.ctx.reset_scopes();
         self.binder = None;
         self.module = self.program.defs[def].module.clone();
         self.self_ty = None;
@@ -920,10 +919,9 @@ impl<'a> BodyInfer<'a> {
 
     /// Infers, records and returns the expression's type.
     fn infer_expr(&mut self, expr: ExprId) -> Ty {
-        let hint = self.ctx.hint();
-        self.ctx.set_hint(Some(self.program.exprs[expr].span));
+        self.ctx.push_hint(self.program.exprs[expr].span);
         let ty = self.infer_expr_kind(expr, None);
-        self.ctx.set_hint(hint);
+        self.ctx.pop_hint();
         self.exprs.insert(expr, ty.clone());
         ty
     }
@@ -1098,7 +1096,7 @@ impl<'a> BodyInfer<'a> {
                 .map(|e| e.effect)
                 .collect();
                 self.name_providers.push(Some((expr, provides)));
-                self.ctx.scopes.enter(expr);
+                self.ctx.enter_scope(expr);
                 let in_init = self.in_init.is_some();
                 if in_init {
                     self.init_withs.push(expr);
@@ -1113,7 +1111,7 @@ impl<'a> BodyInfer<'a> {
                 if in_init {
                     self.init_withs.pop();
                 }
-                self.ctx.scopes.exit();
+                self.ctx.exit_scope();
                 self.name_providers.pop();
                 ty
             }
