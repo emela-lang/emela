@@ -41,7 +41,7 @@ effect Peek {
 }
 
 handler Holder(p: Point): Peek {
-  init { Holder(p: Point(x: 11, y: 12)) }
+  init { Self(p: Point(x: 11, y: 12)) }
   fn peek() { self.p }
 }
 

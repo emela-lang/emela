@@ -343,7 +343,7 @@ type Connection
 pub handler PostgresUsers(conn: Connection): Users {
   init {
     config = use Config
-    PostgresUsers(conn: pg_connect(config.db_url()))
+    Self(conn: pg_connect(config.db_url()))
   }
 
   release {
@@ -721,7 +721,7 @@ effect Counter {
   fn get() -> Int
 }
 handler Fixed(value: Int): Counter {
-  init { Fixed(value: 0) }
+  init { Self(value: 0) }
   fn get() {
     next = Fixed(value: 1, ..self)
     next.value
@@ -878,7 +878,7 @@ effect AuditKv of Kv
 const NAME: String = "KV"
 
 handler WorkerKv(binding: String): Kv {
-  init(binding: String, retries: Int) { WorkerKv(binding:) }
+  init(binding: String, retries: Int) { Self(binding:) }
   fn get(key) { self.binding }
 }
 
@@ -906,7 +906,7 @@ fn handler_init_argument_errors() {
 }
 
 handler WorkerKv(binding: String): Kv {
-  init(binding: String) { WorkerKv(binding:) }
+  init(binding: String) { Self(binding:) }
   fn get(key) { binding }
 }
 
@@ -1634,7 +1634,7 @@ effect Pool {
 }
 
 handler SystemTx(conn: Int): Query + Execute + State[Int] {
-  init(conn: Int) { SystemTx(conn:) }
+  init(conn: Int) { Self(conn:) }
   fn query(sql) { self.conn }
   fn execute(sql) { () }
   fn get() { self.conn }
@@ -1828,7 +1828,7 @@ handler Quiet: Logger {
   init {
     fs <- Files
     r = fs.Open("a")
-    Quiet
+    Self
   }
 
   fn info(msg) { () }
@@ -1892,7 +1892,7 @@ fn generic_handlers() {
 effect Hits of Store[Int]
 
 handler Memory[S: Eq](value: S): Store[S] {
-  init(value: S) { Memory(value:) }
+  init(value: S) { Self(value:) }
   fn get() {
     x: S = self.value
     x
@@ -1935,4 +1935,89 @@ fn external_effect_names() {
             "type External(x: Int)\n\nfn f(e: External) -> Int { e.x }\n",
         ),
     ]));
+}
+
+/// The name of a handler does not stand for its value (`[effect.handler]`). Inside its own init,
+/// a constructor or a record update with the name is W4001; a constructor pattern that names a
+/// handler is W4002, wherever it is written. `Self` is not reported. For an inner handler, the
+/// name is E4014 or E4015 instead of an undefined name (E2101), and so is a pattern of a handler
+/// without parentheses that has no constructor (E4015, in place of E2106). A pattern of a handler
+/// without parentheses that has init, and so a constructor, keeps its meaning (W4002).
+#[test]
+fn handler_value_by_name() {
+    let src = r##"effect Counts {
+  fn get() -> Int
+}
+
+effect Files {
+  handler Open(path: String): Reader
+}
+
+effect Reader {
+  fn read() -> String
+}
+
+handler Counter(n: Int, m: Int): Counts {
+  init {
+    a = Counter(n: 1, m: 2)
+    b = Counter(n: 2, ..a)
+    c = Self(n: 3, m: 4)
+    Counter(n:, m:) = b
+    f = || Counter(n: 5, m: 6)
+    c
+  }
+
+  fn get() {
+    self match {
+      Counter(n:, ..) -> n
+    }
+  }
+}
+
+handler Plain: Counts {
+  fn get() {
+    self match {
+      Plain -> 0
+    }
+  }
+}
+
+handler Started: Counts {
+  init { Started }
+
+  fn get() {
+    self match {
+      Started -> 0
+    }
+  }
+}
+
+handler Empty(): Counts {
+  init { Empty() }
+
+  fn get() {
+    self match {
+      Empty() -> 0
+    }
+  }
+}
+
+handler Fs: Files {
+  handler Open(p: String): Reader {
+    init(path: String) {
+      a = Open(p: path)
+      Open(p: "b", ..a)
+    }
+
+    fn read() {
+      self match {
+        Open(p:) -> p
+      }
+    }
+  }
+}
+"##;
+    let out = run_impl(&[("main.emel", src)], &[], true);
+    let diagnostics = out.split("== diagnostics\n").nth(1).unwrap_or_default();
+    insta::assert_snapshot!(diagnostics);
 }

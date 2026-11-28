@@ -18,7 +18,7 @@ error Bad
 handler Tagged(tag: String): Log {
   init(tag: String, times: Int) {
     print("open #{tag} #{times}")
-    Tagged(tag:)
+    Self(tag:)
   }
 
   release {
@@ -31,7 +31,7 @@ handler Tagged(tag: String): Log {
 handler Counter(start: Int): Count {
   init(start: Int) {
     (use Log).log("counter from #{start}")
-    Counter(start:)
+    Self(start:)
   }
 
   fn next() { self.start + 1 }

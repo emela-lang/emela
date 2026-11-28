@@ -205,7 +205,7 @@ fn check_upgrade(code: String, message: String) -> ()
 ## The host's TCP client: `node:net` and `node:tls` on JS. Its release closes the connections it
 ## opened that are still open.
 pub handler SystemTcp(registry: Registry): Tcp {
-  init { SystemTcp(registry: host_open_registry()) }
+  init { Self(registry: host_open_registry()) }
 
   release { host_release_registry(self.registry) }
 

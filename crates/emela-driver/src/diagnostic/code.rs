@@ -154,6 +154,16 @@ pub const INNER_HANDLER_MISMATCH: &str = "E4011";
 /// after the `:` of a handler (`[effect.handler]`).
 pub const REPEATED_IN_HANDLER_HEAD: &str = "E4012";
 pub const UNUSED_HANDLER_PARAM: &str = "E4013";
+/// `[effect.handler]`: the name of a handler written for its value inside its own init, as a
+/// constructor or a record update. For an inner handler; for the others from 0.30.
+pub const HANDLER_NAME_AS_VALUE: &str = "E4014";
+/// `[effect.handler]`: a constructor pattern that names a handler. For an inner handler or a
+/// handler without a constructor; for the others from 0.30.
+pub const HANDLER_NAME_PATTERN: &str = "E4015";
+/// `[effect.handler]`: until 0.30, what E4014 reports from 0.30.
+pub const DEPRECATED_HANDLER_NAME_AS_VALUE: &str = "W4001";
+/// `[effect.handler]`: until 0.30, what E4015 reports from 0.30.
+pub const DEPRECATED_HANDLER_NAME_PATTERN: &str = "W4002";
 
 // E41xx: with, layers and handler members
 pub const HANDLER_CYCLE: &str = "E4101";

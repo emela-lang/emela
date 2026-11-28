@@ -995,7 +995,7 @@ effect Wait {
 handler Pool(name: String): Users {
   init {
     (use Console).print_line("open")
-    Pool(name: "pool")
+    Self(name: "pool")
   }
   release { (use Console).print_line("close #{self.name}") }
   fn find(id) { "#{self.name} #{id}" }
@@ -1311,7 +1311,7 @@ effect Res {
 }
 
 handler Leaky(n: Int): Res {
-  init { Leaky(n: 1) }
+  init { Self(n: 1) }
   release { panic("release failed") }
   fn get() { self.n }
 }

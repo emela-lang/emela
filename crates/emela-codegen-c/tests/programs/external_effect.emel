@@ -29,7 +29,7 @@ handler Passer: Pass {
 handler FileLog: Log {
   init {
     tagged("init", "open")
-    FileLog
+    Self
   }
   fn info(msg) {
     tagged("info", msg)

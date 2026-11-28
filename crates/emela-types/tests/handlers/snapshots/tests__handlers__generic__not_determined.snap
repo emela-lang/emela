@@ -1,6 +1,6 @@
 ---
 source: crates/emela-types/tests/handlers/generic.rs
-expression: "repo(r#\"\nhandler Fixed: State[Int] {\n  fn get() { 0 }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nhandler Empty[A]: State[List[A]] {\n  fn get() { [] }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nfn ints() -> List[Int] uses { State[List[Int]] } { (use State[List[Int]]).get() }\n\nfn strings() -> List[String] uses { State[List[String]] } { (use State[List[String]]).get() }\n\nhandler Blank[A](xs: List[A]): Logger {\n  init() { Blank(xs: []) }\n  fn info(msg) { () }\n}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nfn nothing() { with Pass { () } }\n\nfn unknown() { with Blank { () } }\n\nfn declared() -> () uses { State[Int] } { with Pass { () } }\n\nfn two_fit() { with Empty { (ints(), strings()) } }\n\nfn may_override() { with Fixed, Pass { (use State[Int]).get() } }\n\nfn written_override() { with Fixed, Pass[Int] { (use State[Int]).get() } }\n\nfn init_narrows() { with Constant(value: [1]) { (ints(), strings()) } }\n\nfn bound_two_fit() {\n  with x = Empty {\n    x.set([\"s\"])\n    (ints(), strings())\n  }\n}\n\nfn bound_may_override() { with Fixed, x = Pass { x.get() + 1 } }\n\"#)"
+expression: "repo(r#\"\nhandler Fixed: State[Int] {\n  fn get() { 0 }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nhandler Empty[A]: State[List[A]] {\n  fn get() { [] }\n  fn set(value) { () }\n  fn update(f) { () }\n}\n\nfn ints() -> List[Int] uses { State[List[Int]] } { (use State[List[Int]]).get() }\n\nfn strings() -> List[String] uses { State[List[String]] } { (use State[List[String]]).get() }\n\nhandler Blank[A](xs: List[A]): Logger {\n  init() { Self(xs: []) }\n  fn info(msg) { () }\n}\n\neffect Logger {\n  fn info(msg: String) -> ()\n}\n\nfn nothing() { with Pass { () } }\n\nfn unknown() { with Blank { () } }\n\nfn declared() -> () uses { State[Int] } { with Pass { () } }\n\nfn two_fit() { with Empty { (ints(), strings()) } }\n\nfn may_override() { with Fixed, Pass { (use State[Int]).get() } }\n\nfn written_override() { with Fixed, Pass[Int] { (use State[Int]).get() } }\n\nfn init_narrows() { with Constant(value: [1]) { (ints(), strings()) } }\n\nfn bound_two_fit() {\n  with x = Empty {\n    x.set([\"s\"])\n    (ints(), strings())\n  }\n}\n\nfn bound_may_override() { with Fixed, x = Pass { x.get() + 1 } }\n\"#)"
 ---
 ints: fn() -> List[Int] uses { State[List[Int]] }
 strings: fn() -> List[String] uses { State[List[String]] }
@@ -33,7 +33,7 @@ item Pass: [Int]
 `Eq` UnusedDerive { trait_name: "Eq", ty: "UserId" }
 `Blank` HandlerArgsUnknown { handler: "Blank[A]", reason: Unknown }
 `Empty` HandlerArgsUnknown { handler: "Empty[A]", reason: Several { first: "State[List[Int]]", second: "State[List[String]]" } }
-`Pass` HandlerArgsUnknown { handler: "Pass[S]", reason: Overrides { effect: "State[Int]", other: "Fixed", at: Span { module: Idx::<ModuleData>(0), range: 1473..1478 } } }
+`Pass` HandlerArgsUnknown { handler: "Pass[S]", reason: Overrides { effect: "State[Int]", other: "Fixed", at: Span { module: Idx::<ModuleData>(0), range: 1468..1473 } } }
 --- R
 {     st <- State[List[(K, V)]]     List.find(st.get(), |(k, _)| k == key) |> Option.map(|(_, v)| v)   }: State[List[('0, '1)]]
 List.find(st.get(), |(k, _)| k == key) |> Option.map(|(_, v)| v): State[List[('0, '1)]]

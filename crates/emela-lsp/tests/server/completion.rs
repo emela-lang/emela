@@ -324,7 +324,7 @@ fn completion_after_dot_chains() {
 /// After a handler value (`self.`), its fields are offered (spec 8.4).
 #[test]
 fn completion_of_handler_fields() {
-    let src = "effect Users {\n  fn find(id: Int) -> String\n}\n\nhandler DbUsers(url: String, port: Int): Users {\n  init { DbUsers(url: \"x\", port: 1) }\n  fn find(id) { self.url }\n}\n";
+    let src = "effect Users {\n  fn find(id: Int) -> String\n}\n\nhandler DbUsers(url: String, port: Int): Users {\n  init { Self(url: \"x\", port: 1) }\n  fn find(id) { self.url }\n}\n";
     let files = [("/app/Pome.toml", ""), (MAIN, src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let items = client.complete(MAIN, 6, 21).unwrap();

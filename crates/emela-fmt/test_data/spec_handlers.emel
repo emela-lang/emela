@@ -20,7 +20,7 @@ handler ConsoleLogger: Logger {
 handler PostgresUsers(conn: Connection): Users {
   init {
     config = use Config
-    PostgresUsers(conn: pg_connect(config.db_url()))
+    Self(conn: pg_connect(config.db_url()))
   }
   release {
     pg_close(self.conn)

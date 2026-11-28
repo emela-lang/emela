@@ -20,7 +20,7 @@ effect Repo[K, V] {
 handler Memory[A](initial: A, show: fn(A) -> String): Cell[A] {
   init(initial: A, show: fn(A) -> String) {
     print("open #{show(initial)}")
-    Memory(initial:, show:)
+    Self(initial:, show:)
   }
 
   release {

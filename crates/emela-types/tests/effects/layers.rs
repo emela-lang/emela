@@ -58,7 +58,7 @@ handler RealClock: Clock {
 }
 
 handler DbUsers(url: String): Users {
-  init { DbUsers(url: (use Config).db_url()) }
+  init { Self(url: (use Config).db_url()) }
   fn find(id) {
     (use Logger).info(self.url)
     self.url
@@ -316,7 +316,7 @@ fn probe(n: Int) -> () fails Down { if n > 0 { fail Down } else { () } }
 handler ReplicaDb: Db {
   init {
     probe(0)
-    ReplicaDb
+    Self
   }
 
   fn name() { "replica" }

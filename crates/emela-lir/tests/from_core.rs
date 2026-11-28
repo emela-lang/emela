@@ -217,7 +217,7 @@ effect Pool {
 }
 
 handler Counted(n: Int): Pool {
-  init { Counted(n: 1) }
+  init { Self(n: 1) }
   release { dbg(self.n) }
   fn get() { self.n }
 }
@@ -326,7 +326,7 @@ effect Wait {
 }
 
 handler Later: Wait {
-  init { Later }
+  init { Self }
   release { (use Wait).wait() }
   suspend fn wait(resume) { resume(()) }
 }

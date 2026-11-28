@@ -209,7 +209,7 @@ fn as_value() { host_write }
 handler FileLog: Log {
   init {
     tagged("init", "x")
-    FileLog
+    Self
   }
   fn info(msg) {
     f = || tagged("info", msg)

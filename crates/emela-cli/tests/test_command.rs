@@ -124,7 +124,7 @@ effect Pool {
 }
 
 handler PoolH: Pool {
-  init { PoolH }
+  init { Self }
   release { panic("rel") }
   fn get() { 0 }
 }

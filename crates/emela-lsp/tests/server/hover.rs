@@ -368,7 +368,7 @@ fn hover_shows_suspend_and_async() {
 /// the unmet dependencies; `self` shows the handler value's type.
 #[test]
 fn hover_shows_stateful_handlers_and_layers() {
-    let src = "error Down\n\neffect Config {\n  fn url() -> String\n}\n\neffect Users {\n  fn find(id: Int) -> String\n}\n\nfn connect(url: String) -> String fails Down { url }\n\nhandler DbUsers(conn: String): Users {\n  init { DbUsers(conn: connect((use Config).url())) }\n  fn find(id) { self.conn }\n}\n\nlayer App {\n  DbUsers\n}\n";
+    let src = "error Down\n\neffect Config {\n  fn url() -> String\n}\n\neffect Users {\n  fn find(id: Int) -> String\n}\n\nfn connect(url: String) -> String fails Down { url }\n\nhandler DbUsers(conn: String): Users {\n  init { Self(conn: connect((use Config).url())) }\n  fn find(id) { self.conn }\n}\n\nlayer App {\n  DbUsers\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -395,7 +395,7 @@ fn hover_shows_stateful_handlers_and_layers() {
 /// the arguments of a `with` item goes to its definition.
 #[test]
 fn handler_init_arguments() {
-    let src = "effect Kv {\n  fn get(key: String) -> String\n}\n\nconst NAME: String = \"KV\"\n\nhandler WorkerKv(binding: String): Kv {\n  init(binding: String, retries: Int) { WorkerKv(binding:) }\n  fn get(key) { self.binding }\n}\n\nfn main() {\n  with WorkerKv(binding: NAME, retries: 1) { (use Kv).get(\"a\") }\n}\n";
+    let src = "effect Kv {\n  fn get(key: String) -> String\n}\n\nconst NAME: String = \"KV\"\n\nhandler WorkerKv(binding: String): Kv {\n  init(binding: String, retries: Int) { Self(binding:) }\n  fn get(key) { self.binding }\n}\n\nfn main() {\n  with WorkerKv(binding: NAME, retries: 1) { (use Kv).get(\"a\") }\n}\n";
     let files = [("/app/Pome.toml", ""), ("/app/src/main.emel", src)];
     let mut client = Client::initialize(&files, Some("/app"), Typecheck::default);
     let text = |hover: Option<lsp::Hover>| match hover.map(|h| h.contents) {
@@ -456,7 +456,7 @@ fn generic_handlers_in_hover_and_inlay_hints() {
 effect Hits of Cell[Int]
 
 handler Memory[S](value: S): Cell[S] {
-  init(value: S) { Memory(value:) }
+  init(value: S) { Self(value:) }
   fn get() { self.value }
 }
 

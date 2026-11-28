@@ -4,7 +4,7 @@ expression: "check(&name, &src, 100)"
 input_file: crates/emela-fmt/test_data/multi_effect_handler.emel
 ---
 handler SystemTx(conn: Connection): Query + Execute {
-  init(url: String) { SystemTx(conn: connect(url)) }
+  init(url: String) { Self(conn: connect(url)) }
   fn query(sql) { run(self.conn, sql) }
   fn execute(sql) { exec(self.conn, sql) }
 }

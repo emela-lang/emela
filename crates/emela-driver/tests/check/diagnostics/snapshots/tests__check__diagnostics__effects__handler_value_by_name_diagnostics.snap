@@ -1,0 +1,68 @@
+---
+source: crates/emela-driver/tests/check/diagnostics/effects.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+warning[W4001]: constructing `Counter` by its name is deprecated
+    ╭─[ main.emel:15:9 ]
+    │
+ 15 │     a = Counter(n: 1, m: 2)
+    │         ───┬───  
+    │            ╰───── 
+────╯
+   = help: write `Self` in place of `Counter`
+
+warning[W4001]: constructing `Counter` by its name is deprecated
+    ╭─[ main.emel:16:5 ]
+    │
+ 16 │     Counter(n: 2, ..a)
+    │     ───┬───  
+    │        ╰───── 
+────╯
+   = help: write `Self` with every field, as in `Self(n: 2, m: a.m)`
+
+warning[W4002]: matching `Counter` by its name is deprecated
+    ╭─[ main.emel:21:7 ]
+    │
+ 21 │       Counter(n:, ..) -> n
+    │       ───┬───  
+    │          ╰───── 
+────╯
+   = help: read the fields with `.`, as in `self.n`
+
+error[E4015]: handler `Plain` cannot be matched by its name
+    ╭─[ main.emel:29:7 ]
+    │
+ 29 │       Plain -> 0
+    │       ──┬──  
+    │         ╰──── 
+────╯
+   = help: read the fields with `.`, as in `self.n`
+
+error[E4014]: the value of `Open` is made with `Self`
+    ╭─[ main.emel:36:26 ]
+    │
+ 36 │     init(path: String) { Open(p: path) }
+    │                          ──┬─  
+    │                            ╰─── 
+────╯
+   = help: write `Self` in place of `Open`
+
+error[E4015]: handler `Open` cannot be matched by its name
+    ╭─[ main.emel:40:9 ]
+    │
+ 40 │         Open(p:) -> p
+    │         ──┬─  
+    │           ╰─── 
+────╯
+   = help: read the fields with `.`, as in `self.p`
+
+error[E4006]: handler `NoInit` has fields but no `init`
+    ╭─[ main.emel:46:9 ]
+    │
+ 46 │ handler NoInit(n: Int): Counts {
+    │         ───┬──  
+    │            ╰──── 
+────╯
+   = help: add `init { ... }` that returns `Self(...)`
+
+4 errors, 3 warnings

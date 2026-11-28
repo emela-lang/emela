@@ -4,7 +4,7 @@ expression: "check(&name, &src, 100)"
 input_file: crates/emela-fmt/test_data/handler_init_args.emel
 ---
 handler WorkerKv(ns: Namespace): Kv {
-  init(binding: String, retries: Int) { WorkerKv(ns: kv_namespace(binding)) }
+  init(binding: String, retries: Int) { Self(ns: kv_namespace(binding)) }
   fn get(key) { get(self.ns, key) }
 }
 

@@ -294,7 +294,7 @@ fn a_release_defect_keeps_the_first_defect() {
         "release-defect",
         "effect Pool {\n  fn get() -> Int\n}\n\
          handler Outer(n: Int): Pool {\n\
-           init { Outer(n: 0) }\n\
+           init { Self(n: 0) }\n\
            release { panic(\"outer release failed\") }\n\
            fn get() { self.n }\n\
          }\n\
@@ -319,7 +319,7 @@ fn a_release_defect_keeps_the_first_defect() {
         "release-only-defect",
         "effect Pool {\n  fn get() -> Int\n}\n\
          handler Outer(n: Int): Pool {\n\
-           init { Outer(n: 0) }\n\
+           init { Self(n: 0) }\n\
            release { panic(\"outer release failed\") }\n\
            fn get() { self.n }\n\
          }\n\

@@ -13,7 +13,7 @@ effect Name {
 handler Res: Name {
   init {
     print("init res")
-    Res
+    Self
   }
   fn name() { "res" }
   release { print("release res") }

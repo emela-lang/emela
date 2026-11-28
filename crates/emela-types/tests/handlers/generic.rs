@@ -140,7 +140,7 @@ handler InMemoryRepo[K: Eq, V]: Repo[K, V] {
 }
 
 handler Constant[S](value: S): State[S] {
-  init(value: S) { Constant(value:) }
+  init(value: S) { Self(value:) }
 
   fn get() { self.value }
   fn set(value) { () }
@@ -252,7 +252,7 @@ fn ints() -> List[Int] uses { State[List[Int]] } { (use State[List[Int]]).get() 
 fn strings() -> List[String] uses { State[List[String]] } { (use State[List[String]]).get() }
 
 handler Blank[A](xs: List[A]): Logger {
-  init() { Blank(xs: []) }
+  init() { Self(xs: []) }
   fn info(msg) { () }
 }
 
@@ -371,19 +371,19 @@ handler Nowhere[A]: Logger {
 }
 
 handler InInit[A]: Logger {
-  init(x: A) { InInit }
+  init(x: A) { Self }
   fn info(msg) { () }
 }
 
 handler Memory[S](value: S): State[S] {
-  init(value: S) { Memory(value: 1) }
+  init(value: S) { Self(value: 1) }
   fn get() { self.value }
   fn set(value) { () }
   fn update(f) { () }
 }
 
 handler Outer[S](value: S): Files {
-  init(value: S) { Outer(value:) }
+  init(value: S) { Self(value:) }
   fn exists(path) { True }
   handler Open[T](path: String): ReadFile {
     init(path: String) { Self(path:) }
@@ -392,7 +392,7 @@ handler Outer[S](value: S): Files {
 }
 
 handler Sees[S](value: S): Files {
-  init(value: S) { Sees(value:) }
+  init(value: S) { Self(value:) }
   fn exists(path) { True }
   handler Open(path: String): ReadFile {
     init(path: String) {

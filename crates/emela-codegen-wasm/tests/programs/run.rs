@@ -599,7 +599,7 @@ effect Pool {
 }
 
 handler PoolH: Pool {
-  init { PoolH }
+  init { Self }
   release { panic("release failed") }
   fn get() { 0 }
 }
@@ -635,7 +635,7 @@ effect Pool {
 }
 
 handler Outer: Pool {
-  init { Outer }
+  init { Self }
   release {
     dbg("release outer")
     panic("outer release failed")
@@ -644,7 +644,7 @@ handler Outer: Pool {
 }
 
 handler Inner: Pool {
-  init { Inner }
+  init { Self }
   release { dbg("release inner") }
   fn get() { 1 }
 }
@@ -687,13 +687,13 @@ effect Pool {
 }
 
 handler ResA: Pool {
-  init { ResA }
+  init { Self }
   release { panic("a failed") }
   fn get() { 0 }
 }
 
 handler ResB: Pool {
-  init { ResB }
+  init { Self }
   release { panic("b failed") }
   fn get() { 1 }
 }

@@ -236,6 +236,49 @@ impl Diagnostic {
                     ),
                 )
             }
+            DiagnosticKind::HandlerNameAsValue {
+                handler,
+                deprecated,
+                update,
+            } => {
+                help = Some(match update {
+                    Some(update) => format!("write `Self` with every field, as in `{update}`"),
+                    None => format!("write `Self` in place of `{handler}`"),
+                });
+                if *deprecated {
+                    (
+                        Severity::Warning,
+                        code::DEPRECATED_HANDLER_NAME_AS_VALUE,
+                        format!("constructing `{handler}` by its name is deprecated"),
+                    )
+                } else {
+                    (
+                        Severity::Error,
+                        code::HANDLER_NAME_AS_VALUE,
+                        format!("the value of `{handler}` is made with `Self`"),
+                    )
+                }
+            }
+            DiagnosticKind::HandlerNamePattern {
+                handler,
+                deprecated,
+                field,
+            } => {
+                help = Some(format!("read the fields with `.`, as in `self.{field}`"));
+                if *deprecated {
+                    (
+                        Severity::Warning,
+                        code::DEPRECATED_HANDLER_NAME_PATTERN,
+                        format!("matching `{handler}` by its name is deprecated"),
+                    )
+                } else {
+                    (
+                        Severity::Error,
+                        code::HANDLER_NAME_PATTERN,
+                        format!("handler `{handler}` cannot be matched by its name"),
+                    )
+                }
+            }
             DiagnosticKind::SelfUpdate => {
                 help = Some("`Self` constructs a handler from its fields only".to_owned());
                 (

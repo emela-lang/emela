@@ -192,7 +192,7 @@ handler Inner: Name {
 handler Res: Name {
   init {
     (use Console).print_line("init res")
-    Res
+    Self
   }
   fn name() { "res" }
   release { (use Console).print_line("release res") }

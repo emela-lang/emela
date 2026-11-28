@@ -23,7 +23,7 @@ handler ReplicaDb: Db {
 handler Counting(base: Int): Db {
   init {
     _ = dbg("open counting")
-    Counting(base: 100)
+    Self(base: 100)
   }
   release {
     _ = dbg("close counting")
@@ -34,7 +34,7 @@ handler Counting(base: Int): Db {
 type Pair(read: use Db, write: use Db)
 
 handler DbUsers(db: use Db): Users {
-  init(db: use Db) { DbUsers(db:) }
+  init(db: use Db) { Self(db:) }
   fn find(id) { self.db.query("user #{id}") + id }
 }
 

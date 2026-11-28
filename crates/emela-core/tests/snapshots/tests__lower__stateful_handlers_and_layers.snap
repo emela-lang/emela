@@ -59,8 +59,7 @@ fn Pool$init(ev%0: evidence) -> Pool fails {
   } else {
     ()
   }
-  let base%3: Pool = Pool.Pool(url: u%1, n: 0)
-  Pool.Pool(url: base%3.url#0, n: 1)
+  Pool.Pool(url: u%1, n: 1)
 }
 
 fn Pool$release(self%0: Pool, ev%1: evidence) -> String {

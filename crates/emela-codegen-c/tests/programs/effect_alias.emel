@@ -26,7 +26,7 @@ handler Fixed: Config {
 handler Named(name: String): Greeter {
   init {
     config <- Config
-    Named(name: config.name())
+    Self(name: config.name())
   }
 
   fn greet(s) { "#{self.name} #{s}" }

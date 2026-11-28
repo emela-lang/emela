@@ -15,7 +15,7 @@ effect Replica of Query
 handler Tx(conn: Int): Query + Execute {
   init(conn: Int) {
     _ = dbg("open #{conn}")
-    Tx(conn:)
+    Self(conn:)
   }
   release {
     _ = dbg("close #{self.conn}")

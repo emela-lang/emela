@@ -5,7 +5,7 @@ expression: "render(&analysis.diagnostics, &analysis.sources, false)"
 error[E3006]: parameter `binding` of the `init` of `Untyped` needs a type
     ╭─[ main.emel:21:8 ]
     │
- 21 │   init(binding) { Untyped(binding:) }
+ 21 │   init(binding) { Self(binding:) }
     │        ───┬───  
     │           ╰───── 
 ────╯

@@ -26,7 +26,7 @@ handler EnvConfig: Config {
 }
 
 handler RemoteKv(url: String): Kv {
-  init(url: String) { RemoteKv(url:) }
+  init(url: String) { Self(url:) }
   fn get(key) { self.url }
 }
 
@@ -70,7 +70,7 @@ effect Kv {
 }
 
 handler RemoteKv(url: String): Kv {
-  init(url: String) { RemoteKv(url:) }
+  init(url: String) { Self(url:) }
   fn get(key) { self.url }
 }
 
@@ -108,7 +108,7 @@ effect Kv {
 effect AuditKv of Kv
 
 handler RemoteKv(url: String): Kv {
-  init(url: String, retries: Int) { RemoteKv(url:) }
+  init(url: String, retries: Int) { Self(url:) }
   fn get(key) { self.url }
 }
 
@@ -117,7 +117,7 @@ handler FakeKv: Kv {
 }
 
 handler Untyped(url: String): Kv {
-  init(url) { Untyped(url:) }
+  init(url) { Self(url:) }
   fn get(key) { self.url }
 }
 
@@ -157,7 +157,7 @@ effect Kv {
 }
 
 handler RemoteKv(url: String): Kv {
-  init(url: String) { RemoteKv(url:) }
+  init(url: String) { Self(url:) }
   fn get(key) { self.url }
 }
 
@@ -187,12 +187,12 @@ effect Kv {
 }
 
 handler LazyKv(url: fn() -> String uses { Config }): Kv {
-  init(url: fn() -> String uses { Config }) { LazyKv(url:) }
+  init(url: fn() -> String uses { Config }) { Self(url:) }
   fn get(key) { (self.url)() }
 }
 
 handler TakesString(url: String): Kv {
-  init(url: String) { TakesString(url:) }
+  init(url: String) { Self(url:) }
   fn get(key) { self.url }
 }
 
@@ -225,7 +225,7 @@ effect Log {
 }
 
 handler RemoteKv(url: String): Kv {
-  init(url: String) { RemoteKv(url:) }
+  init(url: String) { Self(url:) }
   fn get(key) { self.url }
 }
 
@@ -266,12 +266,12 @@ effect Kv {
 }
 
 handler Slow(ms: Int): Kv {
-  init(ms: Int) { Slow(ms:) }
+  init(ms: Int) { Self(ms:) }
   fn get(key) { "" }
 }
 
 handler Kept(k: fn(Int) -> ()): Kv {
-  init(k: fn(Int) -> ()) { Kept(k:) }
+  init(k: fn(Int) -> ()) { Self(k:) }
   fn get(key) { "" }
 }
 

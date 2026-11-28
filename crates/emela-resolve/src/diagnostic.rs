@@ -112,6 +112,22 @@ pub enum DiagnosticKind {
     },
     /// `Self` as the target of a record update `Self(f: e, ..r)` (E2111, `[grammar.expr]`).
     SelfUpdate,
+    /// The name of a handler written for its value inside its own init, as a constructor or a
+    /// record update (`[effect.handler]`): W4001 when `deprecated`, E4014 for an inner handler.
+    /// `update` is the `Self(...)` that a record update is rewritten to, with every field.
+    HandlerNameAsValue {
+        handler: SmolStr,
+        deprecated: bool,
+        update: Option<String>,
+    },
+    /// A constructor pattern that names a handler (`[effect.handler]`): W4002 when
+    /// `deprecated`, E4015 for an inner handler or a handler without a constructor. `field` is
+    /// the field the help reads with `.`.
+    HandlerNamePattern {
+        handler: SmolStr,
+        deprecated: bool,
+        field: SmolStr,
+    },
     /// An effect name in a type position (E2110). The type of a capability value cannot be
     /// written in source (spec 8.2).
     EffectAsType { name: SmolStr },
@@ -214,6 +230,14 @@ impl DiagnosticKind {
             DiagnosticKind::ShadowedByTypeParam { .. }
                 | DiagnosticKind::ShadowsPrelude { .. }
                 | DiagnosticKind::DeprecatedUse { .. }
+                | DiagnosticKind::HandlerNameAsValue {
+                    deprecated: true,
+                    ..
+                }
+                | DiagnosticKind::HandlerNamePattern {
+                    deprecated: true,
+                    ..
+                }
         )
     }
 }
@@ -321,6 +345,22 @@ impl fmt::Display for DiagnosticKind {
                 f.write_str("`Self` can only be used as a value in the `init` of a handler")
             }
             DiagnosticKind::SelfUpdate => f.write_str("cannot update `Self` with `..`"),
+            DiagnosticKind::HandlerNameAsValue {
+                handler,
+                deprecated: true,
+                ..
+            } => write!(f, "constructing `{handler}` by its name is deprecated"),
+            DiagnosticKind::HandlerNameAsValue { handler, .. } => {
+                write!(f, "the value of `{handler}` is made with `Self`")
+            }
+            DiagnosticKind::HandlerNamePattern {
+                handler,
+                deprecated: true,
+                ..
+            } => write!(f, "matching `{handler}` by its name is deprecated"),
+            DiagnosticKind::HandlerNamePattern { handler, .. } => {
+                write!(f, "handler `{handler}` cannot be matched by its name")
+            }
             DiagnosticKind::DeprecatedUse { effect, .. } => {
                 write!(f, "`use {effect}` as an expression is deprecated")
             }

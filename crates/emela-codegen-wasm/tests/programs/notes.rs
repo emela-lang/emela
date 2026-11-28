@@ -164,7 +164,7 @@ effect Name {
 }
 
 handler Res: Name {
-  init { Res }
+  init { Self }
   fn name() { "res" }
   release { panic("second") }
 }

@@ -282,7 +282,7 @@ handler Pool(url: String, opened: Int): Users {
     url = (use Config).db_url()
     if url == "" { fail DbDown }
     (use Console).print_line("open #{url}")
-    Pool(url:, opened: 1)
+    Self(url:, opened: 1)
   }
 
   release {
@@ -295,7 +295,7 @@ handler Pool(url: String, opened: Int): Users {
 handler Spare: Users {
   init {
     (use Console).print_line("open spare")
-    Spare
+    Self
   }
 
   release { (use Console).print_line("close spare") }
@@ -359,7 +359,7 @@ fn failing_init_releases_what_was_initialized() {
         r#"handler SpareFirst: Config {
   init {
     (use Console).print_line("open config")
-    SpareFirst
+    Self
   }
   release { (use Console).print_line("close config") }
   fn db_url() { "" }

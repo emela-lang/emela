@@ -95,7 +95,7 @@ effect Note {
 handler Noted: Note {
   init {
     (use Console).print_line("init")
-    Noted
+    Self
   }
   fn note(text) { (use Console).print_line(text) }
   release { (use Console).print_line("release") }

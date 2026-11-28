@@ -8,7 +8,7 @@ fn pick(primary: use Db, replica: use Db, write: Bool) -> use   State[Int] { pri
 type Pool(dbs: List[use Db], pick: fn(use Db)->use Db)
 
 handler PostgresUsers(db: use Db): Users {
-  init(db:use Db) { PostgresUsers(db:) }
+  init(db:use Db) { Self(db:) }
   fn find(id) { self.db.query("...") }
 }
 

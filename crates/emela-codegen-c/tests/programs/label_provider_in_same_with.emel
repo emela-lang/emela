@@ -20,7 +20,7 @@ handler Prefixed: Log {
 handler Tagged(tag: String): Log {
   init {
     (use Log).log("open")
-    Tagged(tag: "t")
+    Self(tag: "t")
   }
 
   release {

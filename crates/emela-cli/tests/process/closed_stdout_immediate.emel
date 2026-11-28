@@ -9,7 +9,7 @@ effect Guard {
 }
 
 handler Released: Guard {
-  init { Released }
+  init { Self }
   fn check() { () }
   release {
     stderr <- Stderr

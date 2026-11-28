@@ -433,7 +433,7 @@ effect Kv {
 }
 
 handler RemoteKv(url: String): Kv {
-  init(url: String) { RemoteKv(url:) }
+  init(url: String) { Self(url:) }
   fn get(key) { self.url }
 }
 

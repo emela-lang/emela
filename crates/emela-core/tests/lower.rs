@@ -627,14 +627,14 @@ handler Pool(url: String, n: Int): Users {
   init {
     u = (use Config).url()
     if u == \"\" { fail Down }
-    Pool(n: 1, ..Pool(url: u, n: 0))
+    Self(url: u, n: 1)
   }
   release { dbg(self.url) }
   fn find(id) { self.url }
 }
 
 handler Spare: Users {
-  init { Spare }
+  init { Self }
   fn find(id) { \"spare\" }
 }
 
@@ -680,7 +680,7 @@ effect Execute {
 }
 
 handler Tx(conn: Int): Execute + Query {
-  init { Tx(conn: 1) }
+  init { Self(conn: 1) }
   release { dbg(self.conn) }
   fn query(sql) { self.conn }
   fn execute(sql) { () }
@@ -725,12 +725,12 @@ effect Users {
 }
 
 handler Env(url: String): Config {
-  init(url: String) { Env(url:) }
+  init(url: String) { Self(url:) }
   fn url() { self.url }
 }
 
 handler Pool(url: String): Users {
-  init(n: Int) { Pool(url: (use Config).url()) }
+  init(n: Int) { Self(url: (use Config).url()) }
   fn find(id) { self.url }
 }
 
