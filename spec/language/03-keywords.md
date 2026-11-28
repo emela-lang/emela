@@ -26,6 +26,7 @@ The following words act as keywords only in the positions shown. In any other po
 | `init` `release` | The body of a handler |
 | `of` `default` | Label declarations (8.9) |
 | `by` | with items (8.9) |
+| `host` | Before `effect` in a declaration (8.10) |
 
 ## 3.3 Reserved for the future `[kw.future]`
 

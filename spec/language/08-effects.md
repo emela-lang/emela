@@ -39,7 +39,7 @@ effect Clock {
   - Opening a handler member (`x = E.M(arguments)` in a with, or `E.M(arguments)` inside an init, 8.3, 8.4) is determined by the declaration of the handler member. If it is a `suspend handler`, it may suspend. For a with item, the end of the with, where the handler opened is released, may suspend too.
 - If the body contains no call that may suspend, its R is not restricted. The R of `fn now() { (use Clock).now() }` contains Clock, which becomes a requirement of the handler. Mixing `now` of the outer Clock and `sleep` inside an inner `with InstantClock` in the same body satisfies neither condition and is a compile error (E4303). Accepting it would require looking, for each call, at the innermost with that provides its effect, which makes the rule heavier, so this is not done. A call through a function is treated as possibly suspending even if that function calls only fn operations (`fn now() { stamp() }`, which calls `fn stamp() -> Instant uses { Clock }`, is a compile error (E4303)). That a function does not suspend is not inferred from its body. The implementations of fn operations in every handler are bound by the same rule, so a call of a fn operation does not suspend whichever handler it reaches.
 - An operation that involves waiting (waiting on an `@external suspend fn`, calling a suspend operation) MUST be declared as a suspend fn on the effect side. Otherwise its implementation is a compile error (E4303). This is because the caller can learn whether a call suspends only from the effect's declaration. Only operation declarations of effects carry a mark of whether they suspend. Function signatures (`uses { Http }`) and calls do not.
-- An effect declared in source MUST have at least one operation or handler member (E4010). The effects without operations and handler members are the host effects (`[effect.host]`) and External (`[effect.external]`), which only the compiler declares.
+- An effect declared with `effect` MUST have at least one operation or handler member (E4010). The effects without operations and handler members are the host effects (`[effect.host]`) and External (`[effect.external]`). The compiler declares External and the host effects of the language; a module declares other host effects with `host effect`, which is not a declaration with `effect`.
 
 ## 8.2 use `[effect.use]`
 
@@ -362,12 +362,23 @@ fn main() {
 
 ## 8.10 Host effects `[effect.host]`
 
-- A host effect is an effect whose only handler is the host. `Async` (`[effect.async]`), `ProcessHost` and `PageHost` are the host effects.
+- A host effect is an effect whose only handler is the host. `Async` (`[effect.async]`), `ProcessHost` and `PageHost` are the host effects of the language, and a module MAY declare more with `host effect` (`pub host effect CloudflareWorker`).
   - `Async`: the host can resume a computation later.
   - `ProcessHost`: the host is a process of the operating system, with arguments, standard input and output, environment variables and a file system.
   - `PageHost`: the host is a page of a web browser.
+  - A declared host effect: the host is of a kind on which the external functions that write it in their uses clause work. The language does not know what that kind of host has.
+- A module declares a host effect with `host effect` and a name, at the top level, with nothing else. The declaration MAY be `pub`. Its name is in the type namespace, and it is imported as the name of an effect is (`[module.resolution]`). Two declarations, in different modules or in different Pomes, declare different host effects even when they have the same name.
+- Any entry adapter that can name a declared host effect MAY provide it (`[ext.entry]`). One declared without `pub` can be named, and so provided, only in its module (`[module.pub]`).
+
+```emel
+pub host effect CloudflareWorker
+
+@external(js, "./kv.mjs", "get")
+suspend fn kv_get(binding: String, key: String) -> String uses { CloudflareWorker }
+```
+
 - Users cannot write a handler for a host effect. `handler H: ProcessHost` is a compile error (E4003), and that handler provides nothing even when written in a with. `use` of a host effect is a compile error (E4402). A host effect can be written in a uses clause (`fn f() uses { ProcessHost }`).
-- A host effect enters R only through what host functions need. Calling an `@external suspend fn` adds Async (`[effect.async]`). Calling an external function declared with `uses { ProcessHost }` or `uses { PageHost }` adds that host effect (`[ext.call]`). A handler whose init, release or operation bodies make such calls requires the host effect (requires(H) in `[effect.handler]`), so the host effect remains in the R of a with that lists the handler, or a layer that contains it.
+- A host effect enters R only through what host functions need. Calling an `@external suspend fn` adds Async (`[effect.async]`). Calling an external function with a host effect in its uses clause adds that host effect (`[ext.call]`). A handler whose init, release or operation bodies make such calls requires the host effect (requires(H) in `[effect.handler]`), so the host effect remains in the R of a with that lists the handler, or a layer that contains it.
 - A with does not remove a host effect. Only the entry of a launch provides host effects.
 
 | Entry | Host effects provided |
@@ -375,9 +386,10 @@ fn main() {
 | `main` (`[effect.with]`) | Async, ProcessHost |
 | A test function (`[test.constraints]`) | Async, ProcessHost |
 | An `@export` fn that is not an entry adapter (`[ext.export]`) | Async |
-| An entry adapter (`[ext.entry]`) | Async, and the host effect the adapter declares |
+| An entry adapter (`[ext.entry]`) | Async, and the host effect the adapter declares (`ProcessHost`, `PageHost` or a declared one) |
 
-- `ProcessHost` and `PageHost` are Immediate (`[type.effect-bound]`).
+- `main`, test functions and an `@export` fn that is not an entry adapter do not provide a declared host effect. A handler that requires one, listed in a with inside them, leaves it in their R (E4301).
+- The host effects other than Async are Immediate (`[type.effect-bound]`).
 - Host effects do not name targets. A program whose entry type checks runs on every target that supports that entry (`[target]`).
 
 ## 8.11 External `[effect.external]`

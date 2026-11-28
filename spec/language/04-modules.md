@@ -53,7 +53,7 @@ import Data.Json.{Json, decode} # use Json and decode unqualified
 ## 4.3 pub `[module.pub]`
 
 - Declarations are private by default. Only declarations marked `pub` are visible from other modules.
-- Only top-level declarations can be marked `pub`. The targets are `fn` `type` `enum` `error` `effect` `handler` `layer` `const` `trait`.
+- Only top-level declarations can be marked `pub`. The targets are `fn` `type` `enum` `error` `effect` `host effect` `handler` `layer` `const` `trait`.
 - There is no way to make individual fields or variants public or private. In the same way, the functions of a trait follow the visibility of the trait: the functions of a `pub` trait can be called from other modules, and those of a trait that is not `pub` cannot (E2104).
 
 ## 4.4 opaque `[module.opaque]`
@@ -96,7 +96,7 @@ The names in a module are split into three namespaces (types, constructors, and 
 
 | Namespace | Contents |
 |---|---|
-| Types | type, enum, error, effect, handler, layer, trait |
+| Types | type, enum, error, effect (including `host effect`), handler, layer, trait |
 | Constructors | type constructors, enum variants, errors, handlers with fields |
 | Values | fn, const |
 
@@ -214,10 +214,12 @@ targets = ["js"]
 
 ```
 github.com/emela-lang/x/kv                    only effect Kv. no targets
-github.com/emela-lang/x/platform-cloudflare   handler WorkerKv. targets = ["js"]
+github.com/emela-lang/x/platform-cloudflare   host effect CloudflareWorker, handler WorkerKv, entry adapter serve. targets = ["js"]
 github.com/me/app                             logic. depends only on x/kv and is written with uses { Kv }
 github.com/me/app/worker                      JS entry. depends on app and platform-cloudflare, allows it in [external]
 ```
+
+- The external functions of `WorkerKv` work only in a Cloudflare Worker, so they have `uses { CloudflareWorker }` (`[effect.host]`), and so does requires(WorkerKv). The entry adapter `serve` of `platform-cloudflare` provides it: `with WorkerKv(...)` type checks in the worker entry, and is E4301 in `main` and in test functions. The tests of `github.com/me/app` use a handler of `Kv` that does not need the host.
 
 Test dependencies:
 

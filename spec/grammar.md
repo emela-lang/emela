@@ -47,7 +47,9 @@ import_item  = lower_name | type_name | upper_name
 decl         = { annotation NL } [ "pub" [ "opaque" ] ] item
              | impl_decl
 item         = fn_decl | type_decl | enum_decl | error_decl | const_decl
-             | effect_decl | handler_decl | layer_decl | trait_decl
+             | effect_decl | host_effect_decl | handler_decl | layer_decl | trait_decl
+
+host_effect_decl = "host" "effect" type_name
 
 annotation   = "@" lower_name [ "(" annot_arg { "," annot_arg } ")" ]
 annot_arg    = lower_name | literal | lower_name ":" literal | qualified
@@ -106,6 +108,7 @@ The following restrictions apply outside the grammar.
 
 - An fn_decl without a body, and a top-level suspend fn, are allowed only when they have `@external`. A trait_item fn does not need a default implementation, and this restriction does not apply to it.
 - `fails` and `uses` are contextual keywords (3.2). Writing `use` in the place of `uses` is a compile error (E1404), and the diagnostic shows the rewrite.
+- `host` is a contextual keyword (3.2) before `effect` at the start of an item (`[effect.host]`).
 - A `qualified` annot_arg is allowed only as the argument of `@entry`.
 - `opaque` can be applied only to type and enum.
 - Each parameter of init is a lower_name with a type (8.4).
