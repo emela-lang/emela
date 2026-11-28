@@ -63,6 +63,8 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 | system handler (`System*`) | 本物のハンドラ |
 | test handler (`Test*`) | テスト用のハンドラ |
 | effect set | 効果の集合 |
+| host effect (an effect whose only handler is the host: `Async`) | host effect |
+| host kind (a requirement that the host of a launch is of a kind: `ProcessHost`, `PageHost`). Not a kind (種) of a type parameter, and not a host type (`[ext.host-type]`): a host type is the type of a value of the host, and a host kind is an element of R | host の種類 |
 | error set | エラーの集合 |
 | set type parameter | 集合の型引数 |
 | hidden set variable | 見えない集合変数 |

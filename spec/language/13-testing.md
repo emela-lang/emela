@@ -70,7 +70,7 @@ fn sort_keeps_length() {
 
 ## 13.3 Constraints on test functions `[test.constraints]`
 
-- The R of a test function MUST be empty except for Async and ProcessHost. The test runner provides both, because tests run in a process (`[effect.host]`).
+- The R of a test function MUST be empty except for the host effect Async and the host kind ProcessHost. The test runner provides both, because tests run in a process (`[effect.host]`).
 - An error that is not handled is reported as a failure of that test. The E of a test function MAY be non-empty. Errors are shown the same way as for main in 14.3.
 - A defect is also reported as a failure of that test. The other tests keep running.
 
