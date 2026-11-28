@@ -119,6 +119,7 @@ load(id) match {
 - Arms are tried from top to bottom. A match that does not cover all cases is a compile error.
 - A match with no arms is not exhaustive for a value of any type, including `Never` (E3102).
 - Arms with a guard (`if condition`) are not counted when judging exhaustiveness. An arm with a guard also does not cover the arms below it when judging whether those arms are redundant.
+- The guard of an arm, in a match or in an escape (7.3), is a position with the expected type Bool (`[type.rules]`), so its type is Bool or Never.
 - An arm fully covered by the arms above it is warned about as redundant (W3101).
 - When a match is not exhaustive, examples of missing patterns are shown (`Rect(_, _)`, `[_, ..]`, `Some(None)`). The examples take the following form.
   - At a position with no constructor patterns, the constructors are not listed and only `_` is shown. At a position with constructor patterns, all missing constructors are listed.
@@ -168,6 +169,7 @@ The precedence is as follows. Operators higher in the table bind more tightly.
 - There are no bitwise operators. They are written with core functions (`Int.bit_and`, `Int.bit_or`, `Int.bit_xor`, `Int.bit_not`, `Int.shift_left`, `Int.shift_right` (sign-preserving), and `Int.shift_right_unsigned`; Int64 has the same ones). They can be written with a pipe, as in `flags |> Int.bit_and(MASK)`.
 - The shift amount of the shift functions is Int, even in the Int64 versions. A negative shift amount is a defect. A shift amount at least the width of the type (32 or 64) shifts out all bits: `shift_left` and `shift_right_unsigned` give 0, and `shift_right` gives 0 or -1 depending on the sign (the amount is not taken modulo the width). The result of `shift_right_unsigned` is read as a signed value (`Int.shift_right_unsigned(-1, 0)` is -1).
 - `==` and `!=` can be used on types that satisfy Eq, and ordering comparisons on types that satisfy Ord.
+- The operand of `!` is a position with the expected type Bool (`[type.rules]`), so its type is Bool or Never. The type of `!x` is Bool.
 - `a && b` is the same as `if a { b } else { False }`, and `a || b` is the same as `if a { True } else { b }` (`[fn.if]`). So the type of the whole is Bool, and the right side is evaluated only when the left side does not determine the result.
 - Operators cannot be defined for user-defined types. Write a function instead, such as `Money.add(a, b)`.
 - `+` cannot be used to concatenate strings. Use interpolation (`"#{a}#{b}"`) or `String.concat`.

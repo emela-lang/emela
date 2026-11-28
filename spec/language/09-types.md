@@ -97,7 +97,7 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 | `x.f(a)` (method call) | The return type of the function found, called as `M.f(x, a)` | Ex ∪ Ef ∪ Ea | Rx ∪ Rf ∪ Ra |
 | `C(fi: ei, ..r)` | The type of C (type arguments are determined from ei and the fields carried over from r) | Ei ∪ Er | Ri ∪ Rr |
 | `fail e` | Never | { the tag of e } | {} |
-| `e escape { Ti -> ei }` | The common type of the type of e and the types of the arms (Never disappears in the join) | (Ee ∖ {Ti}) ∪ Eei (Ti are the tags whose arm accepts every value. They are not removed from set variables. When there is an arm `_`, the E is Eei alone. 7.3) | Re ∪ Rei |
+| `e escape { Ti -> ei }` | The common type of the type of e and the types of the arms (Never disappears in the join) | (Ee ∖ {Ti}) ∪ Egi ∪ Eei (Ti are the tags whose arm accepts every value. They are not removed from set variables. gi are the guards of the arms. When there is an arm `_`, the E is Egi ∪ Eei. 7.3) | Re ∪ Rgi ∪ Rei |
 | `use X` | `use X`, a capability of the name X (0.29 only, 8.2) | {} | { X } |
 | `with H { e }` | The type of e | Ee ∪ (E of init) ∪ (E of the arguments of init) | (Re ∖ provides(H) ∖ the capabilities of the items) ∪ requires(H) ∪ (R of the arguments of init), where provides(H) is the effects of the items without a name (a named item provides nothing by name, 8.3) |
 | `with x = E.M(a) { e }` | The type of e | Ee ∪ Ea ∪ (E of the init of M) | Re ∪ { E } ∪ Ra |
@@ -106,7 +106,7 @@ The T, E, and R of each expression are determined as follows. Unless stated othe
 | `\|x\| e` | `fn(..) -> T fails Ee uses { Re }`, where Re also has the capabilities in the types of the captured values | {} | {} |
 | `fn f(x: A) -> T { e }` (local fn, a statement) | Binds f to `fn(A) -> T fails Ee uses { Re }` | {} | {} |
 | `if c { a } else { b }` | The common type of a and b | Ec ∪ Ea ∪ Eb | Rc ∪ Ra ∪ Rb |
-| `e match { pi -> ei }` | The common type of the arms | Ee ∪ Eei | Re ∪ Rei |
+| `e match { pi -> ei }` | The common type of the arms | Ee ∪ Egi ∪ Eei (gi are the guards of the arms) | Re ∪ Rgi ∪ Rei |
 
 - A call `f(a)` adds to R the elements of the R of f, with the set type parameter of each capability parameter replaced by the set of the corresponding argument.
 - An anonymous function and a local fn enclose the E and R of their bodies in their function types. They surface when the function is called. The R of the function is provided where the function is called, not where it is made. A reference to a local fn inside its own body has the type being inferred, and is not generalized.
