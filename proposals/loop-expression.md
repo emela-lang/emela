@@ -1,11 +1,13 @@
 ---
 title: The loop expression
 authors: [somnicattus]
-status: draft
+status: accepted
 issue:
 touches: [glossary.terms, kw, kw.reserved, kw.future, module.resolution, fn.decl, fn.args, fn.loop, effect.with, type.inference, type.rules, grammar.expr, diag.list]
 requires: []
 related: [local-fn]
+pr: 909
+decided: 2026-11-29
 ---
 
 # The loop expression
@@ -174,5 +176,6 @@ The example of `[fn.local]` and the helpers of the bundled core and std that are
 
 ## Open questions
 
-
 ## Decision
+
+A tail call to the function itself is guaranteed not to consume stack, but nothing checked that a call meant as such a tail call is one: a self call out of tail position, or inside the target of `escape` or the body of `with`, compiled without a diagnostic and exhausted the stack only at run time on deep input. A lint on every non-tail self call cannot replace a check, since non-tail recursion is correct in many programs, so the check applies only where the writer asks for it. `loop name(p: e, ...) { body }` defines a function that may call itself only in tail position, and calls it in place with the initial values; any other use of the name is a compile error rather than a warning, because a program that still compiles would fail as before. It adds nothing that a local fn cannot express and generates the same code, and it also removes the costs of writing a loop as a local fn: the separate call after it, a name that stays visible in the rest of the block, and parameter types that the initial values determine. `loop` is already reserved, so no program changes. A declaration form, an exit clause and types in the head can be added later without breaking anything.
