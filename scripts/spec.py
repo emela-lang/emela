@@ -59,7 +59,8 @@ def sections():
 
 
 def rel(path):
-    return os.path.relpath(path, ROOT)
+    """The path relative to the repository root, separated with `/` on every OS."""
+    return os.path.relpath(path, ROOT).replace(os.sep, "/")
 
 
 def cmd_index(prefix=""):
@@ -84,8 +85,8 @@ def cmd_show(*names):
 def cmd_refs(name):
     name = name.strip("[]`")
     pattern = r"\[" + re.escape(name) + r"\]"
-    subprocess.run(["rg", "-n", pattern, "spec", "proposals", "crates", "--glob", "*.md", "--glob", "*.rs",
-                    "--glob", "*.emel"], cwd=ROOT)
+    subprocess.run(["rg", "-n", "--path-separator", "/", pattern, "spec", "proposals", "crates",
+                    "--glob", "*.md", "--glob", "*.rs", "--glob", "*.emel"], cwd=ROOT)
 
 
 def read_proposal(path):
