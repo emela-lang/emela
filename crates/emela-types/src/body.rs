@@ -27,10 +27,10 @@ use crate::decl::lower::{
 };
 use crate::decl::signature::{FnParams, Signature, Signatures, param_labels};
 use crate::decl::traits::Traits;
-use crate::diagnostic::{Diagnostic, DiagnosticKind, EffectContext};
+use crate::diagnostic::{Diagnostic, DiagnosticKind, EffectContext, MatchOnLogical};
 use crate::exhaustiveness::coverage::Shapes;
 use crate::exhaustiveness::{Witness, check_match};
-use crate::infer::{InferCtx, Origin, SetKind};
+use crate::infer::{InferCtx, Origin, SetKind, TypeError, TypeErrorKind};
 
 mod args;
 mod bound;
@@ -1406,10 +1406,19 @@ impl<'a> BodyInfer<'a> {
     /// from `Never`; a match without arms is `Never`. With an expected type, it is passed to each
     /// arm body.
     fn infer_match(&mut self, scrutinee: ExprId, arms: &[Arm], expected: Option<&Ty>) -> Ty {
-        let scrutinee_ty = self.infer_expr(scrutinee);
+        let (scrutinee_ty, coverage_ty) = match self.infer_logical_scrutinee(scrutinee) {
+            // The arm patterns are checked against the right operand, which is what they were
+            // written for, so they do not repeat the mismatch. Coverage is skipped: the arms were
+            // not written for Bool, and the mismatch has been reported.
+            Some(rhs_ty) => (rhs_ty, Ty::Error),
+            None => {
+                let ty = self.infer_expr(scrutinee);
+                (ty.clone(), ty)
+            }
+        };
         self.coverage.push(CoverageSite::Match {
             scrutinee,
-            ty: scrutinee_ty.clone(),
+            ty: coverage_ty,
             arms: arms.to_vec(),
         });
 
@@ -1436,6 +1445,72 @@ impl<'a> BodyInfer<'a> {
         }
 
         result
+    }
+
+    /// A scrutinee `l && r` or `l || r` whose right operand is not Bool (`[fn.operator]`). `match`
+    /// binds more loosely than `&&` and `||`, so `a && k match { ... }` matches on `a && k`; such a
+    /// right operand is usually the value the arms were written for. Reports one E3001 at the
+    /// right operand ([`DiagnosticKind::MatchOnLogical`]), records the operator expression as
+    /// Bool, and returns the right operand's type for the arm patterns.
+    ///
+    /// `None` when the scrutinee is not such an expression, and also when the right operand is a
+    /// block, `if`, `match`, lambda, list or `with`, which take the expected type inside
+    /// ([`Self::check_expr`]): those are inferred as usual so that a mismatch points inside them.
+    fn infer_logical_scrutinee(&mut self, scrutinee: ExprId) -> Option<Ty> {
+        let program = self.program;
+        let e = &program.exprs[scrutinee];
+        let ExprKind::Binary { op, lhs, rhs } = e.kind else {
+            return None;
+        };
+        let op = match op {
+            BinaryOp::And => "&&",
+            BinaryOp::Or => "||",
+            _ => return None,
+        };
+        let r = &program.exprs[rhs];
+        if matches!(
+            r.kind,
+            ExprKind::Block(_)
+                | ExprKind::If { .. }
+                | ExprKind::Match { .. }
+                | ExprKind::Lambda { .. }
+                | ExprKind::List { .. }
+                | ExprKind::With { .. }
+        ) {
+            return None;
+        }
+        self.ctx.push_hint(e.span);
+        self.check_expr(lhs, &Ty::BOOL);
+        let rhs_ty = self.infer_expr(rhs);
+        let resolved = self.ctx.resolve(&rhs_ty);
+        let misread = !matches!(
+            resolved,
+            Ty::Prim(Prim::Bool) | Ty::Var(_) | Ty::Never | Ty::Error | Ty::Bound(_)
+        );
+        let arm_ty = if misread {
+            self.diags.push(Diagnostic {
+                span: Some(r.span),
+                kind: DiagnosticKind::MatchOnLogical(Box::new(MatchOnLogical {
+                    error: TypeError {
+                        expected: Ty::BOOL,
+                        actual: resolved.clone(),
+                        kind: Box::new(TypeErrorKind::Mismatch {
+                            expected: Ty::BOOL,
+                            actual: resolved,
+                        }),
+                    },
+                    op,
+                    scrutinee: e.span,
+                })),
+            });
+            rhs_ty
+        } else {
+            self.coerce_at(r.span, &Ty::BOOL, &rhs_ty);
+            Ty::BOOL
+        };
+        self.ctx.pop_hint();
+        self.exprs.insert(scrutinee, Ty::BOOL);
+        Some(arm_ty)
     }
 
     /// The type of `escape` (`[error.escape]`). Arm patterns are error constructors matched against
