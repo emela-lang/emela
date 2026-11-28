@@ -221,6 +221,7 @@ capabilities: x, y
   - E3201 and E4301 (the E and R of the body are not included in the declaration): writes the union of the body's E and R and the written clauses, by the same rules as inserting omitted annotations. Written elements are not removed. For E4301 on main, test, const, and handler operations, no edit that propagates uses is offered.
   - E1402 and E1403 (the old form of impl and handler heads): for E1402, the head (from `impl` to the end of the head) is replaced with the rewritten head. For E1403, the text from after the name (or after the field sequence, if any) up to `implements` is replaced with `:`. The rewritten form is the same as the form shown in the diagnostic message (`[diag.list]`).
   - E1404 (the old clause): replaces the clause with its canonical form (`use Db` becomes `uses { Db }`).
+  - W1401 and E1406 (a guard written after `if`): replaces `if` with `where`.
   - W3002 (a type parameter that does not appear in the type of the fn): removes the type parameter together with its bound and the `,` that separates it from its neighbour. When the list becomes empty, the brackets are removed too (`fn f[A]() -> Int` becomes `fn f() -> Int`). It is not offered when the type parameter appears in a type annotation inside the body, because removing it makes that annotation E2101. The title has the form ``Remove type parameter `A` ``.
 - There is no diagnostic for unused imports, so there is no quickfix that removes them.
 

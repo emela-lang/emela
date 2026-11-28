@@ -5,7 +5,7 @@ This section defines the shape of the source the formatter outputs. The formatte
 ## Input and output `[fmt.io]`
 
 - The line width is 100. Width is counted as display width, and a full-width character counts as 2. A line that does not fit because a string or name is long can exceed the width.
-- A file with a syntax error is not formatted. E1404 (`use` in the place of the uses clause) and E1405 (`fn(...)` in an expression) are not syntax errors here: the formatter rewrites them (`[fmt.signature]`, `[fmt.closure]`).
+- A file with a syntax error is not formatted. E1404 (`use` in the place of the uses clause), E1405 (`fn(...)` in an expression) and E1406 (a guard written after `if`) are not syntax errors here: the formatter rewrites them (`[fmt.signature]`, `[fmt.closure]`, `[fmt.block]`).
 - The formatter re-reads the formatted result and confirms that it has no syntax error and that its token sequence and order of comments match the input, apart from these rewrites. If they do not match, it is an internal error, and the input is not rewritten.
 - Line endings are normalized to LF, trailing whitespace is removed, and the file ends with a single newline. An empty file is output empty.
 - The indentation and width cannot be changed. The formatting options the language server receives (`[lsp.formatting]`) do not change them either.
@@ -26,6 +26,7 @@ This section defines the shape of the source the formatter outputs. The formatte
 - A block or a sequence of arms (match, escape) stays on one line as long as it was written on one line in the original source (no line breaks, at most one statement or arm) and fits in the width. If the original spans multiple lines, it is formatted on multiple lines. An empty block is `{}`.
 - The blocks of if, else if, and else are broken together. If any of them is multiline, all of them are multiline.
 - A `}` followed by `else {` on the next line is normalized to `} else {` (rule 3 of `[lex.continuation]`). However, if the `}` is followed by a trailing comment, `else` is placed on the next line.
+- The formatter rewrites `if` before the guard of a match or escape arm (W1401, E1406) as `where`.
 - The `->` of match and escape arms is aligned only among the arms of the same sequence that fit on one line. If alignment makes some arm exceed the width, the arm with the longest head (pattern and guard) is excluded from alignment and alignment is redone. Arms that contain comments are not aligned.
 
 ## Wrapping `[fmt.wrap]`
