@@ -122,22 +122,22 @@ fn is_digit(c: Int) -> Bool {
 
 fn expect(s: String, cs: List[Int], c: Int) -> List[Int] fails ParseError {
   cs match {
-    [d, ..rest] if d == c -> rest
-    _                     -> fail ParseError(input: s)
+    [d, ..rest] where d == c -> rest
+    _                        -> fail ParseError(input: s)
   }
 }
 
 fn separator(s: String, cs: List[Int]) -> List[Int] fails ParseError {
   cs match {
-    [c, ..rest] if c == 84 || c == 116 || c == 32 -> rest
-    _                                             -> fail ParseError(input: s)
+    [c, ..rest] where c == 84 || c == 116 || c == 32 -> rest
+    _                                                -> fail ParseError(input: s)
   }
 }
 
 fn two_digits(s: String, cs: List[Int]) -> (Int, List[Int]) fails ParseError {
   cs match {
-    [a, b, ..rest] if is_digit(a) && is_digit(b) -> ((a - 48) * 10 + (b - 48), rest)
-    _                                            -> fail ParseError(input: s)
+    [a, b, ..rest] where is_digit(a) && is_digit(b) -> ((a - 48) * 10 + (b - 48), rest)
+    _                                               -> fail ParseError(input: s)
   }
 }
 
@@ -148,7 +148,7 @@ fn read_year(s: String, cs: List[Int]) -> (Int64, List[Int]) fails ParseError {
   cs match {
     [43, ..rest] -> signed_year(s, rest, False)
     [45, ..rest] -> signed_year(s, rest, True)
-    [a, b, c, d, ..rest] if is_digit(a) && is_digit(b) && is_digit(c) && is_digit(d) -> {
+    [a, b, c, d, ..rest] where is_digit(a) && is_digit(b) && is_digit(c) && is_digit(d) -> {
       (Int64.from_int((a - 48) * 1000 + (b - 48) * 100 + (c - 48) * 10 + (d - 48)), rest)
     }
     _            -> fail ParseError(input: s)
@@ -168,7 +168,7 @@ fn signed_year(s: String, cs: List[Int], negative: Bool) -> (Int64, List[Int]) f
 fn year_digits(s: String, cs: List[Int], count: Int, value: Int64) -> (Int, Int64, List[Int])
   fails ParseError {
   cs match {
-    [c, ..rest] if is_digit(c) -> {
+    [c, ..rest] where is_digit(c) -> {
       next = value * 10 + Int64.from_int(c - 48)
       if next > 999999999 {
         fail ParseError(input: s)
@@ -184,16 +184,16 @@ fn year_digits(s: String, cs: List[Int], count: Int, value: Int64) -> (Int, Int6
 ## dropped, which rounds toward the past.
 fn read_fraction(s: String, cs: List[Int]) -> (Int, List[Int]) fails ParseError {
   cs match {
-    [46, c, ..rest] if is_digit(c) -> fraction_digits(s, rest, c - 48, 1)
-    [46, ..]                       -> fail ParseError(input: s)
-    _                              -> (0, cs)
+    [46, c, ..rest] where is_digit(c) -> fraction_digits(s, rest, c - 48, 1)
+    [46, ..]                          -> fail ParseError(input: s)
+    _                                 -> (0, cs)
   }
 }
 
 fn fraction_digits(s: String, cs: List[Int], milli: Int, count: Int) -> (Int, List[Int])
   fails ParseError {
   cs match {
-    [c, ..rest] if is_digit(c) -> {
+    [c, ..rest] where is_digit(c) -> {
       next = if count < 3 { milli * 10 + (c - 48) } else { milli }
       fraction_digits(s, rest, next, count + 1)
     }

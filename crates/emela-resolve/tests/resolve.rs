@@ -261,10 +261,10 @@ enum Shape {
 
 fn area(shape: Shape) -> Float {
   shape match {
-    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius
-    Circle(_)                       -> 0.0
-    Rect(w, h)                      -> w * h
-    Empty                           -> 0.0
+    Circle(radius:) where radius > 0.0 -> 3.14 * radius * radius
+    Circle(_)                          -> 0.0
+    Rect(w, h)                         -> w * h
+    Empty                              -> 0.0
   }
 }
 

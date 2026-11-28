@@ -313,7 +313,7 @@ enum Shape {
 
 fn area(s: Shape) -> Float {
   s match {
-    Circle(radius:) if True -> radius
+    Circle(radius:) where True -> radius
     Rect(w, h) -> w
     Empty -> panic("empty")
   }
@@ -345,7 +345,7 @@ fn f(o: Option[Int]) -> Int {
     None -> "none"
   }
   b = o match {
-    Some(x) if x -> 1
+    Some(x) where x -> 1
     "s" -> 2
   }
   1
@@ -632,7 +632,7 @@ fn area(s: Shape) -> Float {
 
 fn guarded(o: Option[Int]) -> Int {
   o match {
-    Some(x) if x > 0 -> x
+    Some(x) where x > 0 -> x
     None -> 0
   }
 }
@@ -693,7 +693,7 @@ fn f(o: Option[Int], n: Int) -> Int {
     _ -> 3
   }
   c = o match {
-    Some(x) if x > 0 -> x
+    Some(x) where x > 0 -> x
     Some(x) -> x
     None -> 0
   }

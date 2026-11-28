@@ -70,7 +70,7 @@ fn element(chars: List[String], offset: Int) -> (Dynamic, Rest) fails SyntaxErro
 
 fn skip_space(rest: Rest) -> Rest {
   rest.chars match {
-    [c, ..more] if c == " " || c == "\t" || c == "\n" || c == "\r" -> skip_space(
+    [c, ..more] where c == " " || c == "\t" || c == "\n" || c == "\r" -> skip_space(
       Rest(chars: more, offset: rest.offset + 1),
     )
     _ -> rest
@@ -88,7 +88,7 @@ fn value(rest: Rest) -> (Dynamic, Rest) fails SyntaxError {
     ["t", "r", "u", "e", ..more] -> (Bool(True), Rest(chars: more, offset: rest.offset + 4))
     ["f", "a", "l", "s", "e", ..more] -> (Bool(False), Rest(chars: more, offset: rest.offset + 5))
     ["n", "u", "l", "l", ..more] -> (Null, Rest(chars: more, offset: rest.offset + 4))
-    [c, ..] if c == "-" || is_digit(c) -> number(rest)
+    [c, ..] where c == "-" || is_digit(c) -> number(rest)
     []            -> fail SyntaxError(message: "unexpected end of input", offset: rest.offset)
     _             -> fail SyntaxError(message: "expected a value", offset: rest.offset)
   }
@@ -243,7 +243,7 @@ fn number(rest: Rest) -> (Dynamic, Rest) fails SyntaxError {
 
 fn span(chars: List[String], f: fn(String) -> Bool) -> (List[String], List[String]) {
   chars match {
-    [c, ..more] if f(c) -> {
+    [c, ..more] where f(c) -> {
       (taken, after) = span(more, f)
       ([c, ..taken], after)
     }

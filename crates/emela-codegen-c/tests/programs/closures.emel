@@ -35,7 +35,7 @@ fn main() {
   print("#{(|x| x + 1)(2)} #{make(21)()} #{adder(1)(2)(3)}")
   sign = List.map([-2, 0, 5], |n| n match {
     0 -> "zero"
-    _ if n < 0 -> "neg"
+    _ where n < 0 -> "neg"
     _ -> "pos"
   })
   print("#{sign}")

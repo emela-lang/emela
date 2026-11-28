@@ -31,9 +31,9 @@ pub fn parse(s: String) -> Number fails ParseError {
     fail ParseError(input: s)
   }
   exponent = after_fraction match {
-    []                                  -> 0
-    [e, ..rest] if e == "e" || e == "E" -> exponent_part(s, rest)
-    _                                   -> fail ParseError(input: s)
+    []                                     -> 0
+    [e, ..rest] where e == "e" || e == "E" -> exponent_part(s, rest)
+    _                                      -> fail ParseError(input: s)
   }
   shifted = exponent.checked_add(-fraction.length()) match {
     Some(e) -> normalize(negative, whole.append(fraction), e)
@@ -157,7 +157,7 @@ fn read(s: String) -> Number {
 # Splits off the leading digits of `chars`.
 fn span_digits(chars: List[String]) -> (List[String], List[String]) {
   chars match {
-    [c, ..rest] if c >= "0" && c <= "9" -> {
+    [c, ..rest] where c >= "0" && c <= "9" -> {
       (digits, after) = span_digits(rest)
       ([c, ..digits], after)
     }

@@ -68,7 +68,7 @@ fn long_patterns(value: Shape) {
       label: first_label_value,
     ) -> width
     Circle(radius:) -> radius
-    Triangle(a, b, c) if a + b > c
+    Triangle(a, b, c) where a + b > c
       && b + c > a
       && a + c > b
       && is_valid_triangle_shape(a, b, c) -> a

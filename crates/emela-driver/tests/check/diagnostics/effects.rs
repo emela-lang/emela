@@ -24,7 +24,7 @@ fn main() {
     _ -> 0
     Boom -> 1
   }
-  c = boom() escape { _ if a > 0 -> 0 }
+  c = boom() escape { _ where a > 0 -> 0 }
   d = boom() escape { e -> 0 }
   dbg((a, b, c, d))
 }

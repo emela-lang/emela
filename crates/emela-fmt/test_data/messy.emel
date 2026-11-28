@@ -3,7 +3,7 @@
  b   =   if a>0{a}else{0-a}
             b match{
   0->"zero"
-     n if n>100->"big"
+     n where n>100->"big"
    _->"other"
         }
 }

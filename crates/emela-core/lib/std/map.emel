@@ -205,11 +205,11 @@ fn balance[K, V](key: K, value: V, left: Map[K, V], right: Map[K, V]) -> Map[K, 
   right_heavy = too_heavy(right, left)
   left_heavy = too_heavy(left, right)
   right match {
-    Node(key: right_key, value: right_value, left: inner, right: outer, ..) if right_heavy -> {
+    Node(key: right_key, value: right_value, left: inner, right: outer, ..) where right_heavy -> {
       rotate_left(key, value, left, right_key, right_value, inner, outer)
     }
     _ -> left match {
-      Node(key: left_key, value: left_value, left: outer, right: inner, ..) if left_heavy -> {
+      Node(key: left_key, value: left_value, left: outer, right: inner, ..) where left_heavy -> {
         rotate_right(left_key, left_value, outer, inner, key, value, right)
       }
       _ -> node(key, value, left, right)
@@ -235,7 +235,13 @@ fn rotate_left[K, V](
 ) -> Map[K, V] {
   twice = size(inner) >= RATIO * size(outer)
   inner match {
-    Node(key: inner_key, value: inner_value, left: inner_left, right: inner_right, ..) if twice -> {
+    Node(
+      key: inner_key,
+      value: inner_value,
+      left: inner_left,
+      right: inner_right,
+      ..,
+    ) where twice -> {
       # Double rotation.
       node(
         inner_key,
@@ -262,7 +268,13 @@ fn rotate_right[K, V](
 ) -> Map[K, V] {
   twice = size(inner) >= RATIO * size(outer)
   inner match {
-    Node(key: inner_key, value: inner_value, left: inner_left, right: inner_right, ..) if twice -> {
+    Node(
+      key: inner_key,
+      value: inner_value,
+      left: inner_left,
+      right: inner_right,
+      ..,
+    ) where twice -> {
       # Double rotation.
       node(
         inner_key,
@@ -287,7 +299,8 @@ fn glue[K, V](left: Map[K, V], right: Map[K, V]) -> Map[K, V] {
   (left, right) match {
     (Empty, _) -> right
     (_, Empty) -> left
-    (Node(key:, value:, left: left_left, right: left_right, ..), _) if size(left) > size(right) -> {
+    (Node(key:, value:, left: left_left, right: left_right, ..), _) where size(left)
+      > size(right) -> {
       (max_key, max_value, rest) = remove_max(key, value, left_left, left_right)
       balance(max_key, max_value, rest, right)
     }

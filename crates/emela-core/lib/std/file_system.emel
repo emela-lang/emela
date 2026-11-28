@@ -297,9 +297,9 @@ pub handler TestFileSystem: FileSystem {
     st <- State[TestFiles]
     files = st.get()
     file_text(files, path) match {
-      Some(text)                  -> resume(text)
-      None if is_dir(files, path) -> fail IsADirectory(path:)
-      None                        -> fail FileNotFound(path:)
+      Some(text)                     -> resume(text)
+      None where is_dir(files, path) -> fail IsADirectory(path:)
+      None                           -> fail FileNotFound(path:)
     }
   }
   suspend fn write_text(path, text, resume) {
@@ -368,8 +368,8 @@ fn put_file(files: TestFiles, path: String, f: fn(Option[String]) -> String) -> 
   fails FileNotFound | IsADirectory {
   if is_dir(files, path) { fail IsADirectory(path:) }
   Path.parent(path) match {
-    Some(dir) if !is_dir(files, dir) -> fail FileNotFound(path:)
-    _                                -> ()
+    Some(dir) where !is_dir(files, dir) -> fail FileNotFound(path:)
+    _                                   -> ()
   }
   TestFiles(files: fs, directories:) = files
   text = f(file_text(files, path))

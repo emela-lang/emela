@@ -56,7 +56,7 @@ fn every_kind_of_expression() {
     let dbg = Builtin::lookup(None, "dbg").unwrap();
     let length = Builtin::lookup(Some("String"), "length").unwrap();
 
-    // fn area(s) { match s { Circle(r) -> r * r * 2.5, Rect(width: w, height: _) if w > 0.0 -> w, _ -> 0.0 } }
+    // fn area(s) { match s { Circle(r) -> r * r * 2.5, Rect(width: w, height: _) where w > 0.0 -> w, _ -> 0.0 } }
     let area = m.declare("Shapes.area", false);
     let shape_ty = m.enum_type(shape, vec![]);
     let s = m.local("s", shape_ty);

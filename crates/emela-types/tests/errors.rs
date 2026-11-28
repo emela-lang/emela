@@ -212,7 +212,7 @@ fn redundant() -> Int {
 
 fn guarded() -> Int {
   fy(1) escape {
-    Bad(n:) if n > 0 -> n
+    Bad(n:) where n > 0 -> n
     Bad(_) -> 0
   }
 }
@@ -333,7 +333,7 @@ fn after_total() -> Int {
 }
 
 fn guarded(c: Bool) -> Int {
-  fy(1) escape { _ if c -> 0 }
+  fy(1) escape { _ where c -> 0 }
 }
 
 fn variable() -> Int {
@@ -360,7 +360,7 @@ fn by_value() -> Int {
 }
 
 fn by_guard() -> Int {
-  find(1) escape { NotFound(id:) if id > 0 -> id }
+  find(1) escape { NotFound(id:) where id > 0 -> id }
 }
 
 fn inferred() {
@@ -370,7 +370,7 @@ fn inferred() {
 fn total_after_partial() -> Int {
   find(1) escape {
     NotFound(id: 1) -> 0
-    NotFound(id:) if id > 0 -> id
+    NotFound(id:) where id > 0 -> id
     NotFound(_) -> 2
   }
 }

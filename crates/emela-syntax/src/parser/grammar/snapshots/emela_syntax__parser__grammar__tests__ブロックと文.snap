@@ -1,6 +1,6 @@
 ---
 source: crates/emela-syntax/src/parser/grammar/tests.rs
-expression: "dump_all(&[\"{\\n  count = 0\\n  count = count + 1\\n  (evens, odds) = List.partition(xs, is_even)\\n  pairs: List[(String, Int)] = Map.to_list(scores)\\n  label = if count > 0 { \\\"あり\\\" } else { \\\"なし\\\" }\\n  if !valid { fail Invalid(input:) }\\n  connect(\\\"localhost\\\", port: 5432)\\n}\",\n\"{\\n  shape match {\\n    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius\\n    Circle(_)                       -> 0.0\\n    Empty                           -> 0.0\\n  }\\n}\",\n\"{\\n  user = find_user(id) escape {\\n    NotFound(_) -> guest_user()\\n  }\\n  data = load(id)\\n    escape { DbError(message:) -> fail Unavailable(reason: message) }\\n}\",\n\"{\\n  with AppTest, FixedClock { greet(1) }\\n  List.map(names, |n| log.info(n))\\n  if a { 1 } else if b { 2 } else { 3 }\\n}\",\n\"{\\n  [x, ..rest] = xs\\n  User(name:, ..) = user\\n  [first, ..] = xs\\n  _ = run()\\n}\",\n\"{\\n  a = (10 -\\n    1)\\n  b = (10 +\\n    1)\\n}\", \"{}\",], block,)"
+expression: "dump_all(&[\"{\\n  count = 0\\n  count = count + 1\\n  (evens, odds) = List.partition(xs, is_even)\\n  pairs: List[(String, Int)] = Map.to_list(scores)\\n  label = if count > 0 { \\\"あり\\\" } else { \\\"なし\\\" }\\n  if !valid { fail Invalid(input:) }\\n  connect(\\\"localhost\\\", port: 5432)\\n}\",\n\"{\\n  shape match {\\n    Circle(radius:) where radius > 0.0 -> 3.14 * radius * radius\\n    Circle(_)                          -> 0.0\\n    Empty                              -> 0.0\\n  }\\n}\",\n\"{\\n  user = find_user(id) escape {\\n    NotFound(_) -> guest_user()\\n  }\\n  data = load(id)\\n    escape { DbError(message:) -> fail Unavailable(reason: message) }\\n}\",\n\"{\\n  with AppTest, FixedClock { greet(1) }\\n  List.map(names, |n| log.info(n))\\n  if a { 1 } else if b { 2 } else { 3 }\\n}\",\n\"{\\n  [x, ..rest] = xs\\n  User(name:, ..) = user\\n  [first, ..] = xs\\n  _ = run()\\n}\",\n\"{\\n  a = (10 -\\n    1)\\n  b = (10 +\\n    1)\\n}\", \"{}\",], block,)"
 ---
 === {
   count = 0
@@ -203,27 +203,27 @@ ROOT@0..258
     R_BRACE@257..258 "}"
 === {
   shape match {
-    Circle(radius:) if radius > 0.0 -> 3.14 * radius * radius
-    Circle(_)                       -> 0.0
-    Empty                           -> 0.0
+    Circle(radius:) where radius > 0.0 -> 3.14 * radius * radius
+    Circle(_)                          -> 0.0
+    Empty                              -> 0.0
   }
 }
-ROOT@0..171
-  BLOCK_EXPR@0..171
+ROOT@0..180
+  BLOCK_EXPR@0..180
     L_BRACE@0..1 "{"
     NEWLINE@1..2 "\n"
     WHITESPACE@2..4 "  "
-    MATCH_EXPR@4..169
+    MATCH_EXPR@4..178
       NAME_REF@4..9
         LOWER_NAME@4..9 "shape"
       WHITESPACE@9..10 " "
       MATCH_KW@10..15 "match"
       WHITESPACE@15..16 " "
-      MATCH_ARM_LIST@16..169
+      MATCH_ARM_LIST@16..178
         L_BRACE@16..17 "{"
         NEWLINE@17..18 "\n"
         WHITESPACE@18..22 "    "
-        MATCH_ARM@22..79
+        MATCH_ARM@22..82
           VARIANT_PAT@22..37
             PATH@22..28
               TYPE_NAME@22..28 "Circle"
@@ -234,66 +234,66 @@ ROOT@0..171
                 COLON@35..36 ":"
               R_PAREN@36..37 ")"
           WHITESPACE@37..38 " "
-          MATCH_GUARD@38..53
-            IF_KW@38..40 "if"
-            WHITESPACE@40..41 " "
-            BIN_EXPR@41..53
-              NAME_REF@41..47
-                LOWER_NAME@41..47 "radius"
-              WHITESPACE@47..48 " "
-              GT@48..49 ">"
-              WHITESPACE@49..50 " "
-              LITERAL@50..53
-                FLOAT@50..53 "0.0"
-          WHITESPACE@53..54 " "
-          THIN_ARROW@54..56 "->"
+          MATCH_GUARD@38..56
+            WHERE_KW@38..43 "where"
+            WHITESPACE@43..44 " "
+            BIN_EXPR@44..56
+              NAME_REF@44..50
+                LOWER_NAME@44..50 "radius"
+              WHITESPACE@50..51 " "
+              GT@51..52 ">"
+              WHITESPACE@52..53 " "
+              LITERAL@53..56
+                FLOAT@53..56 "0.0"
           WHITESPACE@56..57 " "
-          BIN_EXPR@57..79
-            BIN_EXPR@57..70
-              LITERAL@57..61
-                FLOAT@57..61 "3.14"
-              WHITESPACE@61..62 " "
-              STAR@62..63 "*"
-              WHITESPACE@63..64 " "
-              NAME_REF@64..70
-                LOWER_NAME@64..70 "radius"
-            WHITESPACE@70..71 " "
-            STAR@71..72 "*"
-            WHITESPACE@72..73 " "
-            NAME_REF@73..79
-              LOWER_NAME@73..79 "radius"
-        NEWLINE@79..80 "\n"
-        WHITESPACE@80..84 "    "
-        MATCH_ARM@84..122
-          VARIANT_PAT@84..93
-            PATH@84..90
-              TYPE_NAME@84..90 "Circle"
-            PAT_ARG_LIST@90..93
-              L_PAREN@90..91 "("
-              WILDCARD_PAT@91..92
-                UNDERSCORE@91..92 "_"
-              R_PAREN@92..93 ")"
-          WHITESPACE@93..116 "                       "
-          THIN_ARROW@116..118 "->"
-          WHITESPACE@118..119 " "
-          LITERAL@119..122
-            FLOAT@119..122 "0.0"
-        NEWLINE@122..123 "\n"
-        WHITESPACE@123..127 "    "
-        MATCH_ARM@127..165
-          VARIANT_PAT@127..132
-            PATH@127..132
-              TYPE_NAME@127..132 "Empty"
-          WHITESPACE@132..159 "                           "
-          THIN_ARROW@159..161 "->"
-          WHITESPACE@161..162 " "
-          LITERAL@162..165
-            FLOAT@162..165 "0.0"
-        NEWLINE@165..166 "\n"
-        WHITESPACE@166..168 "  "
-        R_BRACE@168..169 "}"
-    NEWLINE@169..170 "\n"
-    R_BRACE@170..171 "}"
+          THIN_ARROW@57..59 "->"
+          WHITESPACE@59..60 " "
+          BIN_EXPR@60..82
+            BIN_EXPR@60..73
+              LITERAL@60..64
+                FLOAT@60..64 "3.14"
+              WHITESPACE@64..65 " "
+              STAR@65..66 "*"
+              WHITESPACE@66..67 " "
+              NAME_REF@67..73
+                LOWER_NAME@67..73 "radius"
+            WHITESPACE@73..74 " "
+            STAR@74..75 "*"
+            WHITESPACE@75..76 " "
+            NAME_REF@76..82
+              LOWER_NAME@76..82 "radius"
+        NEWLINE@82..83 "\n"
+        WHITESPACE@83..87 "    "
+        MATCH_ARM@87..128
+          VARIANT_PAT@87..96
+            PATH@87..93
+              TYPE_NAME@87..93 "Circle"
+            PAT_ARG_LIST@93..96
+              L_PAREN@93..94 "("
+              WILDCARD_PAT@94..95
+                UNDERSCORE@94..95 "_"
+              R_PAREN@95..96 ")"
+          WHITESPACE@96..122 "                          "
+          THIN_ARROW@122..124 "->"
+          WHITESPACE@124..125 " "
+          LITERAL@125..128
+            FLOAT@125..128 "0.0"
+        NEWLINE@128..129 "\n"
+        WHITESPACE@129..133 "    "
+        MATCH_ARM@133..174
+          VARIANT_PAT@133..138
+            PATH@133..138
+              TYPE_NAME@133..138 "Empty"
+          WHITESPACE@138..168 "                              "
+          THIN_ARROW@168..170 "->"
+          WHITESPACE@170..171 " "
+          LITERAL@171..174
+            FLOAT@171..174 "0.0"
+        NEWLINE@174..175 "\n"
+        WHITESPACE@175..177 "  "
+        R_BRACE@177..178 "}"
+    NEWLINE@178..179 "\n"
+    R_BRACE@179..180 "}"
 === {
   user = find_user(id) escape {
     NotFound(_) -> guest_user()

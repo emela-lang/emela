@@ -140,7 +140,7 @@ fn by_value(id: Int) {{
 }}
 
 fn by_guard(id: Int) {{
-  find(id) escape {{ NotFound(id:) if id > 5 -> id * 10 }}
+  find(id) escape {{ NotFound(id:) where id > 5 -> id * 10 }}
 }}
 
 fn main() {{
