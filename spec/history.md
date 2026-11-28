@@ -2,6 +2,10 @@
 
 This is the record of changes to the specification. New entries are added at the top. Each entry names the sections it changed.
 
+## 2026-11-29 (Write the guard of an arm with where)
+
+- `[kw]`, `[kw.reserved]`, `[kw.future]`, `[grammar.expr]`, `[fn.match]`, `[lib.api-rules]`, `[fmt.io]`, `[fmt.block]`, `[lsp.code-action]`, `[diag.list]`: The guard of a match or escape arm is written after `where` instead of `if`: `Circle(radius:) where radius > 0.0 -> ...`. `where` moves from the words reserved for the future (`[kw.future]`) to the reserved words (`[kw.reserved]`). The meaning of a guard does not change. Until 0.30, a guard written with `if` keeps its meaning and is reported with a warning (W1401); from 0.30 it is a compile error (E1406). `emela fmt` rewrites `if` to `where`, and the language server offers the rewrite as a quick fix. Adopted in the proposal `match-guard-where` (#953).
+
 ## 2026-11-29 (The value of a handler is made only with Self)
 
 - `[effect.handler]`, `[lsp.code-action]`, `[diag.list]`: - Inside the init of a handler, its value is made only with `Self(...)` (`Self` for a handler without parentheses, `Self()` for `handler H()`). The name of a handler no longer stands for its value: it neither makes the value nor matches it in a pattern. The name of a handler is then written only to open it (an item of a with or a layer, the right of `by`) and to refer to its declaration (import, `pub`). - Until 0.30, writing the name of a handler for its value is deprecated and keeps its meaning: a constructor or a record update in its init (W4001), and a constructor pattern (W4002). From 0.30 they are compile errors (E4014, E4015). A constructor is rewritten by replacing the name with `Self`, a record update by listing the fields in `Self(...)`, and a pattern by reading the fields with `.`. - For an inner handler, and for a pattern of a handler without parentheses, the implementation already rejects the name, so these are compile errors at once, without a deprecation. Adopted in the proposal `handler-value-by-self` (#907).

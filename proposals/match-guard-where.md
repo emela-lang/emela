@@ -1,11 +1,13 @@
 ---
 title: Write the guard of an arm with where
 authors: [somnicattus]
-status: draft
+status: accepted
 issue:
 touches: [kw, kw.reserved, kw.future, grammar.expr, fn.match, lib.api-rules, fmt.io, fmt.block, lsp.code-action, diag.list]
 requires: []
 related: []
+pr: 953
+decided: 2026-11-29
 ---
 
 # Write the guard of an arm with where
@@ -136,3 +138,5 @@ The new form lands in a patch release with W1401 (`docs/release.md`: a deprecati
 ## Open questions
 
 ## Decision
+
+`if` started both the if expression and the guard of an arm, which a reader told apart only by what came before it, and the two could meet in one arm (`Some(x) if if b { x > 0 } else { x < 0 } -> 1` compiles and is kept by `emela fmt`). `if` also suggests a block and an `else`, which a guard does not have. The guard is written after `where`, which reads as "such that" and states that the guard narrows the values the pattern matches; it is reserved already, so no identifier is lost and no keyword is added. `when` was considered: it reads as a plain condition and is common for guards, but it adds a keyword and leaves `where` reserved without syntax. That `where` suggests a condition about the value matched is not a requirement: the few guards about another value can be rewritten to be about the value matched, without an observable difference. A later syntax that wants `where` in another position would give the word a second meaning but stays possible. The meaning of a guard does not change; `if` is deprecated with W1401 until 0.30, `emela fmt` rewrites it, and it becomes E1406 in 0.30.
