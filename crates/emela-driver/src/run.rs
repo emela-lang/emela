@@ -8,8 +8,8 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use crate::code;
 use crate::diagnostic::Diagnostic;
+use crate::diagnostic::code;
 use crate::version::Version;
 
 thread_local! {

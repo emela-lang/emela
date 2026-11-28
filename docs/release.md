@@ -65,7 +65,7 @@ v0.29.0 までは `feat:` でも minor を上げていた。それより後は�
 
 1. 追加だけの小さな機能（std の関数を足すなど）は `feat:` で入れ、patch で出す。
 2. 大きな機能や、stable な書き方の意味に触れる機能は experimental な機能として入れる。
-   `crates/emela-driver/src/experimental.rs` の `FEATURES` と `[intro.experimental]` の表に
+   `crates/emela-driver/src/project/experimental.rs` の `FEATURES` と `[intro.experimental]` の表に
    1行足し、規則に "Experimental (`name`)." の印を付ける。patch ごとに作り直してよい。
 3. 安定させるとき:
    - 追加だけなら、印を外し `Stage::Stable` にして `feat:` で入れる（patch）。
