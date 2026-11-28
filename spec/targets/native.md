@@ -23,6 +23,7 @@ The native target makes an executable for the machine that runs the compiler. Th
 - The output directory also contains implementation-defined files, such as the emitted C, the runtime, and the bundled C sources that the external functions used by the program refer to. Their names and contents are not specified.
 - The C sources of the project and of Pomes (the ones `@external(c, "./file.c", ...)` refers to) are not copied to the output directory, and are compiled by their absolute paths.
 - If the entry point has no main, the executable does nothing and exits with exit code 0.
+- A profiling build (`[cmd.profile]`) writes the same files. The profile and the files for viewing it are also written to the output directory.
 
 ## 16.7.2 Invoking the C compiler `[target.native.cc]`
 
@@ -31,7 +32,8 @@ The native target makes an executable for the machine that runs the compiler. Th
 - The C compiler is the value of the environment variable `EMELA_CC` if it is not only whitespace, and otherwise `cc` on PATH. The whole value names one program, and is not split at whitespace.
 - The environment variable `EMELA_CC_ARGS` holds flags for the C compiler. It is split at whitespace, and the words are passed at the end of the command line, after every source file. A flag given there takes precedence over a flag of the same kind given earlier (`-std=c23`), and a library given with `-l` is linked after the sources that use it.
 - The emitted C, the runtime, the bundled C sources and the C sources of the project and of Pomes are compiled and linked by one invocation of the C compiler, with the output directory as the current directory. The invocation guarantees the following to the C sources of the project and of Pomes: they are compiled as C11 or a later version (which one is implementation-defined), they can use threads (`[ext.c-host]`), `#include "emela.h"` finds the header in the output directory, and the math library is linked. The rest of the command line is implementation-defined.
-- The emitted C and the runtime compile as C11 and as every later version of C.
+- The emitted C and the runtime compile as C11 and as every later version of C, except in a profiling build (`[cmd.profile]`).
+- In a profiling build, the C compiler is also given `-g` and `-fno-omit-frame-pointer`, and the emitted C names the symbols of functions with assembler labels, an extension of C. A profiling build needs a C compiler that accepts them, as GCC and Clang do; with one that does not, it fails with E9103.
 - If the C compiler cannot be started, it is E9101 (``cannot start `cc`: <reason>``). When it is not found, the help ``install a C11 compiler and add it to PATH as `cc`, or set EMELA_CC to the compiler`` is attached. When the value of `EMELA_CC` contains whitespace, the help ``EMELA_CC names only the compiler; pass flags in EMELA_CC_ARGS`` is attached instead.
 - If the C compiler fails, it is E9103 (``` `cc` failed to compile the output of target `native` ```). The standard error of the C compiler is attached as a note. Anything beyond 4000 bytes is cut off, and a `...` line is added.
 - On success, the output of the C compiler is not shown.
@@ -42,6 +44,7 @@ The native target makes an executable for the machine that runs the compiler. Th
 - An error, a defect or an interruption that reaches the entry point is printed to standard error as one line, `error: <value>`, `defect: <message>` or `interrupted` respectively, and the program exits with exit code 1, 101 or 130 (`[dyn.error]`, `[error.defect]`, `[dyn.suspend]`).
 - The executable ignores SIGPIPE. A write to a closed standard output or standard error is detected from the result of the write and handled as in `[api.std.process]`: for standard output, the program unwinds and exits with exit code 141, writing nothing to standard error; for standard error, the write is discarded and the program continues.
 - When `main` returns an `ExitCode` (`[dyn.error]`), the executable exits with its exit code, after standard output and standard error are flushed.
+- `emela run --profile` and `emela test --profile` start `main` under the profiler of the operating system (`[cmd.profile]`). Arguments, standard input and the exit code are as without it.
 - `emela test --target native` runs the selected test functions in order, in one process of one executable. State (the values of evaluated consts, for example) carries over between tests. The output of results and the exit code are as in `[test.command]`, and the result of each test is one of success, error, defect or interruption.
 - If the environment variable `EMELA_LEAK_CHECK` is not empty, the executable checks at exit whether any allocations have not been freed yet. If there are, it prints `emela: leak check: <count> allocations are still live` to standard error and exits with exit code 99.
 

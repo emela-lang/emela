@@ -13,6 +13,7 @@ This appendix defines the externally visible behavior of `emela test`. How to wr
 - Every selected test function is either run, or reported with the reason it cannot be run. A test function is never dropped silently. A test function whose inferred type still has type parameters is run with the default instantiation (an ordinary type parameter becomes `Never`, a set type parameter the empty set), on every target.
 - `--target <js|native|wasm>` selects the build target. When it is omitted, it is determined as for `build` (`[cmd.build]`). The results are displayed the same way for every target.
 - `test` takes the flags `--experimental-<name>`, as `[cmd.build]`.
+- `test` takes the flag `--profile`, which runs the tests under a sampling profiler (`[cmd.profile]`).
 
 ## Reporters `[cmd.test.reporter]`
 

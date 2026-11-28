@@ -11,6 +11,7 @@ This appendix defines the externally visible behavior of the `emela` command. `e
 - `EMELA_NODE` is deprecated. When it is read, W9101 is reported, also when `EMELA_JS_HOST` is set and takes precedence. It is read until the minor version after the one that deprecates it.
 - For `js`, before starting the program, the command reads the version of the JS host by starting it with `--input-type=module -e` and a module that writes `bun <process.versions.bun>` when `process.versions.bun` is defined, and `node <process.versions.node>` otherwise. A host that wrote `bun` is Bun, and is compared with the minimum version of Bun that `[target]` requires; a host that wrote `node` is compared with the minimum version of Node. When the version is older than the minimum, it is E9101 and the program is not started: the message is ``` `<executable>` is <Host> <version>, but target `js` needs <Host> <minimum> or later ```, with the note `install Node.js 22 or later or Bun 1.4.3 or later, or set EMELA_JS_HOST to a newer JS host`. `<executable>` is the command of the JS host, `<Host>` is `Node` or `Bun`, `<version>` is the version written by the host, and `<minimum>` is the minimum that `[target]` gives for that host. If the version cannot be read, including when the host cannot be started, the program is started. The same check is made by `emela test` (`[cmd.test]`).
 - For `native`, the command writes the executable `main` and the header `emela.h` to the output directory, with other implementation-defined files (`[target.native.output]`). The C compiler is chosen as in `[target.native.cc]` (E9101, E9103).
+- `build` and `run` take the flag `--profile`, which makes a profiling build, and for `run` runs the program under a sampling profiler (`[cmd.profile]`). `check` does not take it.
 - The exit code is as follows.
   - 1 if the diagnostics include an error. 0 if there are only warnings.
   - When `run` reaches the program, the exit code of the program: 0, or the value of the `ExitCode` that `main` returned (`[dyn.error]`), when main ends with a value; 1 for an error (14.3); 101 for a defect (7.5); 130 for an interruption (14.5); 141 for a write to a closed standard output (`[api.std.process]`).
@@ -72,6 +73,43 @@ Diagnostics and help:
 - `flash`, `--board`, `--embedded-config` and the target `c-embedded` are not accepted by the command-line parser. They produce a usage error without writing build output.
 - The form and destination of diagnostics are in Appendix A (`[diag]`).
 - The text of `--help` is written in English.
+
+## Profiling `[cmd.profile]`
+
+`emela build --profile`, `emela run --profile` and `emela test --profile` (`[cmd.test.target]`) make a profiling build of the program. `run` and `test` then run it under a sampling profiler of the operating system and report where its time goes, by Emela function.
+
+```
+emela build --profile [path]
+emela run --profile [path] [-- args...]
+emela test --profile [path] [filter]
+```
+
+Targets:
+
+- `--profile` is supported only with `--target native`. With another build target it is an error in the command-line arguments, reported in the same way as an unknown value of `--target`, and nothing is built.
+- It works on the platforms that the native target supports (`[target]`). The profiler is `sample` on macOS and `perf` on Linux.
+
+The profiling build:
+
+- The program is built as without `--profile`, at the same optimisation level, with these additions:
+  - The C compiler is also given the options that produce debug information and keep frame pointers (`[target.native.cc]`).
+  - The symbol of each function of the executable that comes from an Emela function starts with the path of that function in the program (`Main.fib`). What follows the path (how copies made by monomorphisation are told apart, for example) is unspecified. A profiler, a debugger or a backtrace started by the user shows these names without help from the command.
+- The program behaves as without `--profile`: its output and its exit code are the same (`[cmd.build]`, `[cmd.test.exit]`).
+- The output directory is the same as without `--profile`. A later build without `--profile` replaces the executable.
+- `build --profile` stops after building. `run --profile` and `test --profile` go on as follows.
+
+Running:
+
+- The command starts the program under the profiler, which samples the call stack at a fixed interval. The interval is implementation-defined. The profile MAY miss the first moments of the program, before the profiler is attached to it.
+- When the program ends, the command writes the profile to the output directory and prints a summary to standard error. It does so however the program ends (with a value, an error, a defect or an interruption), and the exit code is the exit code of the program.
+- When the profiler cannot be started, it is E9101. When it starts but fails, or the operating system does not allow it to sample the program, it is E9104. In both cases the exit code is 1.
+- A frame of the profile is an Emela function, named by its path in the program (`Main.fib`) and located at its definition. The profile does not need to resolve lines inside a function.
+- A function that the compiler inlined into another appears either as a frame of its own, marked as inlined, or counted in the function it was inlined into. Which inlining is shown as its own frame is implementation-defined.
+- Frames of the runtime and of the C library are counted, and each is named as one group (`<runtime>`, `<libc>`), not by its symbol.
+- The summary lists the functions with the most samples in which they are the innermost Emela frame (self time), with the number of samples, their share of all samples, the location of the function, and whether it was inlined. It also shows the total number of samples, and says so in one line when there are too few for the shares to mean much; the threshold is implementation-defined.
+- With `test --profile`, the whole test process is profiled as one run (`[target.native.run]`), and the summary also lists the elapsed time of each test, longest first. The output of the reporter (`[cmd.test.reporter]`) on standard output does not change.
+- The command MAY write other files next to the profile, to view it (a page for a browser, for example).
+- The names and formats of the profile and of these files, and the layout of the summary, are unspecified, and any version MAY change them. `--profile` is not an experimental feature (`[intro.experimental]`) and is not read from `Pome.toml`: it does not change the meaning of the program.
 
 ## emela doctor `[cmd.doctor]`
 
