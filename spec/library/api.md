@@ -59,6 +59,18 @@ impl (`[trait.derive]`): ParseError has `derive Show` (its contents are shown wh
 | `sort_by` | `sort_by[A](xs: List[A], f: fn(A, A) -> Ordering) -> List[A]` | Emela | Sorts in the order of `f`. A stable merge sort |
 | `sort` | `sort[A: Ord](xs: List[A]) -> List[A]` | Emela | Sorts in the Ord order (`sort_by(xs, Ord.compare)`). Stable |
 
+- The operations on List take the following times on every target, with n the length of the first argument. A call of `f` counts as one step, apart from the steps inside `f`.
+  - Building `[x, ..rest]` is O(1) whatever the length of `rest`, and the result shares `rest` instead of copying it. Matching `[]`, `[x, ..rest]` or `[x, ..]` is O(1), and `rest` is bound to the rest of the list, not to a copy. A list expression or a list pattern that writes k elements (`[x1, ..., xk]`, `[x1, ..., xk, ..rest]`) is O(k), apart from evaluating the expressions and matching the patterns written for the elements.
+  - `is_empty`, `head` and `tail` are O(1).
+  - `get`, `take` and `drop` are O(the smaller of n and their second argument), and O(1) when that argument is not positive.
+  - `append(xs, ys)` is O(the length of `xs`), and the result shares `ys`.
+  - `flatten(xss)` and `flat_map(xs, f)` are O(n + the length of the result).
+  - `range(from, to)` is O(`to - from`), and O(1) when `to <= from`.
+  - `sort_by` calls `f`, and `sort` calls `Ord.compare`, O(n log n) times, and both take O(n log n).
+  - `==` and `Ord.compare` on two lists compare at most as many pairs of elements as the shorter list has.
+  - `length`, `last`, `reverse`, `map`, `each`, `filter`, `fold`, `partition`, `any`, `all`, `find`, `find_index`, `filter_map`, `zip`, `unzip` and `enumerate` are O(n).
+  - None of these operations uses deeper stack as the list grows. The stack used inside `f` is not counted.
+
 impl (`[trait.builtin]`): `impl List[A: Eq]: Eq`, `impl List[A: Ord]: Ord`, `impl List[A: Show]: Show`. Ord is lexicographic (if the common prefix is equal, the shorter list is smaller), and Show is `[1, 2, 3]`. The impls for basic types and tuples are held by the compiler.
 
 ### Option (`core/option.emel`) `[api.option]`
