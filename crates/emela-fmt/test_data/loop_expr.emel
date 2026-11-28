@@ -1,0 +1,15 @@
+# ループ式は局所関数のシグネチャで，頭の括弧は引数の並びとして整形する（[fn.loop]）
+pub fn range(from:Int,to:Int)->List[Int]{
+  loop   onto( to: ,acc:[] ){
+    if to <= from { acc } else { onto(to - 1, [to - 1, ..acc]) }
+  }
+}
+
+fn signatures(n: Int) -> Int {
+  a = loop empty(){ 1 }
+  b = loop typed(i:0)->Int fails Boom uses { Log } { i }
+  # 長い頭は1行に1つの初期値に折る
+  c = loop long_name_here(first_argument: n, second_argument: n + 1, third_argument: n + 2, fourth: n) { first_argument }
+  d = 1 + loop go(i: 0) { i } escape { Boom -> 0 }
+  a + b + c + d
+}

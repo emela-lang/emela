@@ -88,7 +88,13 @@ impl Printer {
             }
             let attached = matches!(
                 child.kind(),
-                TYPE_PARAM_LIST | PARAM_LIST | FIELD_LIST | TUPLE_FIELD_LIST | IMPORT_LIST | COLON
+                TYPE_PARAM_LIST
+                    | PARAM_LIST
+                    | LOOP_PARAM_LIST
+                    | FIELD_LIST
+                    | TUPLE_FIELD_LIST
+                    | IMPORT_LIST
+                    | COLON
             );
             if child.kind() == DERIVE_CLAUSE {
                 // Keep `derive` on the next line if the source had it there; it also moves to
