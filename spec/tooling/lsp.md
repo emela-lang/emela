@@ -91,10 +91,10 @@ capabilities: x, y
 
 ## Navigation and references `[lsp.navigation]`
 
-- `textDocument/definition` returns one location (`Location`) of the definition of the name. If there is no destination, it returns `null`. Definitions in the bundled core (`List.map` and so on) are treated as having no destination, and the server returns `null`.
+- `textDocument/definition` returns one location (`Location`) of the definition of the name. If there is no destination, it returns `null`. For a definition in the bundled core or std (`List.map`, `Std.Console.Console`), the location is in a copy of its source that the server writes to a directory of its own for the version of the compiler (`[lsp.bundled-source]`).
 - `textDocument/references` returns references inside the checked project (in single-file mode, the files reachable from the entry through imports). References inside the bundled core are not returned. If `includeDeclaration` is set, the name of the definition is also included. If there are no references, it returns `null`.
 - `textDocument/documentHighlight` returns the occurrences of the same name in the same file. The name of the definition is included. Variables are immutable (`[fn.block]`), so the kind is always Text. If there is no name under the cursor, it returns an empty array.
-- `textDocument/typeDefinition`, for a variable or expression, goes to the definition of the outermost named type of its type. It does not follow type arguments. For a capability value, it goes to the definition of its effect. For the name of a type or Trait itself, it goes to that definition. If there is no destination, as for built-in types, structural types, undetermined types, and types in the bundled core and std, it returns `null`. For expressions inside the body of a Trait impl, the destination is not derived from the type.
+- `textDocument/typeDefinition`, for a variable or expression, goes to the definition of the outermost named type of its type. It does not follow type arguments. For a capability value, it goes to the definition of its effect. For the name of a type or Trait itself, it goes to that definition. If there is no destination, as for built-in types, structural types and undetermined types, it returns `null`. A type in the bundled core or std goes to its copy (`[lsp.bundled-source]`). For expressions inside the body of a Trait impl, the destination is not derived from the type.
 - `textDocument/implementation` returns, for the name of a Trait, the whole of each explicitly written impl, and for a method of a Trait, the names of the corresponding methods in the impls. For an impl that omits a default method, it points to the whole impl block. derive and built-in implementations are not returned. If there is nothing applicable, it returns an empty array.
 - documentHighlight, typeDefinition, and implementation answer from the remaining results of name resolution and type checking even if the document has errors.
 - The positions searched for a name include the end position of the range (the cursor right after the name). Things whose range contains the position are chosen first.
@@ -104,6 +104,11 @@ capabilities: x, y
 - A method call is a reference of the function it calls. Go to definition, references and rename treat `x.f(...)` as `M.f(x, ...)`.
 - The location of a module's definition is the start of its file (an empty range).
 - When finding references, definitions with the same name position (a type and its constructor, an error and its constructor) are treated as the same. The results are returned in order of file and position. References to a module do not include the location of the definition.
+
+## Sources of the bundled core and std `[lsp.bundled-source]`
+
+- The server writes the sources of the bundled core and std, as it uses them for checking, to files under a directory for the version of the compiler, the first time a request returns a location in them. A file that already exists with the same contents is not written again.
+- The files are only destinations. The server does not read them for checking, does not publish diagnostics for them, and does not include them in references or symbols. Changes to them do not change the bundled core and std.
 
 ## Symbols `[lsp.symbol]`
 
