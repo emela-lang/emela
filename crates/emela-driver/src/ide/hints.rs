@@ -5,7 +5,7 @@
 
 use emela_resolve::ModuleId;
 use emela_resolve::hir::{
-    BinaryOp, DefKind, ExprId, ExprKind, FnSig, Item, LocalId, PatKind, Stmt,
+    BinaryOp, DefKind, ExprId, ExprKind, FnSig, Item, LocalId, LocalKind, PatKind, Stmt,
 };
 use emela_syntax::ast::{self, AstNode};
 use emela_syntax::{SyntaxKind, SyntaxNode};
@@ -199,7 +199,14 @@ impl Hints<'_> {
                             Stmt::Expr(e) => calls.push(*e),
                         }
                     }
-                    calls.extend(block.tail);
+                    // The call that starts a loop expression (`[fn.loop]`) is not written.
+                    let starts_loop = matches!(
+                        block.stmts.as_slice(),
+                        [Stmt::LocalFn(f)] if hir.locals[f.local].kind == LocalKind::Loop
+                    );
+                    if !starts_loop {
+                        calls.extend(block.tail);
+                    }
                 }
                 ExprKind::Lambda { params, .. } => {
                     locals.extend(params.iter().filter(|p| p.ty.is_none()).map(|p| p.local));

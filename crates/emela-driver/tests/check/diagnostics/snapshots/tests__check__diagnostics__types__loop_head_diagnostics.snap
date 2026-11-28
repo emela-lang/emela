@@ -1,0 +1,50 @@
+---
+source: crates/emela-driver/tests/check/diagnostics/types.rs
+expression: "render(&analysis.diagnostics, &analysis.sources, false)"
+---
+error[E1101]: expected `:`
+   ╭─[ main.emel:2:12 ]
+   │
+ 2 │   loop go(i) { 1 }
+   │            ┬  
+   │            ╰── 
+───╯
+   = help: write `i:` to start `i` from the value of `i`
+
+error[E1101]: expected parameter name
+   ╭─[ main.emel:6:15 ]
+   │
+ 6 │   a = loop go(0) { 1 }
+   │               ┬  
+   │               ╰── 
+───╯
+   = help: give it a name: `name: 0`
+
+error[E1101]: expected `:`
+   ╭─[ main.emel:7:17 ]
+   │
+ 7 │   b = loop go(x + 1) { 1 }
+   │                 ┬  
+   │                 ╰── 
+───╯
+   = help: give it a name: `name: x + 1`
+
+error[E1101]: expected `)`
+    ╭─[ main.emel:13:23 ]
+    │
+ 13 │   b = loop go(xs: List[Int]) { 1 }
+    │                       ┬  
+    │                       ╰── 
+────╯
+   = help: the parentheses of `loop` take initial values; the type of `xs` is inferred from its initial value
+
+error[E2106]: expected constructor, found type `Int`
+    ╭─[ main.emel:12:18 ]
+    │
+ 12 │   a = loop go(i: Int) { 1 }
+    │                  ─┬─  
+    │                   ╰─── 
+────╯
+   = help: the parentheses of `loop` take initial values; the type of `i` is inferred from its initial value
+
+5 errors
